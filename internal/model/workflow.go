@@ -25,6 +25,7 @@ type Transition struct {
 // are resolved lexically: the nearest definition wins wholesale.
 type Workflow struct {
 	ID          string       `json:"id"`
+	Type        string       `json:"type,omitempty"` // configuration layout: the type a type-specific file belongs to
 	Name        string       `json:"name,omitempty"`
 	Description string       `json:"description,omitempty"`
 	Initial     string       `json:"initial"`
@@ -38,6 +39,7 @@ type Workflow struct {
 func (w *Workflow) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		ID          string            `json:"id"`
+		Type        string            `json:"type"`
 		Name        string            `json:"name"`
 		Description string            `json:"description"`
 		Initial     string            `json:"initial"`
@@ -52,7 +54,7 @@ func (w *Workflow) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	w.ID, w.Name, w.Description, w.Initial = raw.ID, raw.Name, raw.Description, raw.Initial
+	w.ID, w.Type, w.Name, w.Description, w.Initial = raw.ID, raw.Type, raw.Name, raw.Description, raw.Initial
 	w.States = nil
 	for _, s := range raw.States {
 		var id string
