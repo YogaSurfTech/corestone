@@ -1,53 +1,34 @@
 /* Corestone web client — one stylesheet, light DOM components. */
 :root {
+  /* Follows the system unless the user picked a theme (data-theme on <html>). */
   color-scheme: light dark;
-  --bg: #f6f7fb;
-  --panel: #ffffff;
-  --panel-2: #f0f2f8;
+  --bg: light-dark(#f6f7fb, #12151c);
+  --panel: light-dark(#ffffff, #1a1f29);
+  --panel-2: light-dark(#f0f2f8, #222835);
   /* Editable fields sit deeper than the panel in dark mode; locked ones blend into it. */
-  --input-bg: #ffffff;
-  --locked-bg: #eef0f5;
-  --border: #dfe3ee;
-  --text: #1c2130;
-  --muted: #6b7280;
-  --accent: #3b5bdb;
-  --accent-soft: #e7ecfb;
-  --accent-text: #ffffff;
-  --danger: #d6455d;
-  --danger-soft: #fbe6ea;
-  --ok: #1f9d55;
-  --ok-soft: #e3f5ea;
-  --warn: #b7791f;
-  --warn-soft: #fdf3dd;
-  --shadow: 0 8px 30px rgba(20, 30, 60, 0.12);
+  --input-bg: light-dark(#ffffff, #0f1218);
+  --locked-bg: light-dark(#eef0f5, #1a1f29);
+  --border: light-dark(#dfe3ee, #2f3646);
+  --text: light-dark(#1c2130, #e7eaf1);
+  --muted: light-dark(#6b7280, #9aa3b5);
+  --accent: light-dark(#3b5bdb, #7b96ff);
+  --accent-soft: light-dark(#e7ecfb, #263050);
+  --accent-text: light-dark(#ffffff, #0e1220);
+  --danger: light-dark(#d6455d, #ff7b90);
+  --danger-soft: light-dark(#fbe6ea, #3d2229);
+  --ok: light-dark(#1f9d55, #5ccb8a);
+  --ok-soft: light-dark(#e3f5ea, #1f3a2b);
+  --warn: light-dark(#b7791f, #e8b657);
+  --warn-soft: light-dark(#fdf3dd, #3d3220);
+  --shadow: 0 8px 30px light-dark(rgba(20, 30, 60, 0.12), rgba(0, 0, 0, 0.5));
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --header-h: 52px;
   --nav-w: 288px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #12151c;
-    --panel: #1a1f29;
-    --panel-2: #222835;
-    --input-bg: #0f1218;
-    --locked-bg: #1a1f29;
-    --border: #2f3646;
-    --text: #e7eaf1;
-    --muted: #9aa3b5;
-    --accent: #7b96ff;
-    --accent-soft: #263050;
-    --accent-text: #0e1220;
-    --danger: #ff7b90;
-    --danger-soft: #3d2229;
-    --ok: #5ccb8a;
-    --ok-soft: #1f3a2b;
-    --warn: #e8b657;
-    --warn-soft: #3d3220;
-    --shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { font: 14px/1.45 var(--sans); color: var(--text); background: var(--bg); }
@@ -255,6 +236,8 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }
+.theme-choice { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.theme-choice .muted { margin-right: 4px; }
 .type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .type-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; background: var(--panel); }
 .type-card:hover { border-color: var(--accent); background: var(--accent-soft); }

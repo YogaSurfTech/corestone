@@ -153,14 +153,51 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await ctx.close();
 });
 
+test("theme choice in the name dialog: preview, cancel, persist", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(`/folder/${folder}`);
+  const bgSum = async () => (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).match(/\d+/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0);
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? "auto");
+  const user = page.locator("header button[title='Your name and theme']");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // choosing previews right away; Cancel restores the previous theme
+  await user.click();
+  await expect(page.locator(".dialog [data-theme-choice=auto]")).toHaveAttribute("aria-checked", "true");
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  expect(await theme()).toBe("auto");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // Save keeps it, across reloads
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  // a forced light theme wins over a dark system; Auto follows the system again
+  await page.emulateMedia({ colorScheme: "dark" });
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=light]").click();
+  expect(await bgSum()).toBeGreaterThan(600);
+  await page.locator(".dialog [data-theme-choice=auto]").click();
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("auto");
+});
+
 test("status indicator, user name and reindex", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await expect(page.locator("header .status")).toContainText("in sync", { timeout: 20000 });
-  await page.locator("header button[title='Set your name']").click();
+  await page.locator("header button[title='Your name and theme']").click();
   await answerPrompt(page, "Zoë");
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   await page.reload();
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   const before = (await get<{ projection: { lastRebuild?: string } }>("/repository")).projection.lastRebuild ?? "";
   await page.locator("header button", { hasText: "Reindex" }).click();
   await expect(page.locator(".toast", { hasText: "Reindex started" })).toBeVisible();

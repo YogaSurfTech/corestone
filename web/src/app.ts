@@ -97,8 +97,12 @@ export class App extends LitElement {
   };
 
   private setName = () => {
-    store.prompt("Your name", { text: "Shown to others while you view or edit an artifact.", value: this.s.user, confirmLabel: "Save" })
-      .then((n) => { if (n !== null && n.trim()) { store.setUser(n.trim()); announceName(n.trim()); } });
+    const theme = this.s.theme; // the dialog previews themes live; Cancel restores this one
+    store.prompt("Your name", { text: "Shown to others while you view or edit an artifact.", value: this.s.user, confirmLabel: "Save", theme: true })
+      .then((n) => {
+        if (n === null) { store.setTheme(theme); return; }
+        if (n.trim()) { store.setUser(n.trim()); announceName(n.trim()); }
+      });
   };
 
   override render() {
@@ -117,7 +121,7 @@ export class App extends LitElement {
         ${p?.maintenance && p.total ? html`<div class="progress" title=${p.phase ?? ""}><div style=${`width:${Math.round((100 * p.progress) / Math.max(1, p.total))}%`}></div></div>` : nothing}
         <span class="status" title=${status ? `head ${status.head.slice(0, 8)} · projection ${p?.processedHash.slice(0, 8) ?? ""}` : ""}><span class="dot ${health}"></span>${healthText}<span class="dot ${connected ? "ok" : "bad"}" data-test="session" title=${connected ? "session connected" : "session disconnected"}></span></span>
         <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch((e) => store.toast(e.message, "error"))}>Reindex</button>
-        <button class="btn sm" title="Set your name" @click=${this.setName}>${this.s.user || "anonymous"}</button>
+        <button class="btn sm" title="Your name and theme" @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>
       <div class="nav-scrim" @click=${() => store.toggleNav()}></div>
