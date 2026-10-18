@@ -150,7 +150,7 @@ export interface Issue { severity: "error" | "warning"; code: string; guid?: str
 
 export interface Block {
   id?: string;
-  type: "section" | "paragraph" | "entry" | "image" | "list" | "code";
+  type: "section" | "paragraph" | "entry" | "image" | "list" | "code" | "toc";
   title?: string;
   text?: string;
   guid?: string;
@@ -158,5 +158,7 @@ export interface Block {
   alt?: string;
   children?: Block[];
   items?: Block[];
+  /** toc: how many section levels to list; all when absent. */
+  depth?: number;
   [k: string]: unknown;
 }

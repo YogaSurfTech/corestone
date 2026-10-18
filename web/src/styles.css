@@ -216,6 +216,12 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .block.h.l1 { font-size: 20px; margin-top: 14px; }
 .block.h.l2 { font-size: 17px; margin-top: 10px; }
 .block.h.l3 { font-size: 15px; margin-top: 6px; }
+.toc { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: var(--panel); }
+.toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.toc-head select { padding: 1px 4px; width: auto; }
+.toc-row { display: block; padding: 2px 0; color: var(--text); }
+.toc-row:hover { color: var(--accent); }
+.toc-row .num { display: inline-block; min-width: 3.2em; color: var(--muted); font-variant-numeric: tabular-nums; }
 .block.code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 8px 10px; border-radius: 6px; }
 .section-children { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 10px; margin-top: 4px; }
 .entry-card { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 4px 0; background: var(--panel-2); cursor: pointer; }

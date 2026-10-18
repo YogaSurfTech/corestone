@@ -190,3 +190,36 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await expect(page.locator("corestone-document")).toHaveCount(0);
   await expect(page.locator("table.grid tbody tr", { hasText: `Fresh ${id}` }).locator(".kind-icon.document")).toBeVisible();
 });
+
+test("table of contents: numbered, configurable depth, follows edits, navigates", async ({ page }) => {
+  const d = await post("/documents", { path: folder, type: "spec", title: `Contents ${id}`, content: [
+    { id: "p0", type: "paragraph", text: "intro" },
+    { id: "s1", type: "section", title: "Timing", children: [
+      { id: "s11", type: "section", title: "Cold boot", children: [{ id: "s111", type: "section", title: "Measure", children: [] }] }] },
+    { id: "s2", type: "section", title: "Safety", children: [] }] });
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const doc = page.locator(".doc-page");
+  await doc.locator("[data-block=p0] .block").click();
+  await page.locator("[data-test=insert-toc]").click();
+  const toc = doc.locator(".toc");
+  await expect(toc.locator(".toc-row .num")).toHaveText(["1", "1.1", "1.1.1", "2"]);
+  await expect(toc.locator(".toc-row")).toContainText(["Timing", "Cold boot", "Measure", "Safety"]);
+  // limit the levels
+  await toc.locator("[data-test=toc-depth]").selectOption("2");
+  await expect(toc.locator(".toc-row .num")).toHaveText(["1", "1.1", "2"]);
+  // renaming a section updates the contents right away
+  const heading = doc.locator("[data-block=s2] > .block");
+  await heading.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("Security");
+  await expect(toc.locator(".toc-row").last()).toContainText("Security");
+  // an entry jumps to its section
+  await toc.locator(".toc-row[data-target=s11]").click();
+  await expect(doc.locator("[data-block=s11]")).toHaveClass(/focused/);
+  // only the block and its depth are stored; the outline is generated
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const stored = await get<{ data: { content: Record<string, unknown>[] } }>(`/documents/${d.meta.guid}`);
+  expect(stored.data.content[1]).toMatchObject({ type: "toc", depth: 2 });
+  expect(Object.keys(stored.data.content[1]).sort()).toEqual(["depth", "id", "type"]);
+});

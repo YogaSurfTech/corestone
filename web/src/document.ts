@@ -269,6 +269,9 @@ export class DocumentView extends LitElement {
       case "list":
         body = html`<div class="blocks">${(b.items ?? []).map((c) => html`<div class="list-item">${this.block(c, depth + 1)}</div>`)}</div>`;
         break;
+      case "toc":
+        body = this.toc(b);
+        break;
       case "image":
         {
           const src = safeImageSrc(b.src, (name) => api.fileUrl(this.guid, name));
@@ -291,6 +294,52 @@ export class DocumentView extends LitElement {
     return html`<div class="block-wrap ${focused ? "focused" : ""}" data-block=${b.id} data-type=${b.type} @click=${() => (this.focused = b.id!)}>${handle}${body}</div>`;
   }
 
+  /** The numbered section outline (1, 1.1, 1.2, 2, …) down to maxLevel. */
+  private outline(maxLevel: number) {
+    const out: { id: string; title: string; num: string; level: number }[] = [];
+    const walk = (bs: Block[], level: number, prefix: string) => {
+      let n = 0;
+      for (const b of bs) {
+        if (b.type !== "section") continue;
+        b.id ??= blockId();
+        const num = prefix + ++n;
+        out.push({ id: b.id, title: b.title ?? "", num, level });
+        if (level < maxLevel) walk(b.children ?? [], level + 1, num + ".");
+      }
+    };
+    walk(this.blocks, 1, "");
+    return out;
+  }
+
+  /** A table of contents, generated from the sections on every render, so
+   *  it follows renames and moves; the block stores only its depth. */
+  private toc(b: Block): TemplateResult {
+    const rows = this.outline(b.depth ?? Infinity);
+    const levels = [1, 2, 3, 4, 5, 6];
+    if (b.depth && !levels.includes(b.depth)) levels.push(b.depth);
+    const setDepth = (e: Event) => {
+      const v = (e.target as HTMLSelectElement).value;
+      if (v) b.depth = Number(v); else delete b.depth;
+      this.touch();
+    };
+    const go = (e: Event, id: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.focused = id;
+      this.querySelector(`[data-block="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    return html`<nav class="toc" aria-label="Table of contents" contenteditable="false">
+      <div class="toc-head"><b>Contents</b>
+        <label class="muted small">Levels <select data-test="toc-depth" @change=${setDepth} @click=${(e: Event) => e.stopPropagation()}>
+          <option value="" ?selected=${!b.depth}>all</option>
+          ${levels.map((l) => html`<option value=${l} ?selected=${b.depth === l}>${l}</option>`)}
+        </select></label></div>
+      ${rows.length ? rows.map((r) => html`<a class="toc-row" href="#" data-target=${r.id} style=${`padding-left:${(r.level - 1) * 18}px`} @click=${(e: Event) => go(e, r.id)}>
+          <span class="num">${r.num}</span>${r.title || html`<span class="muted">Untitled section</span>`}</a>`)
+        : html`<div class="muted small">Add sections to fill the table of contents.</div>`}
+    </nav>`;
+  }
+
   override render() {
     if (!this.view) return html`<div class="empty-state">${this.error || "Loading…"}</div>`;
     const r = this.s.route;
@@ -310,6 +359,7 @@ export class DocumentView extends LitElement {
           <button class="btn sm" data-test="insert-entry" @click=${() => this.insertEntry(after)}>＋ Entry reference</button>
           <button class="btn sm" @click=${() => this.insertAfter(after, { type: "list", items: [{ id: blockId(), type: "paragraph", text: "" }] })}>＋ List</button>
           <button class="btn sm" @click=${() => this.insertAfter(after, { type: "code", text: "" })}>＋ Code</button>
+          <button class="btn sm" data-test="insert-toc" title="Table of contents, numbered and generated from the sections" @click=${() => this.insertAfter(after, { type: "toc" })}>＋ Contents</button>
           <button class="btn sm" @click=${() => store.prompt("Insert image", { text: "An attachment name of this document or an image URL.", placeholder: "diagram.png or https://…", confirmLabel: "Insert" }).then((src) => { if (src?.trim()) this.insertAfter(after, { type: "image", src: src.trim(), alt: "" }); })}>＋ Image</button>
           <span class="grow"></span>
           ${SIDEBARS.map(([id, name]) => html`<button class="chip ${r.sidebars.includes(id) ? "on" : ""}" data-test=${"sb-" + id}
