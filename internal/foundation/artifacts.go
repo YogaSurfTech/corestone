@@ -102,12 +102,12 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	eff := t.cfg.Effective(a.Type, folder)
-	if eff != nil && eff.Kind != a.Kind {
-		return model.Invalid("type %q describes %ss, not %ss", a.Type, eff.Kind, a.Kind)
+	eff, err := t.effective(a, folder)
+	if err != nil {
+		return err
 	}
 	// HID: generate or check uniqueness.
-	if a.HID == "" && isNew && eff != nil && eff.HID != nil {
+	if a.HID == "" && isNew && eff.HID != nil {
 		hid, err := t.generateHID(eff.HID)
 		if err != nil {
 			return err
@@ -146,20 +146,12 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 	// base changes: ResolveOverlay above walks upwards; downward cycles are
 	// impossible because a base can only point at existing entries and the
 	// existing chain was acyclic.
-	if eff != nil {
-		if err := t.validateFields(eff, a.Fields, resolved); err != nil {
-			return err
-		}
-	} else if a.Fields != nil {
-		// Untyped: still verify that GUID-shaped values resolve.
-		for _, k := range a.Fields.Keys() {
-			v, _ := a.Fields.Get(k)
-			if s, ok := v.(string); ok && model.IsGUID(s) {
-				if _, err := t.exists(s); err != nil {
-					return fmt.Errorf("field %q: %w", k, err)
-				}
-			}
-		}
+	var prev *ojson.Object
+	if previous != nil {
+		prev = previous.Fields
+	}
+	if err := t.validateFields(eff, a.Fields, prev, resolved); err != nil {
+		return err
 	}
 	if a.Kind == model.KindDocument {
 		for _, ref := range model.ContentRefs(a.Content) {
@@ -189,13 +181,37 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 	return nil
 }
 
-func (t *txn) validateFields(eff *model.Schema, own, resolved *ojson.Object) error {
+// effective resolves the type of an artifact at the folder that governs
+// it. The configuration is enforced: a type that is not defined there, or
+// is defined for another kind, is refused.
+func (t *txn) effective(a *model.Artifact, folder string) (*model.Schema, error) {
+	eff := t.cfg.Effective(a.Type, folder)
+	if eff == nil {
+		if a.Type == "" {
+			return nil, model.Invalid("a type is required")
+		}
+		return nil, model.Invalid("type %q is not defined for %ss in %s", a.Type, a.Kind, folderName(folder))
+	}
+	if eff.Kind != a.Kind {
+		return nil, model.Invalid("type %q describes %ss, not %ss", a.Type, eff.Kind, a.Kind)
+	}
+	return eff, nil
+}
+
+// validateFields checks an artifact's own fields against its type. Fields
+// the type does not define may not be added or changed; a value already
+// stored (prev) that is no longer defined is kept as it is, and may be
+// removed.
+func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Object) error {
 	if own != nil {
 		for _, k := range own.Keys() {
 			v, _ := own.Get(k)
 			def := eff.Field(k)
 			if def == nil {
-				continue // unknown fields are allowed: applications and extensions may add properties
+				if old, kept := prev.Get(k); kept && ojson.Equal(old, v) {
+					continue
+				}
+				return model.Invalid("field %q is not defined for type %q", k, eff.Type)
 			}
 			if err := def.ValidateValue(v); err != nil {
 				return err
@@ -324,7 +340,7 @@ func (f *Foundation) UpdateArtifact(ctx context.Context, guid string, ifMatch st
 			if a.Source != cur.Source || a.Target != cur.Target || a.Type != cur.Type {
 				return nil, model.Invalid("link endpoints and type are immutable; create a new link instead")
 			}
-			if err := t.validateLinkFields(a, cur.Loc.Folder); err != nil {
+			if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
 				return nil, err
 			}
 		case model.KindComment:
@@ -334,7 +350,7 @@ func (f *Foundation) UpdateArtifact(ctx context.Context, guid string, ifMatch st
 			if err := a.Validate(); err != nil {
 				return nil, err
 			}
-			if err := t.validateTyped(a, cur.Loc.Folder); err != nil {
+			if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
 				return nil, err
 			}
 		}
@@ -649,6 +665,9 @@ func (f *Foundation) MoveFolder(ctx context.Context, from, to string) (int, erro
 		if err != nil {
 			return nil, err
 		}
+		if err := t.checkFolderMove(from, rewrite); err != nil {
+			return nil, err
+		}
 		cs := &changeset{subject: fmt.Sprintf("Folder %s moved to %s (%d files)", from, to, len(moving))}
 		cs.trailer("Corestone-Op", "move-folder")
 		cs.trailer("Corestone-Path", from)
@@ -686,6 +705,41 @@ func (f *Foundation) MoveFolder(ctx context.Context, from, to string) (int, erro
 		return 0, err
 	}
 	return res.(int), nil
+}
+
+// checkFolderMove refuses a folder move that would place entries or
+// documents where their type is not defined. Types are resolved with the
+// configuration as it will be after the move: configuration inside the
+// moved folder moves along.
+func (t *txn) checkFolderMove(from string, rewrite func(string) string) error {
+	moved := func(folder string) string { return strings.TrimSuffix(rewrite(folder+"/"), "/") }
+	recs, err := t.f.DB.ConfigFiles(t.ctx, scanner.ConfigConfig, "", true)
+	if err != nil {
+		return err
+	}
+	files := make([]model.ConfigFile, 0, len(recs))
+	for _, r := range recs {
+		if !r.Valid {
+			continue
+		}
+		scope := r.Scope
+		if model.IsWithin(scope, from) {
+			scope = moved(scope)
+		}
+		files = append(files, model.ConfigFile{Scope: scope, Path: r.Name, Data: r.Data})
+	}
+	cfg, _ := model.NewConfigIndex(files)
+	types, err := t.f.DB.TypesUnder(t.ctx, from)
+	if err != nil {
+		return err
+	}
+	for _, ty := range types {
+		dest := moved(ty.Folder)
+		if eff := cfg.Effective(ty.Type, dest); eff == nil || eff.Kind != ty.Kind {
+			return model.Invalid("type %q (%d in %s) is not defined for %ss in %s", ty.Type, ty.Count, folderName(ty.Folder), ty.Kind, folderName(dest))
+		}
+	}
+	return nil
 }
 
 // RelocateMetadata is the maintenance operation that restores the

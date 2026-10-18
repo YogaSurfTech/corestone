@@ -57,22 +57,20 @@ func (f *Foundation) CreateLink(ctx context.Context, req *ojson.Object) (*View, 
 		} else if dup != "" {
 			return nil, fmt.Errorf("%w: link %s already exists (%s)", model.ErrConflict, typ, dup)
 		}
-		eff := t.cfg.Effective(typ, srcLoc.Folder)
-		if eff != nil {
-			if eff.Kind != model.KindLink {
-				return nil, model.Invalid("type %q is not a link type", typ)
-			}
-			if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Type) {
-				return nil, model.Invalid("link type %q does not allow %q as source", typ, srcLoc.Type)
-			}
-			if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Type) {
-				return nil, model.Invalid("link type %q does not allow %q as target", typ, tgtLoc.Type)
-			}
-			if err := t.checkCardinality(eff, typ, src, tgt); err != nil {
-				return nil, err
-			}
+		eff, err := t.effective(a, srcLoc.Folder)
+		if err != nil {
+			return nil, err
 		}
-		if err := t.validateLinkFields(a, srcLoc.Folder); err != nil {
+		if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Type) {
+			return nil, model.Invalid("link type %q does not allow %q as source", typ, srcLoc.Type)
+		}
+		if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Type) {
+			return nil, model.Invalid("link type %q does not allow %q as target", typ, tgtLoc.Type)
+		}
+		if err := t.checkCardinality(eff, typ, src, tgt); err != nil {
+			return nil, err
+		}
+		if err := t.validateTyped(a, srcLoc.Folder, nil); err != nil {
 			return nil, err
 		}
 		scope, err := t.f.DB.NearestScope(t.ctx, srcLoc.Folder)
@@ -129,23 +127,35 @@ func (t *txn) checkCardinality(eff *model.Schema, typ, src, tgt string) error {
 	return nil
 }
 
-// validateLinkFields validates a link's fields and workflow states against
-// the link schema visible from its storage scope.
-func (t *txn) validateLinkFields(a *model.Artifact, folder string) error {
-	return t.validateTyped(a, folder)
+// typeFolder is the folder whose configuration governs an artifact's
+// type: its own folder for entries and documents, the source's folder for
+// links and the subject's folder for comments. When the source or subject
+// is gone, the folder of the stored file is used.
+func (t *txn) typeFolder(cur *loaded) string {
+	var ref string
+	switch cur.Kind {
+	case model.KindLink:
+		ref = cur.Source
+	case model.KindComment:
+		ref = cur.Subject
+	default:
+		return cur.Loc.Folder
+	}
+	if loc, err := t.exists(ref); err == nil {
+		return loc.Folder
+	}
+	return cur.Loc.Folder
 }
 
-// validateTyped validates fields and initializes workflows for links and
-// comments (whose schemas are optional).
-func (t *txn) validateTyped(a *model.Artifact, folder string) error {
-	eff := t.cfg.Effective(a.Type, folder)
-	if eff == nil {
-		return nil
+// validateTyped validates the type, fields and workflows of a link or
+// comment at the folder that governs it; prev are the stored fields of an
+// existing artifact.
+func (t *txn) validateTyped(a *model.Artifact, folder string, prev *ojson.Object) error {
+	eff, err := t.effective(a, folder)
+	if err != nil {
+		return err
 	}
-	if eff.Kind != a.Kind {
-		return model.Invalid("type %q describes %ss, not %ss", a.Type, eff.Kind, a.Kind)
-	}
-	if err := t.validateFields(eff, a.Fields, a.Fields); err != nil {
+	if err := t.validateFields(eff, a.Fields, prev, a.Fields); err != nil {
 		return err
 	}
 	for _, wid := range eff.AllWorkflows() {
@@ -214,7 +224,7 @@ func (f *Foundation) CreateComment(ctx context.Context, req *ojson.Object) (*Vie
 		if err := a.Validate(); err != nil {
 			return nil, err
 		}
-		if err := t.validateTyped(a, subjLoc.Folder); err != nil {
+		if err := t.validateTyped(a, subjLoc.Folder, nil); err != nil {
 			return nil, err
 		}
 		scope, err := t.f.DB.NearestScope(t.ctx, subjLoc.Folder)
@@ -253,9 +263,10 @@ func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch
 		if err := checkETag(ifMatch, cur.ETag); err != nil {
 			return nil, err
 		}
-		eff := t.cfg.Effective(cur.Type, cur.Loc.Folder)
+		folder := t.typeFolder(cur)
+		eff := t.cfg.Effective(cur.Type, folder)
 		if eff == nil {
-			return nil, model.Invalid("no schema defines type %q here, so it has no workflows", cur.Type)
+			return nil, model.Invalid("type %q is not defined in %s, so it has no workflows", cur.Type, folderName(folder))
 		}
 		assigned := false
 		for _, w := range eff.AllWorkflows() {
@@ -266,9 +277,9 @@ func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch
 		if !assigned {
 			return nil, model.Invalid("workflow %q is not assigned to type %q", workflow, cur.Type)
 		}
-		def := t.cfg.Workflow(cur.Type, workflow, cur.Loc.Folder)
+		def := t.cfg.Workflow(cur.Type, workflow, folder)
 		if def == nil {
-			return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(cur.Loc.Folder))
+			return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(folder))
 		}
 		from, ok := cur.Workflows[workflow]
 		if !ok || from == "" {

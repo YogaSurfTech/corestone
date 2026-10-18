@@ -17,6 +17,9 @@ curl -sfS "$API/repository" | py "d=json.load(sys.stdin); assert not d.get('inva
 # The task tracker cuts off the root's entry types but inherits links and comments.
 curl -sfS "$API/repository/types?path=corestone_tasks" | py "
 t=sorted(x['type'] for x in json.load(sys.stdin)['types']); assert t==['comment','implements','related','spec','task','verifies'], t"
+# ... and the server enforces it: only tasks may be created there.
+[ "$(code -X POST "$API/entries" -H 'Content-Type: application/json' -d '{"path":"corestone_tasks","type":"requirement","title":"x","fields":{"priority":"low"}}')" = 400 ] || fail "requirement accepted in the task folder"
+[ "$(code -X POST "$API/entries" -H 'Content-Type: application/json' -d '{"path":"corestone_tasks","type":"task","title":"e2e task","fields":{"priority":"low"}}')" = 201 ] || fail "task refused in the task folder"
 
 # Search finds the seeded requirement; field and state filters work.
 R1=$(curl -sfS "$API/repository/search?q=selling" | py "d=json.load(sys.stdin); assert d['total']==1, d; print(d['artifacts'][0]['guid'])")

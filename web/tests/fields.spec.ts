@@ -150,16 +150,8 @@ function base(href: string) {
   return href.startsWith("http") ? href : api.replace(/\/api$/, "") + href;
 }
 
-test("an artifact without a schema is still editable", async ({ page }) => {
-  const e = await post("/entries", { path: folder, type: "mystery", title: "No schema", fields: { anything: "goes", n: 3, deep: { a: 1 } } });
-  await page.goto(`/artifact/${e.meta.guid}`);
-  await expect(page.locator("#sec-general")).toContainText("no schema");
-  await expect(page.locator("[data-field=anything] input")).toHaveValue("goes");
-  await expect(page.locator("[data-field=deep] textarea")).toHaveValue(/"a"/);
-  await page.locator("[data-field=anything] input").fill("changed");
-  await page.locator("[data-test=save]").click();
-  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${e.meta.guid}`);
-  expect(stored.data.fields).toMatchObject({ anything: "changed", n: 3, deep: { a: 1 } });
-  await expect(page.locator("#sec-workflows")).toHaveCount(0);
+test("the server refuses undefined types and fields", async () => {
+  await expect(post("/entries", { path: folder, type: "mystery", title: "No type" })).rejects.toThrow(/400.*mystery.*is not defined/);
+  await expect(post("/entries", { path: folder, type: "req", title: "Extra", fields: { priority: "low", colour: "red" } }))
+    .rejects.toThrow(/400.*colour.*is not defined/);
 });

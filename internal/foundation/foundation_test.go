@@ -41,7 +41,7 @@ const linkTypes = `{"types":[
 	{"id":"related"}]}`
 
 // seedCommits is the number of commits seed makes (one per file).
-const seedCommits = 7
+const seedCommits = 8
 
 func seed(t *testing.T, f *Foundation) {
 	t.Helper()
@@ -58,6 +58,7 @@ func seed(t *testing.T, f *Foundation) {
 	put("documents/types.json", `{"types":[{"id":"spec","hid":{"prefix":"SPEC"}}]}`)
 	put("links/fields.json", `{"fields":[{"id":"coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}`)
 	put("links/types.json", linkTypes)
+	put("comments/types.json", `{"types":[{"id":"comment"}]}`)
 }
 
 // putConfig stores a configuration file and fails the test on errors.
@@ -535,8 +536,8 @@ func TestConfigFiles(t *testing.T) {
 	for _, s := range types {
 		ids = append(ids, s.Type)
 	}
-	// Only the entry types are cut off: document and link types still inherit.
-	if strings.Join(ids, ",") != "related,spec,task,verifies" {
+	// Only the entry types are cut off: document, link and comment types still inherit.
+	if strings.Join(ids, ",") != "comment,related,spec,task,verifies" {
 		t.Fatalf("types in the task folder: %v", ids)
 	}
 	if w, err := f.WorkflowDef(ctx, "task", "task", "tasks"); err != nil || w.Scope != "tasks" {
@@ -577,5 +578,108 @@ func TestConfigFiles(t *testing.T) {
 	files, err := f.ConfigFiles(ctx, "tasks", false)
 	if err != nil || len(files) != 2 {
 		t.Fatalf("files %+v %v", files, err)
+	}
+}
+
+func TestEnforcement(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+	invalid := func(what string, err error) {
+		t.Helper()
+		if !errors.Is(err, model.ErrValidation) {
+			t.Errorf("%s: want a validation error, got %v", what, err)
+		}
+	}
+	entry := func(body string) error {
+		_, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, body))
+		return err
+	}
+
+	// Types must be defined where the artifact lives, for every kind.
+	invalid("undefined entry type", entry(`{"path":"a","type":"nope","title":"x"}`))
+	invalid("missing type", entry(`{"path":"a","title":"x"}`))
+	invalid("document type used for an entry", entry(`{"path":"a","type":"spec","title":"x"}`))
+	r := create(t, f, model.KindEntry, `{"path":"a","type":"requirement","title":"R","fields":{"priority":"low","effort":3}}`)
+	tc := create(t, f, model.KindEntry, `{"path":"a","type":"testcase","title":"T"}`)
+	_, err := f.CreateLink(ctx, obj(t, `{"type":"blocks","source":"`+tc.Meta.GUID+`","target":"`+r.Meta.GUID+`"}`))
+	invalid("undefined link type", err)
+	putConfig(t, f, "quiet", "comments/types.json", `{"inheritance":"off","types":[]}`)
+	q := create(t, f, model.KindEntry, `{"path":"quiet","type":"requirement","title":"Q","fields":{"priority":"low"}}`)
+	_, err = f.CreateComment(ctx, obj(t, `{"subject":"`+q.Meta.GUID+`","text":"hi"}`))
+	invalid("comment where no comment type is defined", err)
+	if _, err := f.CreateComment(ctx, obj(t, `{"subject":"`+r.Meta.GUID+`","text":"hi"}`)); err != nil {
+		t.Fatalf("comment with the root comment type: %v", err)
+	}
+
+	// Fields must be defined to be added or changed.
+	invalid("undefined field on create", entry(`{"path":"a","type":"requirement","title":"x","fields":{"priority":"low","colour":"red"}}`))
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"colour":"red"}}`))
+	invalid("undefined field on update", err)
+
+	// A field removed from the configuration stays on existing artifacts:
+	// kept unchanged on save, not changeable, removable.
+	putConfig(t, f, "", "entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		 "fields":[{"id":"priority","required":true},"rationale","owner","spec"]},
+		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
+	if _, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R renamed"}`)); err != nil {
+		t.Fatalf("save with a field no longer defined: %v", err)
+	}
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"effort":4}}`))
+	invalid("changing a field no longer defined", err)
+	v, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"effort":null}}`))
+	if err != nil || v.Meta.Fields["effort"] != nil {
+		t.Fatalf("removing a field no longer defined: %+v %v", v, err)
+	}
+
+	// A field made required later is enforced on the next save.
+	putConfig(t, f, "", "entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		 "fields":[{"id":"priority","required":true},{"id":"rationale","required":true},"owner","spec"]},
+		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R again"}`))
+	invalid("save without a field made required later", err)
+	if _, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R again","fields":{"rationale":"now given"}}`)); err != nil {
+		t.Fatalf("save once the required field is filled: %v", err)
+	}
+
+	// Moves: into a folder whose entry types are cut off, refused for the
+	// artifact and for a folder holding it; a folder that brings its own
+	// configuration may move.
+	putConfig(t, f, "tasks", "entries/types.json", `{"inheritance":"off","types":[{"id":"task"}]}`)
+	_, err = f.MoveArtifact(ctx, r.Meta.GUID, "tasks")
+	invalid("moving a requirement into the task folder", err)
+	_, err = f.MoveFolder(ctx, "a", "tasks/a")
+	invalid("moving a folder of requirements into the task folder", err)
+	create(t, f, model.KindEntry, `{"path":"kit/parts","type":"requirement","title":"K","fields":{"priority":"low","rationale":"r"}}`)
+	putConfig(t, f, "kit", "entries/types.json", `{"types":[{"id":"requirement"}]}`)
+	if _, err := f.MoveFolder(ctx, "kit", "tasks/kit"); err != nil {
+		t.Fatalf("a folder with its own configuration: %v", err)
+	}
+
+	// Direct pushes cannot be refused; validation reports what they bring.
+	head := mustHead(t, f)
+	g := model.NewGUID()
+	c, err := f.Repo.BuildCommit(ctx, head, "direct push", []gitx.Op{
+		{Path: "a/" + g + "/.corestone.json", Content: []byte(`{"guid":"` + g + `","kind":"entry","type":"ghost","title":"pushed"}`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Repo.Publish(ctx, head, c); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.UpdateArtifact(ctx, tc.Meta.GUID, "", obj(t, `{"title":"T"}`)) // sync
+	issues, err := f.DB.Validate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, i := range issues {
+		found[i.Code+" "+i.GUID] = true
+	}
+	if !found["unknown-type "+g] {
+		t.Fatalf("validation missed the pushed artifact of an undefined type: %+v", issues)
 	}
 }

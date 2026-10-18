@@ -62,6 +62,8 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	commit(t, repo, "config", gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"REQ"},"fields":["prio"],"workflows":["dev"]}]}`)},
 		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"text"}]}`)},
 		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)},
+		gitx.Op{Path: ".corestone/config/links/types.json", Content: []byte(`{"types":[{"id":"refines"}]}`)},
+		gitx.Op{Path: ".corestone/config/comments/types.json", Content: []byte(`{"types":[{"id":"comment"}]}`)},
 		gitx.Op{Path: "README.md", Content: []byte("ignored")})
 	commit(t, repo, "e1", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-1", `"fields":{"prio":"high","n":2},"workflows":{"dev":"open"}`)},
 		gitx.Op{Path: "specs/a/" + g1 + "/notes.txt", Content: []byte("attachment")})
@@ -201,7 +203,7 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 		}
 	}
 	st, _ := p.Stats(ctx)
-	if st.Artifacts["entry"] != 2 || st.Artifacts["link"] != 1 || st.Deleted != 1 || st.Schemas != 1 {
+	if st.Artifacts["entry"] != 2 || st.Artifacts["link"] != 1 || st.Deleted != 1 || st.Schemas != 3 { // req, refines, comment
 		t.Fatalf("stats %+v", st)
 	}
 }

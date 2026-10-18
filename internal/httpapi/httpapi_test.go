@@ -93,6 +93,7 @@ func (a *api) seed() {
 		{"id":"testcase","hid":{"prefix":"TC"}}]}`, 200)
 	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec"}]}`, 200)
 	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"}]}`, 200)
+	a.ok("PUT", "/api/config?path=comments/types.json", `{"types":[{"id":"comment"}]}`, 200)
 }
 
 func TestRESTLifecycle(t *testing.T) {
@@ -222,7 +223,7 @@ func TestRESTLifecycle(t *testing.T) {
 		t.Fatalf("subtree %s", tree.raw)
 	}
 	ty := a.ok("GET", "/api/repository/types?path=specs/boot", "", 200)
-	if n := len(ty.body["types"].([]any)); n != 4 {
+	if n := len(ty.body["types"].([]any)); n != 5 { // requirement, testcase, spec, verifies, comment
 		t.Fatalf("types %s", ty.raw)
 	}
 	eff := a.ok("GET", "/api/schemas/effective?type=requirement&path=specs/boot", "", 200)
@@ -249,7 +250,7 @@ func TestRESTLifecycle(t *testing.T) {
 		t.Fatalf("status %s", st.raw)
 	}
 	cfg := a.ok("GET", "/api/config", "", 200)
-	if n := len(cfg.body["files"].([]any)); n != 5 {
+	if n := len(cfg.body["files"].([]any)); n != 6 {
 		t.Fatalf("config files %s", cfg.raw)
 	}
 	a.ok("GET", "/api/workflows/dev?type=requirement&path=specs", "", 200)
