@@ -235,3 +235,7 @@ users in separate browser contexts) added these:
    burst of a hundred creates from one client delays another client's single save by seconds. A
    batch endpoint that commits many artifacts at once would remove that; the transaction already
    supports multi-file changesets.
+7. Configuration is one schema file per type with per-type `inheritance: off`, and the server
+   accepts undefined types and fields. The agreed replacement — a `config/` directory per folder
+   with per-kind types, fields, enumerations and workflows, a per-kind inheritance switch and
+   server-side enforcement — is specified in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
