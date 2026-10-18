@@ -679,6 +679,32 @@ func (p *DB) Stats(ctx context.Context) (*Stats, error) {
 	return st, unavailable(err)
 }
 
+// ValueCount is a field value in use and how many artifacts hold it.
+type ValueCount struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// FieldValues lists the values of a field in use by artifacts of a type in
+// a folder and its subfolders, most frequent first.
+func (p *DB) FieldValues(ctx context.Context, typ, field, folder string, limit int) ([]ValueCount, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT f.value, count(*) FROM artifact_fields f JOIN artifacts a ON a.guid = f.guid
+		WHERE f.field = $1 AND a.type = $2 AND a.path <@ $3::ltree GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT $4`, field, typ, PathOf(folder), limit)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	out := []ValueCount{}
+	for rows.Next() {
+		var v ValueCount
+		if err := rows.Scan(&v.Value, &v.Count); err != nil {
+			return nil, unavailable(err)
+		}
+		out = append(out, v)
+	}
+	return out, unavailable(rows.Err())
+}
+
 // TypeAt is an entry or document type in use in one folder.
 type TypeAt struct {
 	Folder string

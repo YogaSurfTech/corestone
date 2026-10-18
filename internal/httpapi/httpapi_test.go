@@ -226,6 +226,11 @@ func TestRESTLifecycle(t *testing.T) {
 	if n := len(ty.body["types"].([]any)); n != 5 { // requirement, testcase, spec, verifies, comment
 		t.Fatalf("types %s", ty.raw)
 	}
+	vals := a.ok("GET", "/api/repository/values?type=requirement&field=priority", "", 200)
+	if vs := vals.body["values"].([]any); len(vs) == 0 || vs[0].(map[string]any)["count"].(float64) < 1 {
+		t.Fatalf("values %s", vals.raw)
+	}
+	a.ok("GET", "/api/repository/values?type=requirement", "", 400)
 	eff := a.ok("GET", "/api/schemas/effective?type=requirement&path=specs/boot", "", 200)
 	if eff.body["displayName"] != "Requirement" {
 		t.Fatalf("effective %s", eff.raw)

@@ -6,7 +6,7 @@ import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, deepEqual, fmtTime, kindIcon, label, relTime, safeImageSrc } from "./util";
+import { blockId, commentTypeOf, deepEqual, fmtTime, kindIcon, label, relTime, safeImageSrc, undeclaredField } from "./util";
 import "./fields";
 
 // Document view (design guide §7.6, §9.5): a distraction-free editor of
@@ -31,6 +31,7 @@ export class DocumentView extends LitElement {
   @state() private error = "";
   @state() private rel: Relationships | null = null;
   @state() private comments: CommentView[] = [];
+  @state() private commentType: string | null = null;
   @state() private history: LogEntry[] = [];
   @state() private commentText = "";
   private entries = new Map<string, Summary | null>();
@@ -69,7 +70,10 @@ export class DocumentView extends LitElement {
       this.docTitle = String(d.title ?? "");
       this.blocks = structuredClone((d.content as Block[]) ?? []);
       this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
-      this.schema = (await api.schemaOf(this.guid).catch(() => ({ schema: null }))).schema;
+      const [schema, types] = await Promise.all([api.schemaOf(this.guid).catch(() => ({ schema: null })), api.types(view.meta.folder).catch(() => ({ types: [] }))]);
+      if (seq !== this.loadSeq) return;
+      this.schema = schema.schema;
+      this.commentType = commentTypeOf(types.types);
       this.loadSide();
       this.resolveEntries();
     } catch (e) {
@@ -330,8 +334,10 @@ export class DocumentView extends LitElement {
         return html`<h4>Document properties</h4>
           <dl class="kv"><dt>Type</dt><dd>${v.meta.type}</dd><dt>Folder</dt><dd>${v.meta.folder || "/"}</dd><dt>GUID</dt><dd class="mono small">${v.meta.guid}</dd><dt>Modified</dt><dd>${relTime(v.meta.modifiedAt)}</dd>
             ${Object.entries(v.meta.workflows ?? {}).map(([w, st]) => html`<dt>${w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
-          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []}
+          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type}
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; }}></corestone-field>`)}
+          ${Object.keys(this.fields).filter((k) => !this.schema?.fields?.some((f) => f.id === k)).map((k) => html`<corestone-field .field=${undeclaredField(k, this.fields[k])} .value=${this.fields[k]} undeclared
+            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; }}></corestone-field>`)}
           <button class="btn sm" style="margin-top:8px" @click=${() => navigate({ guid: this.guid, tab: "general" }, true)}>Open as artifact detail</button>`;
       case "entry": {
         const focusedBlock = this.focused ? this.locate(this.focused)?.list[this.locate(this.focused)!.index] : null;
@@ -346,8 +352,8 @@ export class DocumentView extends LitElement {
           ${this.rel?.incoming.map((l) => html`<div>← <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}`;
       case "comments":
         return html`<h4>Comments</h4>${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
-          <div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
-          <button class="btn sm primary" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>Post</button></div>`;
+          ${!this.commentType ? html`<div class="muted small">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
+          <button class="btn sm primary" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>Post</button></div>`}`;
       case "versions":
         return html`<h4>Versions</h4>${this.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
     }

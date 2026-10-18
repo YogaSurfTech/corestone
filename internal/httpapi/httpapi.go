@@ -62,6 +62,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/repository/tree", s.tree)
 	m.HandleFunc("GET /api/repository/search", s.search)
 	m.HandleFunc("GET /api/repository/types", s.types)
+	m.HandleFunc("GET /api/repository/values", s.values)
 	m.HandleFunc("GET /api/repository/validate", s.validate)
 	m.HandleFunc("POST /api/repository/reindex", s.reindex)
 	m.HandleFunc("POST /api/repository/folders/move", s.moveFolder)
@@ -623,6 +624,17 @@ func (s *Server) types(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"types": types})
+}
+
+// values lists field values in use (?type=&field=&path=), most frequent first.
+func (s *Server) values(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	vals, err := s.F.FieldValues(r.Context(), q.Get("type"), q.Get("field"), q.Get("path"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": vals})
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {

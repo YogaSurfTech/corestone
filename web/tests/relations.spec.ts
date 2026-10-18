@@ -36,7 +36,7 @@ test("two independent workflows on one artifact, with diagram and rework", async
   await expect(page.locator("#sec-history .history-row", { hasText: "transitioned from review to open" })).toHaveCount(1);
 });
 
-test("relationships: typed links both ways, removal, free-form type, and endpoint rules", async ({ page }) => {
+test("relationships: typed links both ways, removal, and endpoint rules", async ({ page }) => {
   const r1 = await post("/entries", { path: folder, type: "req", title: `Req A ${id}`, fields: { priority: "low" } });
   const r2 = await post("/entries", { path: folder, type: "req", title: `Req B ${id}`, fields: { priority: "low" } });
   const t1 = await post("/entries", { path: folder, type: "tc", title: `Test A ${id}` });
@@ -49,9 +49,8 @@ test("relationships: typed links both ways, removal, free-form type, and endpoin
   await page.locator(".picker-results .row", { hasText: `Test A ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(1);
   await expect(rel.locator(".link-row .arrow")).toHaveText("←");
-  // free-form "related" link via the prompt
-  await rel.locator(".actions button", { hasText: "other" }).click();
-  await answerPrompt(page, "related");
+  // a "related" link through its own button
+  await rel.locator(".actions button", { hasText: "related to" }).click();
   await page.locator("corestone-picker input").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(2);
@@ -66,8 +65,7 @@ test("relationships: typed links both ways, removal, free-form type, and endpoin
   await expect(page.locator("table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 0");
   // endpoint rule violation surfaces as a toast, not a silent failure
   await page.goto(`/artifact/${t1.meta.guid}`);
-  await page.locator("#sec-relationships .actions button", { hasText: "other" }).click();
-  await answerPrompt(page, "verifies");
+  await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
   await page.locator("corestone-picker input").fill(`Test A ${id}`); // a test case as target of verifies is not allowed
   await expect(page.locator(".picker-results")).toContainText("No matching"); // itself is excluded
   await page.locator("corestone-picker input").fill(`Req A ${id}`);

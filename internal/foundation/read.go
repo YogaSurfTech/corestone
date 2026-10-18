@@ -141,6 +141,20 @@ func (f *Foundation) Types(ctx context.Context, folder string) ([]*model.Schema,
 	return out, nil
 }
 
+// FieldValues lists the values of a field in use by artifacts of a type
+// in a folder and below, for suggestions in extendable enumerations, whose
+// extra values are stored only in the artifacts.
+func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string) ([]projection.ValueCount, error) {
+	folder, err := model.CleanFolder(folder)
+	if err != nil {
+		return nil, err
+	}
+	if typ == "" || field == "" {
+		return nil, model.Invalid("type and field are required")
+	}
+	return f.DB.FieldValues(ctx, typ, field, folder, 200)
+}
+
 // SchemaOf resolves the effective schema of an existing artifact.
 func (f *Foundation) SchemaOf(ctx context.Context, guid string) (*model.Schema, *projection.Located, error) {
 	loc, err := f.DB.Locate(ctx, guid)
