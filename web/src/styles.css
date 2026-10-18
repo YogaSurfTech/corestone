@@ -216,6 +216,12 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .block.h.l1 { font-size: 20px; margin-top: 14px; }
 .block.h.l2 { font-size: 17px; margin-top: 10px; }
 .block.h.l3 { font-size: 15px; margin-top: 6px; }
+.sec-head { display: flex; align-items: baseline; gap: 8px; }
+.sec-head .block.h { flex: 1; }
+.sec-head .sec-num { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
+.sec-head.l1 .sec-num { font-size: 20px; }
+.sec-head.l2 .sec-num { font-size: 17px; }
+.sec-head.l3 .sec-num { font-size: 15px; }
 .toc { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: var(--panel); }
 .toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .toc-head select { padding: 1px 4px; width: auto; }

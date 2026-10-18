@@ -208,11 +208,15 @@ test("table of contents: numbered, configurable depth, follows edits, navigates"
   await toc.locator("[data-test=toc-depth]").selectOption("2");
   await expect(toc.locator(".toc-row .num")).toHaveText(["1", "1.1", "2"]);
   // renaming a section updates the contents right away
-  const heading = doc.locator("[data-block=s2] > .block");
+  const heading = doc.locator("[data-block=s2] > .sec-head .block");
   await heading.click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type("Security");
   await expect(toc.locator(".toc-row").last()).toContainText("Security");
+  // headings carry the same numbers, outside the editable title
+  await expect(doc.locator("[data-block=s111] .sec-num")).toHaveText("1.1.1");
+  await expect(doc.locator("[data-block=s2] > .sec-head .sec-num")).toHaveText("2");
+  await expect(heading).toHaveText("Security");
   // an entry jumps to its section
   await toc.locator(".toc-row[data-target=s11]").click();
   await expect(doc.locator("[data-block=s11]")).toHaveClass(/focused/);
@@ -222,4 +226,5 @@ test("table of contents: numbered, configurable depth, follows edits, navigates"
   const stored = await get<{ data: { content: Record<string, unknown>[] } }>(`/documents/${d.meta.guid}`);
   expect(stored.data.content[1]).toMatchObject({ type: "toc", depth: 2 });
   expect(Object.keys(stored.data.content[1]).sort()).toEqual(["depth", "id", "type"]);
+  expect(stored.data.content[3]).toMatchObject({ id: "s2", title: "Security" }); // no number in the stored title
 });

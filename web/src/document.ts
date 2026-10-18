@@ -256,7 +256,8 @@ export class DocumentView extends LitElement {
     let body: TemplateResult;
     switch (b.type) {
       case "section":
-        body = html`${editable(`h l${Math.min(depth + 1, 3)}`, "title", "Section title")}
+        // the number is display-only: computed from the outline, never part of the title
+        body = html`<div class="sec-head l${Math.min(depth + 1, 3)}"><span class="sec-num" contenteditable="false">${this.sectionNumbers.get(b.id) ?? ""}</span>${editable(`h l${Math.min(depth + 1, 3)}`, "title", "Section title")}</div>
           <div class="section-children"><div class="blocks">${(b.children ?? []).map((c) => this.block(c, depth + 1))}</div>
           <button class="btn sm" style="margin:4px 0" @click=${() => { (b.children ??= []).push({ id: blockId(), type: "paragraph", text: "" }); this.touch(); }}>＋ paragraph in section</button></div>`;
         break;
@@ -293,6 +294,9 @@ export class DocumentView extends LitElement {
     }
     return html`<div class="block-wrap ${focused ? "focused" : ""}" data-block=${b.id} data-type=${b.type} @click=${() => (this.focused = b.id!)}>${handle}${body}</div>`;
   }
+
+  /** Section numbers by block id, as in the table of contents; refreshed on every render. */
+  private sectionNumbers = new Map<string, string>();
 
   /** The numbered section outline (1, 1.1, 1.2, 2, …) down to maxLevel. */
   private outline(maxLevel: number) {
@@ -346,6 +350,7 @@ export class DocumentView extends LitElement {
     const v = this.view;
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     const after = this.focused;
+    this.sectionNumbers = new Map(this.outline(Infinity).map((r) => [r.id, r.num]));
     return html`
       <div class="doc-main">
         <div class="doc-toolbar">
