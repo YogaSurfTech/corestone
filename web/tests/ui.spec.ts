@@ -152,8 +152,9 @@ test("overlays: create a variant and see inherited fields", async ({ page }) => 
   await page.locator("[data-test=create]").click();
   await expect(page.locator("corestone-detail h2")).toHaveText("Variant A");
   await expect(page.locator("#sec-overlay .chain .node")).toHaveCount(2);
-  await expect(page.locator("[data-field=rationale] .inherited")).toContainText("inherited");
-  await expect(page.locator("[data-field=rationale] textarea")).toHaveValue("");
+  await expect(page.locator("[data-field=rationale] .inherited")).toContainText(`inherited from base ${b.meta.hid}`);
+  await expect(page.locator("[data-field=rationale] textarea")).toHaveValue("shared");
+  await expect(page.locator("[data-field=rationale] textarea")).toBeDisabled();
   await expect(page.locator("#sec-overlay")).toContainText("shared");
 });
 

@@ -4,6 +4,9 @@
   --bg: #f6f7fb;
   --panel: #ffffff;
   --panel-2: #f0f2f8;
+  /* Editable fields sit deeper than the panel in dark mode; locked ones blend into it. */
+  --input-bg: #ffffff;
+  --locked-bg: #eef0f5;
   --border: #dfe3ee;
   --text: #1c2130;
   --muted: #6b7280;
@@ -28,6 +31,8 @@
     --bg: #12151c;
     --panel: #1a1f29;
     --panel-2: #222835;
+    --input-bg: #0f1218;
+    --locked-bg: #1a1f29;
     --border: #2f3646;
     --text: #e7eaf1;
     --muted: #9aa3b5;
@@ -136,7 +141,7 @@ table.grid tbody tr.selected { background: var(--accent-soft); }
 .btn.sm { padding: 3px 9px; font-size: 12.5px; }
 .btn.icon { padding: 5px 8px; }
 input[type=text], input[type=search], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=url], select, textarea {
-  border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
+  border: 1px solid var(--border); background: var(--input-bg); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
 }
 input:focus, select:focus, textarea:focus, .block[contenteditable]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 textarea { resize: vertical; min-height: 70px; }
@@ -147,6 +152,10 @@ textarea { resize: vertical; min-height: 70px; }
 .field .value { min-width: 0; }
 .field .help { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .field .inherited { font-size: 11.5px; color: var(--warn); margin-top: 2px; }
+.field .inherited.overridden { color: var(--muted); }
+.field.locked .value :is(input, select, textarea) { background: var(--locked-bg); color: var(--muted); cursor: not-allowed; }
+.field.locked .multi label, .field.locked .ref-chip { background: var(--locked-bg); color: var(--muted); cursor: not-allowed; }
+.field .inherited button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 .check { display: flex; align-items: center; gap: 8px; padding-top: 7px; }
 .multi { display: flex; flex-wrap: wrap; gap: 6px; }
 .multi label { display: inline-flex; gap: 4px; align-items: center; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
