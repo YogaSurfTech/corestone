@@ -1,11 +1,10 @@
 # Repository configuration — layout and resolution
 
-**Status: agreed design, not implemented.** Today's implementation still reads one schema file
-per type from `<scope>/.corestone/schemas/<type>.json` and workflows from
-`<scope>/.corestone/workflows/<id>.json` (see [INSTALL.md](INSTALL.md)). This document describes
-the layout that replaces it, how definitions resolve, and what the server enforces. The old layout
-is dropped without a migration: no repository depends on it, and `examples/seed.sh` is rewritten
-for the new one.
+**Status: implemented**, except the copy and move dialog of section 6. This layout replaced one
+schema file per type (`<scope>/.corestone/schemas/<type>.json`) and `<scope>/.corestone/workflows/`
+without a migration; those directories are no longer read. Files are written through
+`GET/PUT/DELETE /api/config?scope=<folder>&path=<path below config/>` (see [INSTALL.md](INSTALL.md))
+or committed directly; `examples/seed.sh` sets up a complete example.
 
 Goals:
 

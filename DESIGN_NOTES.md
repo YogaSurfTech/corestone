@@ -48,10 +48,11 @@ locality after manual Git changes. The validation service reports misplaced meta
 schema prefix (optionally zero-padded), editable, unique across the repository, with a queryable
 history that never re-issues a number.
 
-**Schema composition (§4.3–§4.4)** root → artifact, nearest definition wins per property, fields
-and link rules replaced completely by nearer definitions, `inheritance: off` severs. Artifact types
-exist for all four kinds (§4.5): link types carry endpoint constraints and cardinality (§4.8),
-comment types can add fields.
+**Schema composition (§4.3–§4.4)** root → artifact, nearest definition wins per property and per
+field, `inheritance: off` severs. Artifact types exist for all four kinds (§4.5): link types carry
+endpoint constraints and cardinality (§4.8), comment types can add fields. The files are laid out per
+kind with shared and type-specific fields, enumerations and workflows — see section 2 and
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 **Field types (§4.6).** hid, boolean, integer, float, currency, date, time, datetime, text,
 multiline, richtext, enum (single/multiple, user-extendable), hyperlink, reference(s), attachment,
@@ -71,11 +72,21 @@ three-area layout (§7.2), the entry detail sections (§7.5), the document view 
 ## 2. Adapted — same intent, different mechanics
 
 **Validation boundary (§4.11).** The guide assigns business validation to applications. The
-Foundation enforces exactly the invariants whose violation would corrupt the repository contract:
-HID uniqueness, overlay acyclicity, reference integrity (bases, link endpoints, comment subjects and
-parents, reference fields, entry blocks), link endpoint types and cardinality when a link schema is
-visible, workflow legality, field *type* validity and `required` fields. Unknown fields are allowed
-so applications and tools can extend files.
+Foundation enforces the repository contract and *schema conformance*: HID uniqueness, overlay
+acyclicity, reference integrity (bases, link endpoints, comment subjects and parents, reference
+fields, entry blocks), link endpoint types and cardinality, workflow legality, and the configuration
+itself — an artifact's type must be defined where it lives (on create, retype and move, also for
+links and comments), fields its type does not define cannot be added or changed, field values must
+be valid and `required` fields present on every save. A value stored before its field was removed
+is kept and may be deleted. Business rules stay with applications and extensions. Unknown
+*top-level* properties still pass through, so tools can extend files.
+
+**Configuration layout (§3.5, §4.3–§4.4).** Instead of one schema file per type, a folder's
+`.corestone/config/` holds one directory per kind with `types.json`, shared and type-specific
+fields, enumerations and workflows ([docs/CONFIGURATION.md](docs/CONFIGURATION.md)). The guide's
+`inheritance: off` is read as the guide's own intent — "completely independent type systems" — and
+applies to a whole kind in a subtree, not to one type: a task folder can cut off the root's entry
+types and still use its link and comment types. A kind without types is not available in a folder.
 
 **The publish mutex is per process; correctness across processes rests on the two CAS operations
 (§5.12).** The Git `update-ref` and the `processed_hash` update are both compare-and-swap, so a
@@ -235,7 +246,8 @@ users in separate browser contexts) added these:
    burst of a hundred creates from one client delays another client's single save by seconds. A
    batch endpoint that commits many artifacts at once would remove that; the transaction already
    supports multi-file changesets.
-7. Configuration is one schema file per type with per-type `inheritance: off`, and the server
-   accepts undefined types and fields. The agreed replacement — a `config/` directory per folder
-   with per-kind types, fields, enumerations and workflows, a per-kind inheritance switch and
-   server-side enforcement — is specified in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+7. Copying or moving a folder whose configuration depends on definitions above it should offer to
+   clone the effective settings, keep only local definitions, or ignore the gaps
+   ([docs/CONFIGURATION.md](docs/CONFIGURATION.md) section 6); today the gaps are only reported. A
+   folder move is refused when entries or documents would end up where their type is not defined;
+   links and comments in that situation are reported by validation, not refused.
