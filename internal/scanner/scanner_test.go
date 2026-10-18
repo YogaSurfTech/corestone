@@ -19,8 +19,11 @@ func TestClassify(t *testing.T) {
 		{"a/b/" + g + "/.corestone.json", Artifact, "", true},
 		{"a/" + g + "/spec.pdf", Attachment, "", true},
 		{"a/" + g + "/sub/x.png", Attachment, "", true},
-		{".corestone/schemas/req.json", ConfigFile, ConfigSchemas, true},
-		{"a/.corestone/workflows/dev.json", ConfigFile, ConfigWorkflows, true},
+		{".corestone/config/entries/types.json", ConfigFile, ConfigConfig, true},
+		{"a/.corestone/config/entries/enums/task-priority-enum.json", ConfigFile, ConfigConfig, true},
+		{".corestone/config/whatever.json", ConfigFile, ConfigConfig, true}, // indexed, reported as invalid
+		{".corestone/schemas/req.json", ConfigFile, ConfigOther, false},     // the old layout is ignored
+		{"a/.corestone/workflows/dev.json", ConfigFile, ConfigOther, false},
 		{"a/.corestone/links/" + g + ".json", ConfigFile, ConfigLinks, true},
 		{"a/.corestone/comments/" + g + ".json", ConfigFile, ConfigComments, true},
 		{".corestone/scanner.json", ConfigFile, ConfigScanner, true},
@@ -42,6 +45,9 @@ func TestClassify(t *testing.T) {
 	if m.Folder != "a/b" || m.GUID != g {
 		t.Fatalf("%+v", m)
 	}
+	if m := s.Classify("a/.corestone/config/links/workflows/x-workflow.json"); m.Folder != "a" || m.Name != "links/workflows/x-workflow.json" {
+		t.Fatalf("%+v", m)
+	}
 	m = s.Classify("x/.corestone/links/" + g + ".json")
 	if m.Folder != "x" || m.Name != g {
 		t.Fatalf("%+v", m)
@@ -50,7 +56,7 @@ func TestClassify(t *testing.T) {
 	if m := s.Classify(".corestone/" + g + "/.corestone.json"); m.Category != ConfigFile || m.ConfigKind != ConfigOther {
 		t.Fatalf("%+v", m)
 	}
-	if m := s.Classify(g + "/.corestone/schemas/x.json"); m.Category != Attachment {
+	if m := s.Classify(g + "/.corestone/config/entries/types.json"); m.Category != Attachment {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -68,7 +74,7 @@ func TestConfig(t *testing.T) {
 	if m, ok := s.Match("a/" + g + "/artifact.json"); !ok || m.Category != Artifact {
 		t.Fatal("custom guid file")
 	}
-	if m, ok := s.Match("a/.meta/schemas/x.json"); !ok || m.ConfigDir != ".meta" {
+	if m, ok := s.Match("a/.meta/config/entries/types.json"); !ok || m.ConfigDir != ".meta" {
 		t.Fatal("custom config folder")
 	}
 	if _, err := ParseConfig([]byte(`{"guid_files":["a/b"]}`)); err == nil {

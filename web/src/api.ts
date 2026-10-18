@@ -97,11 +97,7 @@ export const api = {
   fileUrl: (guid: string, name: string) => `/api/artifacts/${guid}/files/${encodeURIComponent(name)}`,
 
   effectiveSchema: (type: string, path: string) => request<Schema>("GET", "/schemas/effective" + q({ type, path })),
-  schemas: () => request<{ schemas: { path: string; scope: string; name: string; valid: boolean; error?: string; definition?: Schema }[] }>("GET", "/schemas"),
-  putSchema: (type: string, scope: string, def: unknown) => request<Schema>("PUT", `/schemas/${encodeURIComponent(type)}` + q({ scope }), def),
-  workflowDef: (id: string, path: string) => request<Workflow>("GET", `/workflows/${encodeURIComponent(id)}` + q({ path })),
-  workflowFiles: () => request<{ workflows: { path: string; scope: string; name: string; valid: boolean; definition?: Workflow }[] }>("GET", "/workflows"),
-  putWorkflow: (id: string, scope: string, def: unknown) => request<Workflow>("PUT", `/workflows/${encodeURIComponent(id)}` + q({ scope }), def),
+  workflowDef: (id: string, type: string, path: string) => request<Workflow>("GET", `/workflows/${encodeURIComponent(id)}` + q({ type, path })),
 };
 
 export type { Attachment };

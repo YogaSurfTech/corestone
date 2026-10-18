@@ -165,33 +165,3 @@ func (w *Workflow) Find(from, to string) (Transition, bool) {
 	}
 	return Transition{}, false
 }
-
-// WorkflowIndex resolves workflows lexically (nearest definition wins).
-type WorkflowIndex struct {
-	byScope map[string]map[string]*Workflow
-}
-
-// NewWorkflowIndex builds an index from scoped definitions.
-func NewWorkflowIndex(scopes map[string][]*Workflow) *WorkflowIndex {
-	idx := &WorkflowIndex{byScope: map[string]map[string]*Workflow{}}
-	for scope, defs := range scopes {
-		m := map[string]*Workflow{}
-		for _, w := range defs {
-			m[w.ID] = w
-		}
-		idx.byScope[scope] = m
-	}
-	return idx
-}
-
-// Resolve returns the nearest definition of id visible from folder.
-func (idx *WorkflowIndex) Resolve(id, folder string) *Workflow {
-	for _, scope := range Ancestors(folder) {
-		if w := idx.byScope[scope][id]; w != nil {
-			c := *w
-			c.Scope = scope
-			return &c
-		}
-	}
-	return nil
-}

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { defineTypes } from "./fixtures";
 
 // Adversarial browser tests: content that tries to break or script the
 // client must render as inert text, and the client must stay usable.
@@ -19,9 +20,11 @@ async function post(path: string, body: unknown) {
 }
 
 test.beforeAll(async () => {
-  await put(`/schemas/item?scope=${folder}`, { type: "item", displayName: "Item", hid: { prefix: "ADV" },
-    fields: [{ id: "link", name: "Link", type: "hyperlink" }, { id: "note", name: "Note", type: "text" }] });
-  await put(`/schemas/page?scope=${folder}`, { type: "page", kind: "document" });
+  await defineTypes(folder, "entries", [{ id: "item", displayName: "Item", hid: { prefix: "ADV" },
+    fields: [{ id: "link", name: "Link", type: "hyperlink" }, { id: "note", name: "Note", type: "text" }] }]);
+  await defineTypes(folder, "documents", [{ id: "page" }]);
+  await defineTypes(folder, "links", [{ id: "related" }]);
+  await defineTypes(folder, "comments", [{ id: "comment" }]);
 });
 
 test("script-looking content is rendered as text everywhere", async ({ page }) => {

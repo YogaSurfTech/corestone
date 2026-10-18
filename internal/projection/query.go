@@ -672,8 +672,8 @@ func (p *DB) Stats(ctx context.Context) (*Stats, error) {
 		(SELECT count(*) FROM artifacts WHERE NOT valid),
 		(SELECT count(*) FROM deleted_artifacts),
 		(SELECT count(DISTINCT folder) FROM artifacts WHERE folder <> ''),
-		(SELECT count(*) FROM config_files WHERE category = 'schemas'),
-		(SELECT count(*) FROM config_files WHERE category = 'workflows')`).
+		(SELECT count(*) FROM config_files WHERE category = 'config' AND name LIKE '%/types.json'),
+		(SELECT count(*) FROM config_files WHERE category = 'config' AND name LIKE '%-workflow.json')`).
 		Scan(&st.Invalid, &st.Deleted, &st.Folders, &st.Schemas, &st.Workflows)
 	return st, unavailable(err)
 }

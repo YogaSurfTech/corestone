@@ -2,7 +2,6 @@ package projection
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"unicode/utf8"
 
@@ -228,7 +227,7 @@ func trunc(s string) string {
 	return s
 }
 
-// ConfigRecord is a projected schema / workflow / scanner file.
+// ConfigRecord is a projected configuration or scanner file.
 type ConfigRecord struct {
 	Path     string `json:"path"`
 	Scope    string `json:"scope"`
@@ -245,18 +244,8 @@ func extractConfig(m scanner.Match, sha string, content []byte) *ConfigRecord {
 	c := &ConfigRecord{Path: m.Path, Scope: m.Folder, Category: m.ConfigKind, Name: m.Name, BlobSHA: sha, Valid: true}
 	var err error
 	switch m.ConfigKind {
-	case scanner.ConfigSchemas:
-		var s *model.Schema
-		s, err = model.ParseSchema(content)
-		if err == nil && s.Type != m.Name {
-			err = errors.New("schema type " + s.Type + " does not match file name " + m.Name)
-		}
-	case scanner.ConfigWorkflows:
-		var w *model.Workflow
-		w, err = model.ParseWorkflow(content)
-		if err == nil && w.ID != m.Name {
-			err = errors.New("workflow id " + w.ID + " does not match file name " + m.Name)
-		}
+	case scanner.ConfigConfig:
+		_, _, err = model.ParseConfigFile(m.Name, content)
 	case scanner.ConfigScanner:
 		_, err = scanner.ParseConfig(content)
 	}

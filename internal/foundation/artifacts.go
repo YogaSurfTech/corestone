@@ -102,7 +102,7 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	eff := t.schemas.Effective(a.Type, folder)
+	eff := t.cfg.Effective(a.Type, folder)
 	if eff != nil && eff.Kind != a.Kind {
 		return model.Invalid("type %q describes %ss, not %ss", a.Type, eff.Kind, a.Kind)
 	}
@@ -174,14 +174,14 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 			if _, has := a.Workflows[wid]; has {
 				continue
 			}
-			def := t.workflows.Resolve(wid, folder)
+			def := t.cfg.Workflow(a.Type, wid, folder)
 			if def == nil {
 				return model.Invalid("schema %q assigns workflow %q which is not defined at %s", a.Type, wid, folderName(folder))
 			}
 			a.SetWorkflowState(wid, def.Initial)
 		}
 		for wid, st := range a.Workflows {
-			if def := t.workflows.Resolve(wid, folder); def != nil && !def.HasState(st) {
+			if def := t.cfg.Workflow(a.Type, wid, folder); def != nil && !def.HasState(st) {
 				return model.Invalid("workflow %q has no state %q", wid, st)
 			}
 		}

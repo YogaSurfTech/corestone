@@ -243,6 +243,7 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .config-warnings .title { font-weight: 600; color: var(--warn); margin-bottom: 4px; }
 .config-warnings .issue { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 3px 0; }
 .config-warnings .issue .mono { font-weight: 600; }
+.config-warnings .issue .ignored { color: var(--warn); font-weight: 600; }
 .config-warnings .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 14px; }
 .type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .type-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; background: var(--panel); }

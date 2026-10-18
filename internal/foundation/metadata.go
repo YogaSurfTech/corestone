@@ -57,7 +57,7 @@ func (f *Foundation) CreateLink(ctx context.Context, req *ojson.Object) (*View, 
 		} else if dup != "" {
 			return nil, fmt.Errorf("%w: link %s already exists (%s)", model.ErrConflict, typ, dup)
 		}
-		eff := t.schemas.Effective(typ, srcLoc.Folder)
+		eff := t.cfg.Effective(typ, srcLoc.Folder)
 		if eff != nil {
 			if eff.Kind != model.KindLink {
 				return nil, model.Invalid("type %q is not a link type", typ)
@@ -138,7 +138,7 @@ func (t *txn) validateLinkFields(a *model.Artifact, folder string) error {
 // validateTyped validates fields and initializes workflows for links and
 // comments (whose schemas are optional).
 func (t *txn) validateTyped(a *model.Artifact, folder string) error {
-	eff := t.schemas.Effective(a.Type, folder)
+	eff := t.cfg.Effective(a.Type, folder)
 	if eff == nil {
 		return nil
 	}
@@ -152,7 +152,7 @@ func (t *txn) validateTyped(a *model.Artifact, folder string) error {
 		if _, has := a.Workflows[wid]; has {
 			continue
 		}
-		def := t.workflows.Resolve(wid, folder)
+		def := t.cfg.Workflow(a.Type, wid, folder)
 		if def == nil {
 			return model.Invalid("schema %q assigns workflow %q which is not defined", a.Type, wid)
 		}
@@ -253,7 +253,7 @@ func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch
 		if err := checkETag(ifMatch, cur.ETag); err != nil {
 			return nil, err
 		}
-		eff := t.schemas.Effective(cur.Type, cur.Loc.Folder)
+		eff := t.cfg.Effective(cur.Type, cur.Loc.Folder)
 		if eff == nil {
 			return nil, model.Invalid("no schema defines type %q here, so it has no workflows", cur.Type)
 		}
@@ -266,7 +266,7 @@ func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch
 		if !assigned {
 			return nil, model.Invalid("workflow %q is not assigned to type %q", workflow, cur.Type)
 		}
-		def := t.workflows.Resolve(workflow, cur.Loc.Folder)
+		def := t.cfg.Workflow(cur.Type, workflow, cur.Loc.Folder)
 		if def == nil {
 			return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(cur.Loc.Folder))
 		}

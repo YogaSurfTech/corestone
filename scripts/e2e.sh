@@ -12,6 +12,12 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
 "$(dirname "$0")/../examples/seed.sh" "$BASE" >/dev/null
 
+# The seeded configuration is complete: no invalid files, no open references.
+curl -sfS "$API/repository" | py "d=json.load(sys.stdin); assert not d.get('invalidConfig'), d.get('invalidConfig')"
+# The task tracker cuts off the root's entry types but inherits links and comments.
+curl -sfS "$API/repository/types?path=corestone_tasks" | py "
+t=sorted(x['type'] for x in json.load(sys.stdin)['types']); assert t==['comment','implements','related','spec','task','verifies'], t"
+
 # Search finds the seeded requirement; field and state filters work.
 R1=$(curl -sfS "$API/repository/search?q=selling" | py "d=json.load(sys.stdin); assert d['total']==1, d; print(d['artifacts'][0]['guid'])")
 curl -sfS "$API/repository/search?state.dev=review&kind=entry" | py "assert json.load(sys.stdin)['total']==1"

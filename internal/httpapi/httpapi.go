@@ -99,14 +99,11 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/artifacts/{guid}/files/{name}", s.deleteFile)
 
 	// configuration
-	m.HandleFunc("GET /api/schemas", s.listSchemas)
+	m.HandleFunc("GET /api/config", s.getConfig)
+	m.HandleFunc("PUT /api/config", s.putConfig)
+	m.HandleFunc("DELETE /api/config", s.deleteConfig)
 	m.HandleFunc("GET /api/schemas/effective", s.effectiveSchema)
-	m.HandleFunc("PUT /api/schemas/{type}", s.putSchema)
-	m.HandleFunc("DELETE /api/schemas/{type}", s.deleteSchema)
-	m.HandleFunc("GET /api/workflows", s.listWorkflows)
 	m.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
-	m.HandleFunc("PUT /api/workflows/{id}", s.putWorkflow)
-	m.HandleFunc("DELETE /api/workflows/{id}", s.deleteWorkflow)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint")
@@ -712,14 +709,27 @@ func (s *Server) deleted(w http.ResponseWriter, r *http.Request) {
 
 // ---- configuration --------------------------------------------------------
 
-func (s *Server) listSchemas(w http.ResponseWriter, r *http.Request) {
+// getConfig lists a folder's configuration files (?scope=, ?all=true for
+// every folder), or returns one file with its ETag when ?path= is given.
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	files, err := s.F.SchemaFiles(r.Context(), q.Get("scope"), q.Get("scope") == "" && !boolParam(r, "rootOnly", false))
+	if rel := q.Get("path"); rel != "" {
+		data, sha, err := s.F.ConfigFile(r.Context(), q.Get("scope"), rel)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		setETag(w, sha)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+		return
+	}
+	files, err := s.F.ConfigFiles(r.Context(), q.Get("scope"), boolParam(r, "all", false))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"schemas": configOut(files)})
+	writeJSON(w, http.StatusOK, map[string]any{"files": configOut(files)})
 }
 
 func configOut(files []projection.ConfigRecord) []map[string]any {
@@ -747,65 +757,40 @@ func (s *Server) effectiveSchema(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, eff)
 }
 
-func (s *Server) putSchema(w http.ResponseWriter, r *http.Request) {
+func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 		return
 	}
-	sc, err := s.F.PutSchema(r.Context(), r.URL.Query().Get("scope"), r.PathValue("type"), data)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, sc)
-}
-
-func (s *Server) deleteSchema(w http.ResponseWriter, r *http.Request) {
-	if err := s.F.DeleteSchema(r.Context(), r.URL.Query().Get("scope"), r.PathValue("type")); err != nil {
-		fail(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	files, err := s.F.WorkflowFiles(r.Context(), q.Get("scope"), q.Get("scope") == "" && !boolParam(r, "rootOnly", false))
+	res, err := s.F.PutConfig(r.Context(), q.Get("scope"), q.Get("path"), data, ifMatch(r))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workflows": configOut(files)})
+	setETag(w, res.ETag)
+	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) deleteConfig(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	warnings, err := s.F.DeleteConfig(r.Context(), q.Get("scope"), q.Get("path"), ifMatch(r))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"warnings": warnings})
+}
+
+// getWorkflow resolves a workflow for an artifact type at a folder
+// (?type=&path=): workflows may be specific to a type.
 func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
-	wf, err := s.F.WorkflowDef(r.Context(), r.PathValue("id"), r.URL.Query().Get("path"))
+	q := r.URL.Query()
+	wf, err := s.F.WorkflowDef(r.Context(), q.Get("type"), r.PathValue("id"), q.Get("path"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, wf)
-}
-
-func (s *Server) putWorkflow(w http.ResponseWriter, r *http.Request) {
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
-	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
-		return
-	}
-	wf, err := s.F.PutWorkflow(r.Context(), r.URL.Query().Get("scope"), r.PathValue("id"), data)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, wf)
-}
-
-func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
-	if err := s.F.DeleteWorkflow(r.Context(), r.URL.Query().Get("scope"), r.PathValue("id")); err != nil {
-		fail(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

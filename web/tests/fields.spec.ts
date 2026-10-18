@@ -1,4 +1,4 @@
-import { test, expect, put, post, get, seedDomain, stamp, api } from "./fixtures";
+import { test, expect, post, get, seedDomain, stamp, api, addType } from "./fixtures";
 
 // Every generic field type through the schema-generated form, attachments,
 // and the reference pickers.
@@ -9,7 +9,7 @@ let target: { guid: string; title: string };
 
 test.beforeAll(async () => {
   await seedDomain(folder, "F" + id.slice(-3).toUpperCase());
-  await put(`/schemas/all?scope=${folder}`, { type: "all", displayName: "Everything", hid: { prefix: "ALL" },
+  await addType(folder, "entries", { id: "all", displayName: "Everything", hid: { prefix: "ALL" },
     fields: [
       { id: "flag", name: "Flag", type: "boolean" },
       { id: "count", name: "Count", type: "integer" },

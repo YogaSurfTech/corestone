@@ -60,7 +60,7 @@ func TestHostileInputsAreRejectedCleanly(t *testing.T) {
 	// Nothing hostile reached the repository.
 	head, _ := f.Repo.Head(ctx)
 	log, _ := f.Repo.Log(ctx, head, nil, 0)
-	if len(log) != 6 {
+	if len(log) != seedCommits {
 		t.Fatalf("hostile requests produced commits: %d", len(log))
 	}
 	// Attachment names cannot escape the GUID directory.
@@ -106,9 +106,7 @@ func TestValidationRaces(t *testing.T) {
 	f := open(t)
 	ctx := context.Background()
 	seed(t, f)
-	if _, err := f.PutSchema(ctx, "", "spouse", []byte(`{"type":"spouse","kind":"link","cardinality":"one-to-one"}`)); err != nil {
-		t.Fatal(err)
-	}
+	putConfig(t, f, "", "links/types.json", strings.Replace(linkTypes, `{"id":"related"}`, `{"id":"related"},{"id":"spouse","cardinality":"one-to-one"}`, 1))
 	a := create(t, f, model.KindEntry, `{"path":"r","type":"requirement","title":"A","fields":{"priority":"low"}}`)
 	b := create(t, f, model.KindEntry, `{"path":"r","type":"requirement","title":"B","fields":{"priority":"low"}}`)
 	c := create(t, f, model.KindEntry, `{"path":"r","type":"requirement","title":"C","fields":{"priority":"low"}}`)
@@ -244,8 +242,8 @@ func TestHostileRepositoryContent(t *testing.T) {
 		{Path: "bad/" + model.NewGUID() + "/.corestone.json", Content: []byte(`{"guid":"` + model.NewGUID() + `","kind":"link","type":"x","source":"` + ok.Meta.GUID + `","target":"` + ok.Meta.GUID + `"}`)},
 		{Path: "bad/.corestone/links/not-a-guid.json", Content: []byte(`{"guid":"` + model.NewGUID() + `","kind":"link","type":"related","source":"` + ok.Meta.GUID + `","target":"` + model.NewGUID() + `"}`)},
 		{Path: "bad/.corestone/comments/" + model.NewGUID() + ".json", Content: []byte(`{"guid":"` + model.NewGUID() + `","kind":"comment","subject":"` + model.NewGUID() + `","text":"orphan"}`)},
-		{Path: "bad/.corestone/schemas/requirement.json", Content: []byte(`{"type":"other"}`)},
-		{Path: "bad/.corestone/workflows/dev.json", Content: []byte(`{"id":"dev","states":[]}`)},
+		{Path: "bad/.corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"requirement","kind":"link"}]}`)},
+		{Path: "bad/.corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":[]}`)},
 		{Path: ".corestone/scanner.json", Content: []byte(`{"guid_files":["a/b"]}`)},
 		{Path: "huge/" + model.NewGUID() + "/.corestone.json", Content: []byte(`{"guid":"` + model.NewGUID() + `","kind":"entry","type":"t","title":"` + strings.Repeat("x", 2<<20) + `"}`)},
 		{Path: "bin/" + model.NewGUID() + "/.corestone.json", Content: []byte("\x00\x01\x02\xff\xfe")},
@@ -284,12 +282,12 @@ func TestHostileRepositoryContent(t *testing.T) {
 	}
 	paths := map[string]bool{}
 	for _, i := range st.InvalidConfig {
-		if i.Code != "invalid-config" || i.Message == "" {
+		if (i.Code != "invalid-config" && i.Code != "config-reference") || i.Message == "" {
 			t.Errorf("status config issue %+v", i)
 		}
 		paths[i.Path] = true
 	}
-	if len(st.InvalidConfig) != codes["invalid-config"] || !paths["bad/.corestone/schemas/requirement.json"] {
+	if len(st.InvalidConfig) != codes["invalid-config"]+codes["config-reference"] || !paths["bad/.corestone/config/entries/types.json"] {
 		t.Errorf("status invalid config %+v, validation found %d", st.InvalidConfig, codes["invalid-config"])
 	}
 	// Writes still work, and the live projection equals a rebuild.

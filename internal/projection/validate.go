@@ -17,8 +17,9 @@ type Issue struct {
 	Message  string `json:"message"`
 }
 
-// InvalidConfig lists the configuration files (schemas, workflows, ...) that
-// failed to parse or validate. They are ignored: composition skips them.
+// InvalidConfig lists configuration problems: files that failed to parse
+// or validate (errors; they are ignored) and references between files that
+// do not resolve (warnings).
 func (p *DB) InvalidConfig(ctx context.Context) ([]Issue, error) {
 	rows, err := p.sql.QueryContext(ctx, `SELECT path, error FROM config_files WHERE NOT valid ORDER BY path`)
 	if err != nil {
@@ -35,6 +36,13 @@ func (p *DB) InvalidConfig(ctx context.Context) ([]Issue, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, unavailable(err)
+	}
+	problems, err := p.ConfigProblems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range problems {
+		issues = append(issues, Issue{Severity: "warning", Code: "config-reference", Path: pr.Path, Message: pr.Message})
 	}
 	return issues, nil
 }
@@ -174,7 +182,7 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 	}
 
 	// workflow consistency
-	schemas, workflows, err := p.Config(ctx)
+	cfg, err := p.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +193,7 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 	for rows.Next() {
 		var g, path, typ, folder, statesJSON string
 		_ = rows.Scan(&g, &path, &typ, &folder, &statesJSON)
-		eff := schemas.Effective(typ, folder)
+		eff := cfg.Effective(typ, folder)
 		if eff == nil {
 			add("warning", "unknown-type", g, path, "no schema defines type \""+typ+"\" at this location")
 			continue
@@ -193,7 +201,7 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 		var states map[string]string
 		_ = json.Unmarshal([]byte(statesJSON), &states)
 		for _, wid := range eff.AllWorkflows() {
-			wf := workflows.Resolve(wid, folder)
+			wf := cfg.Workflow(typ, wid, folder)
 			if wf == nil {
 				add("warning", "unknown-workflow", g, path, "schema assigns workflow \""+wid+"\" which is not defined here")
 				continue
