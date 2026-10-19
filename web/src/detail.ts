@@ -1,7 +1,7 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
-import { navigate } from "./router";
+import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
 import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
@@ -46,8 +46,17 @@ export class Detail extends LitElement {
   private warnedEtag = "";
 
   override createRenderRoot() { return this; }
+  /** Asked by the router before leaving this artifact with unsaved changes. */
+  private leaveGuard: LeaveGuard = {
+    dirty: () => this.dirty,
+    save: async () => { await this.save(); return !this.dirty; },
+    discard: () => { if (this.view) this.resetDraft(); },
+    label: () => (this.view ? label(this.view.meta) : "This artifact"),
+  };
+
   override connectedCallback() {
     super.connectedCallback();
+    setLeaveGuard(this.leaveGuard);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.refreshTick !== this.lastTick) {
@@ -57,7 +66,7 @@ export class Detail extends LitElement {
       this.requestUpdate();
     });
   }
-  override disconnectedCallback() { this.unsub?.(); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.unsub?.(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
     if (changed.has("guid") && this.guid) { this.draft = null; this.reload(false); }
   }

@@ -2,7 +2,7 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api, ApiError } from "./api";
-import { navigate } from "./router";
+import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
@@ -40,15 +40,34 @@ export class DocumentView extends LitElement {
   private loadSeq = 0;
 
   override createRenderRoot() { return this; }
+  /** Asked by the router before leaving this document with unsaved changes. */
+  private leaveGuard: LeaveGuard = {
+    dirty: () => this.dirty,
+    save: async () => { await this.save(); return !this.dirty; },
+    discard: () => this.discard(),
+    label: () => (this.view ? label(this.view.meta) : "This document"),
+  };
+
+  /** Drops unsaved edits: title, blocks and fields go back to the stored version. */
+  private discard() {
+    if (!this.view) return;
+    const d = this.view.data as Record<string, unknown>;
+    this.docTitle = String(d.title ?? "");
+    this.blocks = structuredClone((d.content as Block[]) ?? []);
+    this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
+    if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
+  }
+
   override connectedCallback() {
     super.connectedCallback();
+    setLeaveGuard(this.leaveGuard);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.refreshTick !== this.lastTick) { this.lastTick = s.refreshTick; if (this.view) this.loadSide(); }
       this.requestUpdate();
     });
   }
-  override disconnectedCallback() { this.unsub?.(); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.unsub?.(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) { if (changed.has("guid") && this.guid) this.load(); }
 
   private get dirty(): boolean {

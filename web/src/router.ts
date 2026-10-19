@@ -42,8 +42,41 @@ export function routeToURL(r: Route): string {
   return path + (s ? "?" + s : "");
 }
 
-export function navigate(patch: Partial<Route>, replace = false) {
-  const next = { ...store.state.route, ...patch };
+/** An editor with unsaved changes, asked before the route leaves its artifact. */
+export interface LeaveGuard {
+  dirty(): boolean;
+  /** Saves; resolves true when the changes are stored. */
+  save(): Promise<boolean>;
+  discard(): void;
+  label(): string;
+}
+
+let guard: LeaveGuard | null = null;
+
+/** Registers the editor of the open artifact; null (or another editor) replaces it. */
+export function setLeaveGuard(g: LeaveGuard | null) {
+  guard = g;
+}
+export function clearLeaveGuard(g: LeaveGuard) {
+  if (guard === g) guard = null;
+}
+
+/** Asks what to do with unsaved changes; resolves true when the route may change. */
+async function mayLeave(): Promise<boolean> {
+  const g = guard;
+  if (!g || !g.dirty()) return true;
+  const choice = await new Promise<"save" | "discard" | "cancel">((resolve) => store.set({ dialog: {
+    kind: "confirm", title: "Unsaved changes", text: `${g.label()} has changes that are not saved yet.`,
+    confirmLabel: "Save", onConfirm: () => resolve("save"),
+    altLabel: "Discard changes", onAlt: () => resolve("discard"),
+    onCancel: () => resolve("cancel"),
+  } }));
+  if (choice === "save") return g.save();
+  if (choice === "discard") g.discard();
+  return choice === "discard";
+}
+
+function apply(next: Route, replace: boolean) {
   const url = routeToURL(next);
   if (url !== window.location.pathname + window.location.search) {
     if (replace) history.replaceState(null, "", url);
@@ -52,7 +85,26 @@ export function navigate(patch: Partial<Route>, replace = false) {
   store.setRoute(next);
 }
 
+export function navigate(patch: Partial<Route>, replace = false) {
+  const next = { ...store.state.route, ...patch };
+  if (next.guid === store.state.route.guid) return apply(next, replace);
+  // Leaving the open artifact: unsaved changes are saved, discarded or kept.
+  void mayLeave().then((ok) => { if (ok) apply(next, replace); });
+}
+
 export function installRouter() {
   store.setRoute(parseRoute());
-  window.addEventListener("popstate", () => store.setRoute(parseRoute()));
+  window.addEventListener("popstate", () => {
+    const next = parseRoute();
+    // Only unsaved changes interfere with the browser's history.
+    if (next.guid === store.state.route.guid || !guard?.dirty()) return store.setRoute(next);
+    // The browser has already moved: put the current page back while asking.
+    const here = store.state.route;
+    history.pushState(null, "", routeToURL(here));
+    void mayLeave().then((ok) => { if (ok) apply(next, false); });
+  });
+  // Closing or reloading the tab: the browser's own confirmation.
+  window.addEventListener("beforeunload", (e) => {
+    if (guard?.dirty()) e.preventDefault();
+  });
 }
