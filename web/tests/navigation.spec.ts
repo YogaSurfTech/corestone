@@ -188,6 +188,8 @@ test("theme choice in the name dialog: preview, cancel, persist", async ({ page 
   await page.reload();
   await expect(user).toBeVisible();
   expect(await theme()).toBe("auto");
+});
+
 test("invalid configuration files are announced and can be dismissed", async ({ page }) => {
   const issue = { severity: "error", code: "invalid-config", path: `${folder}/.corestone/schemas/broken.json`, message: "validation failed: schema is not valid JSON: invalid character" };
   await page.route("**/api/repository", async (route) => {
