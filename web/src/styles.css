@@ -1,48 +1,34 @@
 /* Corestone web client — one stylesheet, light DOM components. */
 :root {
+  /* Follows the system unless the user picked a theme (data-theme on <html>). */
   color-scheme: light dark;
-  --bg: #f6f7fb;
-  --panel: #ffffff;
-  --panel-2: #f0f2f8;
-  --border: #dfe3ee;
-  --text: #1c2130;
-  --muted: #6b7280;
-  --accent: #3b5bdb;
-  --accent-soft: #e7ecfb;
-  --accent-text: #ffffff;
-  --danger: #d6455d;
-  --danger-soft: #fbe6ea;
-  --ok: #1f9d55;
-  --ok-soft: #e3f5ea;
-  --warn: #b7791f;
-  --warn-soft: #fdf3dd;
-  --shadow: 0 8px 30px rgba(20, 30, 60, 0.12);
+  --bg: light-dark(#f6f7fb, #12151c);
+  --panel: light-dark(#ffffff, #1a1f29);
+  --panel-2: light-dark(#f0f2f8, #222835);
+  /* Editable fields sit deeper than the panel in dark mode; locked ones blend into it. */
+  --input-bg: light-dark(#ffffff, #0f1218);
+  --locked-bg: light-dark(#eef0f5, #1a1f29);
+  --border: light-dark(#dfe3ee, #2f3646);
+  --text: light-dark(#1c2130, #e7eaf1);
+  --muted: light-dark(#6b7280, #9aa3b5);
+  --accent: light-dark(#3b5bdb, #7b96ff);
+  --accent-soft: light-dark(#e7ecfb, #263050);
+  --accent-text: light-dark(#ffffff, #0e1220);
+  --danger: light-dark(#d6455d, #ff7b90);
+  --danger-soft: light-dark(#fbe6ea, #3d2229);
+  --ok: light-dark(#1f9d55, #5ccb8a);
+  --ok-soft: light-dark(#e3f5ea, #1f3a2b);
+  --warn: light-dark(#b7791f, #e8b657);
+  --warn-soft: light-dark(#fdf3dd, #3d3220);
+  --shadow: 0 8px 30px light-dark(rgba(20, 30, 60, 0.12), rgba(0, 0, 0, 0.5));
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --header-h: 52px;
   --nav-w: 288px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #12151c;
-    --panel: #1a1f29;
-    --panel-2: #222835;
-    --border: #2f3646;
-    --text: #e7eaf1;
-    --muted: #9aa3b5;
-    --accent: #7b96ff;
-    --accent-soft: #263050;
-    --accent-text: #0e1220;
-    --danger: #ff7b90;
-    --danger-soft: #3d2229;
-    --ok: #5ccb8a;
-    --ok-soft: #1f3a2b;
-    --warn: #e8b657;
-    --warn-soft: #3d3220;
-    --shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { font: 14px/1.45 var(--sans); color: var(--text); background: var(--bg); }
@@ -57,8 +43,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 corestone-app { display: block; height: 100%; }
 .shell { display: grid; grid-template-rows: var(--header-h) minmax(0, 1fr); grid-template-columns: var(--nav-w) minmax(0, 1fr); height: 100%; overflow: hidden; }
 .shell.nav-collapsed { grid-template-columns: 0 1fr; }
-.shell.nav-collapsed corestone-sidebar { display: none; }
-.header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.shell.nav-collapsed corestone-sidebar, .shell.nav-collapsed .nav-splitter { display: none; }
+.header { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .header .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: 0.2px; }
 .header .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
 .header .brand .logo::after { content: ""; width: 12px; height: 12px; border: 3px solid #fff; border-radius: 50%; }
@@ -70,8 +56,13 @@ corestone-app { display: block; height: 100%; }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }
 .dot.bad { background: var(--danger); }
-corestone-sidebar, .nav-scrim { grid-column: 1; }
-.main { grid-column: 2; display: grid; grid-template-rows: minmax(120px, var(--split, 38%)) 7px minmax(0, 1fr); min-height: 0; min-width: 0; }
+corestone-sidebar, .nav-scrim { grid-column: 1; grid-row: 2; }
+/* Overlays the sidebar's right border, sharing its grid cell. */
+.nav-splitter { grid-column: 1; grid-row: 2; justify-self: end; width: 7px; margin-right: -4px; z-index: 5; cursor: col-resize; touch-action: none; position: relative; }
+.nav-splitter:hover, .nav-splitter.dragging, .nav-splitter:focus-visible { background: var(--accent-soft); outline: none; }
+.nav-splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; }
+.nav-splitter:hover::after, .nav-splitter.dragging::after, .nav-splitter:focus-visible::after { background: var(--accent); }
+.main { grid-column: 2; grid-row: 2; display: grid; grid-template-rows: minmax(120px, var(--split, 38%)) 7px minmax(0, 1fr); min-height: 0; min-width: 0; }
 .main.expanded { grid-template-rows: 1fr; }
 .main.expanded corestone-overview { display: none; }
 .main.document { grid-template-rows: 1fr; }
@@ -147,7 +138,7 @@ th[aria-sort="descending"] .th-sort::after { content: " ▼"; font-size: 9px; co
 .btn.sm { padding: 3px 9px; font-size: 12.5px; }
 .btn.icon { padding: 5px 8px; }
 input[type=text], input[type=search], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=url], select, textarea {
-  border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
+  border: 1px solid var(--border); background: var(--input-bg); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
 }
 input:focus, select:focus, textarea:focus, .block[contenteditable]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 textarea { resize: vertical; min-height: 70px; }
@@ -158,6 +149,10 @@ textarea { resize: vertical; min-height: 70px; }
 .field .value { min-width: 0; }
 .field .help { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .field .inherited { font-size: 11.5px; color: var(--warn); margin-top: 2px; }
+.field .inherited.overridden, .field .inherited.undeclared { color: var(--muted); }
+.field.locked .value :is(input, select, textarea) { background: var(--locked-bg); color: var(--muted); cursor: not-allowed; }
+.field.locked .multi label, .field.locked .ref-chip { background: var(--locked-bg); color: var(--muted); cursor: not-allowed; }
+.field .inherited button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 .check { display: flex; align-items: center; gap: 8px; padding-top: 7px; }
 .multi { display: flex; flex-wrap: wrap; gap: 6px; }
 .multi label { display: inline-flex; gap: 4px; align-items: center; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
@@ -237,6 +232,18 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .block.h.l1 { font-size: 20px; margin-top: 14px; }
 .block.h.l2 { font-size: 17px; margin-top: 10px; }
 .block.h.l3 { font-size: 15px; margin-top: 6px; }
+.sec-head { display: flex; align-items: baseline; gap: 8px; }
+.sec-head .block.h { flex: 1; }
+.sec-head .sec-num { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
+.sec-head.l1 .sec-num { font-size: 20px; }
+.sec-head.l2 .sec-num { font-size: 17px; }
+.sec-head.l3 .sec-num { font-size: 15px; }
+.toc { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: var(--panel); }
+.toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.toc-head select { padding: 1px 4px; width: auto; }
+.toc-row { display: block; padding: 2px 0; color: var(--text); }
+.toc-row:hover { color: var(--accent); }
+.toc-row .num { display: inline-block; min-width: 3.2em; color: var(--muted); font-variant-numeric: tabular-nums; }
 .block.code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 8px 10px; border-radius: 6px; }
 .section-children { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 10px; margin-top: 4px; }
 .entry-card { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 4px 0; background: var(--panel-2); cursor: pointer; }
@@ -257,6 +264,15 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }
+.theme-choice { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.theme-choice .muted { margin-right: 4px; }
+.config-warnings { position: fixed; top: calc(var(--header-h) + 8px); left: 50%; transform: translateX(-50%); z-index: 45; width: min(760px, 94vw); max-height: 40vh; overflow: auto;
+  background: var(--warn-soft); border: 1px solid var(--warn); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 36px 10px 14px; font-size: 13px; }
+.config-warnings .title { font-weight: 600; color: var(--warn); margin-bottom: 4px; }
+.config-warnings .issue { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 3px 0; }
+.config-warnings .issue .mono { font-weight: 600; }
+.config-warnings .issue .ignored { color: var(--warn); font-weight: 600; }
+.config-warnings .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 14px; }
 .type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .type-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; background: var(--panel); }
 .type-card:hover { border-color: var(--accent); background: var(--accent-soft); }
@@ -289,6 +305,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-bottom-wid
   .shell:not(.nav-collapsed) corestone-sidebar { position: fixed; top: var(--header-h); bottom: 0; left: 0; width: min(320px, 90vw); z-index: 30; box-shadow: var(--shadow); }
   .shell:not(.nav-collapsed) .nav-scrim { display: block; position: fixed; top: var(--header-h); right: 0; bottom: 0; left: 0; z-index: 29; background: rgba(10, 14, 24, 0.35); }
   .shell.nav-collapsed corestone-sidebar { display: none; }
+  .nav-splitter { display: none; }
   .header .crumbs { display: none; }
   .header .status { display: none; }
   .toolbar .hint { display: none; }

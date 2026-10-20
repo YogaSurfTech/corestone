@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/thomdehoog/corestone/internal/gitx"
@@ -477,10 +476,9 @@ func (p *DB) FileIssues(ctx context.Context) ([]Issue, error) {
 // ---- configuration cache --------------------------------------------------
 
 type configCache struct {
-	hash      string
-	schemas   *model.SchemaIndex
-	workflows *model.WorkflowIndex
-	schemaSrc []model.ScopedSchema
+	hash     string
+	cfg      *model.ConfigIndex
+	problems []model.ConfigProblem // references that do not resolve
 }
 
 func (p *DB) invalidateCache() {
@@ -489,62 +487,65 @@ func (p *DB) invalidateCache() {
 	p.cacheMu.Unlock()
 }
 
-// Config returns the schema and workflow indexes for the current projection
-// state, cached per processed revision.
-func (p *DB) Config(ctx context.Context) (*model.SchemaIndex, *model.WorkflowIndex, error) {
+// Config returns the configuration index for the current projection state,
+// cached per processed revision.
+func (p *DB) Config(ctx context.Context) (*model.ConfigIndex, error) {
+	c, err := p.config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.cfg, nil
+}
+
+// ConfigProblems lists the configuration references that do not resolve
+// (dangling fields, enumerations and workflows, type ids used by several kinds).
+func (p *DB) ConfigProblems(ctx context.Context) ([]model.ConfigProblem, error) {
+	c, err := p.config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.problems, nil
+}
+
+func (p *DB) config(ctx context.Context) (*configCache, error) {
 	hash, err := p.ProcessedHash(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	p.cacheMu.Lock()
 	if p.cache != nil && p.cache.hash == hash {
 		c := p.cache
 		p.cacheMu.Unlock()
-		return c.schemas, c.workflows, nil
+		return c, nil
 	}
 	p.cacheMu.Unlock()
 	// The result is shared by every request; one client giving up must not
 	// abort (and thereby truncate) the query that fills it.
 	qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
-	rows, err := p.sql.QueryContext(qctx, `SELECT scope, category, name, data FROM config_files WHERE valid AND category IN ('schemas','workflows') ORDER BY scope, name`)
+	rows, err := p.sql.QueryContext(qctx, `SELECT scope, name, data FROM config_files WHERE valid AND category = 'config' ORDER BY scope, name`)
 	if err != nil {
-		return nil, nil, unavailable(err)
+		return nil, unavailable(err)
 	}
 	defer rows.Close()
-	var defs []model.ScopedSchema
-	wfs := map[string][]*model.Workflow{}
+	var files []model.ConfigFile
 	for rows.Next() {
-		var scope, cat, name string
-		var data []byte
-		if err := rows.Scan(&scope, &cat, &name, &data); err != nil {
-			return nil, nil, unavailable(err)
+		var f model.ConfigFile
+		if err := rows.Scan(&f.Scope, &f.Path, &f.Data); err != nil {
+			return nil, unavailable(err)
 		}
-		switch cat {
-		case scanner.ConfigSchemas:
-			s, err := model.ParseSchema(data)
-			if err != nil {
-				log.Printf("projection: schema %s/%s: %v", scope, name, err)
-				continue
-			}
-			defs = append(defs, model.ScopedSchema{Scope: scope, Schema: s})
-		case scanner.ConfigWorkflows:
-			w, err := model.ParseWorkflow(data)
-			if err != nil {
-				log.Printf("projection: workflow %s/%s: %v", scope, name, err)
-				continue
-			}
-			wfs[scope] = append(wfs[scope], w)
-		}
+		files = append(files, f)
 	}
 	if err := rows.Err(); err != nil {
 		// A partial configuration must never be cached: every later request
-		// would see schemas and workflows missing.
-		return nil, nil, unavailable(err)
+		// would see types and workflows missing.
+		return nil, unavailable(err)
 	}
-	c := &configCache{hash: hash, schemas: model.NewSchemaIndex(defs), workflows: model.NewWorkflowIndex(wfs), schemaSrc: defs}
+	// The rows are valid files, so there are no file problems here.
+	cfg, _ := model.NewConfigIndex(files)
+	c := &configCache{hash: hash, cfg: cfg, problems: cfg.Problems()}
 	p.cacheMu.Lock()
 	p.cache = c
 	p.cacheMu.Unlock()
-	return c.schemas, c.workflows, nil
+	return c, nil
 }

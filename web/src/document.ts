@@ -2,11 +2,11 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api, ApiError } from "./api";
-import { navigate } from "./router";
+import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, deepEqual, fmtTime, kindIcon, label, relTime, safeImageSrc } from "./util";
+import { blockId, commentTypeOf, deepEqual, fmtTime, kindIcon, label, relTime, safeImageSrc, undeclaredField } from "./util";
 import "./fields";
 
 // Document view (design guide §7.6, §9.5): a distraction-free editor of
@@ -31,6 +31,7 @@ export class DocumentView extends LitElement {
   @state() private error = "";
   @state() private rel: Relationships | null = null;
   @state() private comments: CommentView[] = [];
+  @state() private commentType: string | null = null;
   @state() private history: LogEntry[] = [];
   @state() private commentText = "";
   private entries = new Map<string, Summary | null>();
@@ -39,15 +40,34 @@ export class DocumentView extends LitElement {
   private loadSeq = 0;
 
   override createRenderRoot() { return this; }
+  /** Asked by the router before leaving this document with unsaved changes. */
+  private leaveGuard: LeaveGuard = {
+    dirty: () => this.dirty,
+    save: async () => { await this.save(); return !this.dirty; },
+    discard: () => this.discard(),
+    label: () => (this.view ? label(this.view.meta) : "This document"),
+  };
+
+  /** Drops unsaved edits: title, blocks and fields go back to the stored version. */
+  private discard() {
+    if (!this.view) return;
+    const d = this.view.data as Record<string, unknown>;
+    this.docTitle = String(d.title ?? "");
+    this.blocks = structuredClone((d.content as Block[]) ?? []);
+    this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
+    if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
+  }
+
   override connectedCallback() {
     super.connectedCallback();
+    setLeaveGuard(this.leaveGuard);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.refreshTick !== this.lastTick) { this.lastTick = s.refreshTick; if (this.view) this.loadSide(); }
       this.requestUpdate();
     });
   }
-  override disconnectedCallback() { this.unsub?.(); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.unsub?.(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) { if (changed.has("guid") && this.guid) this.load(); }
 
   private get dirty(): boolean {
@@ -69,7 +89,10 @@ export class DocumentView extends LitElement {
       this.docTitle = String(d.title ?? "");
       this.blocks = structuredClone((d.content as Block[]) ?? []);
       this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
-      this.schema = (await api.schemaOf(this.guid).catch(() => ({ schema: null }))).schema;
+      const [schema, types] = await Promise.all([api.schemaOf(this.guid).catch(() => ({ schema: null })), api.types(view.meta.folder).catch(() => ({ types: [] }))]);
+      if (seq !== this.loadSeq) return;
+      this.schema = schema.schema;
+      this.commentType = commentTypeOf(types.types);
       this.loadSide();
       this.resolveEntries();
     } catch (e) {
@@ -252,7 +275,8 @@ export class DocumentView extends LitElement {
     let body: TemplateResult;
     switch (b.type) {
       case "section":
-        body = html`${editable(`h l${Math.min(depth + 1, 3)}`, "title", "Section title")}
+        // the number is display-only: computed from the outline, never part of the title
+        body = html`<div class="sec-head l${Math.min(depth + 1, 3)}"><span class="sec-num" contenteditable="false">${this.sectionNumbers.get(b.id) ?? ""}</span>${editable(`h l${Math.min(depth + 1, 3)}`, "title", "Section title")}</div>
           <div class="section-children"><div class="blocks">${(b.children ?? []).map((c) => this.block(c, depth + 1))}</div>
           <button class="btn sm" style="margin:4px 0" @click=${() => { (b.children ??= []).push({ id: blockId(), type: "paragraph", text: "" }); this.touch(); }}>＋ paragraph in section</button></div>`;
         break;
@@ -264,6 +288,9 @@ export class DocumentView extends LitElement {
         break;
       case "list":
         body = html`<div class="blocks">${(b.items ?? []).map((c) => html`<div class="list-item">${this.block(c, depth + 1)}</div>`)}</div>`;
+        break;
+      case "toc":
+        body = this.toc(b);
         break;
       case "image":
         {
@@ -287,12 +314,62 @@ export class DocumentView extends LitElement {
     return html`<div class="block-wrap ${focused ? "focused" : ""}" data-block=${b.id} data-type=${b.type} @click=${() => (this.focused = b.id!)}>${handle}${body}</div>`;
   }
 
+  /** Section numbers by block id, as in the table of contents; refreshed on every render. */
+  private sectionNumbers = new Map<string, string>();
+
+  /** The numbered section outline (1, 1.1, 1.2, 2, …) down to maxLevel. */
+  private outline(maxLevel: number) {
+    const out: { id: string; title: string; num: string; level: number }[] = [];
+    const walk = (bs: Block[], level: number, prefix: string) => {
+      let n = 0;
+      for (const b of bs) {
+        if (b.type !== "section") continue;
+        b.id ??= blockId();
+        const num = prefix + ++n;
+        out.push({ id: b.id, title: b.title ?? "", num, level });
+        if (level < maxLevel) walk(b.children ?? [], level + 1, num + ".");
+      }
+    };
+    walk(this.blocks, 1, "");
+    return out;
+  }
+
+  /** A table of contents, generated from the sections on every render, so
+   *  it follows renames and moves; the block stores only its depth. */
+  private toc(b: Block): TemplateResult {
+    const rows = this.outline(b.depth ?? Infinity);
+    const levels = [1, 2, 3, 4, 5, 6];
+    if (b.depth && !levels.includes(b.depth)) levels.push(b.depth);
+    const setDepth = (e: Event) => {
+      const v = (e.target as HTMLSelectElement).value;
+      if (v) b.depth = Number(v); else delete b.depth;
+      this.touch();
+    };
+    const go = (e: Event, id: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.focused = id;
+      this.querySelector(`[data-block="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    return html`<nav class="toc" aria-label="Table of contents" contenteditable="false">
+      <div class="toc-head"><b>Contents</b>
+        <label class="muted small">Levels <select data-test="toc-depth" @change=${setDepth} @click=${(e: Event) => e.stopPropagation()}>
+          <option value="" ?selected=${!b.depth}>all</option>
+          ${levels.map((l) => html`<option value=${l} ?selected=${b.depth === l}>${l}</option>`)}
+        </select></label></div>
+      ${rows.length ? rows.map((r) => html`<a class="toc-row" href="#" data-target=${r.id} style=${`padding-left:${(r.level - 1) * 18}px`} @click=${(e: Event) => go(e, r.id)}>
+          <span class="num">${r.num}</span>${r.title || html`<span class="muted">Untitled section</span>`}</a>`)
+        : html`<div class="muted small">Add sections to fill the table of contents.</div>`}
+    </nav>`;
+  }
+
   override render() {
     if (!this.view) return html`<div class="empty-state">${this.error || "Loading…"}</div>`;
     const r = this.s.route;
     const v = this.view;
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     const after = this.focused;
+    this.sectionNumbers = new Map(this.outline(Infinity).map((r) => [r.id, r.num]));
     return html`
       <div class="doc-main">
         <div class="doc-toolbar">
@@ -306,6 +383,7 @@ export class DocumentView extends LitElement {
           <button class="btn sm" data-test="insert-entry" @click=${() => this.insertEntry(after)}>＋ Entry reference</button>
           <button class="btn sm" @click=${() => this.insertAfter(after, { type: "list", items: [{ id: blockId(), type: "paragraph", text: "" }] })}>＋ List</button>
           <button class="btn sm" @click=${() => this.insertAfter(after, { type: "code", text: "" })}>＋ Code</button>
+          <button class="btn sm" data-test="insert-toc" title="Table of contents, numbered and generated from the sections" @click=${() => this.insertAfter(after, { type: "toc" })}>＋ Contents</button>
           <button class="btn sm" @click=${() => store.prompt("Insert image", { text: "An attachment name of this document or an image URL.", placeholder: "diagram.png or https://…", confirmLabel: "Insert" }).then((src) => { if (src?.trim()) this.insertAfter(after, { type: "image", src: src.trim(), alt: "" }); })}>＋ Image</button>
           <span class="grow"></span>
           ${SIDEBARS.map(([id, name]) => html`<button class="chip ${r.sidebars.includes(id) ? "on" : ""}" data-test=${"sb-" + id}
@@ -330,8 +408,10 @@ export class DocumentView extends LitElement {
         return html`<h4>Document properties</h4>
           <dl class="kv"><dt>Type</dt><dd>${v.meta.type}</dd><dt>Folder</dt><dd>${v.meta.folder || "/"}</dd><dt>GUID</dt><dd class="mono small">${v.meta.guid}</dd><dt>Modified</dt><dd>${relTime(v.meta.modifiedAt)}</dd>
             ${Object.entries(v.meta.workflows ?? {}).map(([w, st]) => html`<dt>${w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
-          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []}
+          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type}
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; }}></corestone-field>`)}
+          ${Object.keys(this.fields).filter((k) => !this.schema?.fields?.some((f) => f.id === k)).map((k) => html`<corestone-field .field=${undeclaredField(k, this.fields[k])} .value=${this.fields[k]} undeclared
+            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; }}></corestone-field>`)}
           <button class="btn sm" style="margin-top:8px" @click=${() => navigate({ guid: this.guid, tab: "general" }, true)}>Open as artifact detail</button>`;
       case "entry": {
         const focusedBlock = this.focused ? this.locate(this.focused)?.list[this.locate(this.focused)!.index] : null;
@@ -346,8 +426,8 @@ export class DocumentView extends LitElement {
           ${this.rel?.incoming.map((l) => html`<div>← <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}`;
       case "comments":
         return html`<h4>Comments</h4>${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
-          <div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
-          <button class="btn sm primary" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>Post</button></div>`;
+          ${!this.commentType ? html`<div class="muted small">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
+          <button class="btn sm primary" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>Post</button></div>`}`;
       case "versions":
         return html`<h4>Versions</h4>${this.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
     }

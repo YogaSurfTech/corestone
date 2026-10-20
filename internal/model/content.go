@@ -1,12 +1,16 @@
 package model
 
 import (
+	"encoding/json"
+
 	"github.com/thomdehoog/corestone/internal/ojson"
 )
 
 // Document content is a tree of blocks (design guide §2.3.2): sections
 // carry a title and children; paragraphs carry text; entry blocks reference
-// reusable entries by GUID; images/media reference attachments or URLs.
+// reusable entries by GUID; images/media reference attachments or URLs; a
+// table of contents is generated from the section titles when shown, and
+// stores only how many section levels it lists ("depth", default all).
 const (
 	BlockSection   = "section"
 	BlockParagraph = "paragraph"
@@ -14,6 +18,7 @@ const (
 	BlockImage     = "image"
 	BlockList      = "list"
 	BlockCode      = "code"
+	BlockTOC       = "toc"
 )
 
 const (
@@ -62,6 +67,14 @@ func validateBlocks(blocks []any, depth int, count *int) error {
 		case BlockList:
 			if err := validateBlocks(b.Array("items"), depth+1, count); err != nil {
 				return err
+			}
+		case BlockTOC:
+			if v, ok := b.Get("depth"); ok {
+				n, isNum := v.(json.Number)
+				d, err := n.Int64()
+				if !isNum || err != nil || d < 1 || d > maxBlockDepth {
+					return Invalid("table of contents depth must be a whole number from 1 to %d", maxBlockDepth)
+				}
 			}
 		default:
 			return Invalid("unknown block type %q", b.String("type"))

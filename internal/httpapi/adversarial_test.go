@@ -25,7 +25,7 @@ func TestHTTPAbuse(t *testing.T) {
 	a.ok("POST", "/api/entries", `{"path":"x","type":"requirement","title":"T","fields":{"priority":"low"},"x":`+strings.Repeat("[", 100000)+strings.Repeat("]", 100000)+`}`, 400)
 	a.ok("POST", "/api/entries", "\xff\xfe{}", 400)
 	a.ok("PUT", "/api/artifacts/"+g+"/files/big.bin", strings.Repeat("x", 33<<20), 413)
-	a.ok("PUT", "/api/schemas/x", strings.Repeat("{", 5<<20), 413)
+	a.ok("PUT", "/api/config?path=entries/types.json", strings.Repeat("{", 5<<20), 413)
 
 	// query parameters with hostile values are harmless
 	for _, q := range []string{
@@ -44,7 +44,8 @@ func TestHTTPAbuse(t *testing.T) {
 	// path tricks
 	for _, p := range []string{
 		"/api/artifacts/" + g + "/files/..%2F..%2F.corestone.json", "/api/artifacts/" + g + "/files/%2e%2e", "/api/artifacts/" + g + "/files/.corestone.json",
-		"/api/schemas/%2e%2e%2fx", "/api/schemas/..", "/api/schemas/.hidden", "/api/workflows/a%2Fb", "/api/repository/hids/%00",
+		"/api/config?path=..%2Fentries%2Ftypes.json", "/api/config?path=entries%2F..%2F..%2Ftypes.json", "/api/config?scope=..&path=entries/types.json",
+		"/api/config?path=.hidden", "/api/workflows/a%2Fb", "/api/repository/hids/%00",
 	} {
 		res := a.do("GET", p, "")
 		if res.code != 400 && res.code != 404 {

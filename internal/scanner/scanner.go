@@ -81,12 +81,11 @@ func (c Category) String() string {
 
 // Well-known configuration categories handled by the foundation indexer.
 const (
-	ConfigSchemas   = "schemas"
-	ConfigWorkflows = "workflows"
-	ConfigLinks     = "links"
-	ConfigComments  = "comments"
-	ConfigScanner   = "scanner"
-	ConfigOther     = "other"
+	ConfigConfig   = "config" // the type system: <scope>/<config folder>/config/... (docs/CONFIGURATION.md)
+	ConfigLinks    = "links"
+	ConfigComments = "comments"
+	ConfigScanner  = "scanner"
+	ConfigOther    = "other"
 )
 
 // Match is the classification of one repository path.
@@ -95,9 +94,9 @@ type Match struct {
 	Path       string
 	Folder     string // artifacts: folder containing the GUID dir; config: scope folder
 	GUID       string // artifacts and attachments: the GUID directory name
-	Name       string // attachments: path inside the GUID dir; config: file name without .json
+	Name       string // attachments: path inside the GUID dir; config: file name without .json, or the path below config/
 	ConfigDir  string // config: which configured folder matched
-	ConfigKind string // config: schemas | workflows | links | comments | scanner | other
+	ConfigKind string // config: config | links | comments | scanner | other
 	Indexer    string // which indexer accepted the path
 }
 
@@ -109,7 +108,7 @@ type Indexer interface {
 }
 
 // Foundation is the built-in indexer for entries, documents, links,
-// comments, schemas and workflow definitions.
+// comments and the configuration files of the type system.
 type Foundation struct{}
 
 func (Foundation) Name() string { return "foundation" }
@@ -120,7 +119,7 @@ func (Foundation) Accept(m Match) bool {
 		return true
 	case ConfigFile:
 		switch m.ConfigKind {
-		case ConfigSchemas, ConfigWorkflows, ConfigLinks, ConfigComments, ConfigScanner:
+		case ConfigConfig, ConfigLinks, ConfigComments, ConfigScanner:
 			return true
 		}
 	}
@@ -173,6 +172,8 @@ func (s *Scanner) Classify(p string) Match {
 			switch {
 			case len(rest) == 1 && rest[0] == "scanner.json" && m.Folder == "":
 				m.ConfigKind, m.Name = ConfigScanner, "scanner"
+			case len(rest) >= 2 && rest[0] == ConfigConfig:
+				m.ConfigKind, m.Name = ConfigConfig, strings.Join(rest[1:], "/")
 			case len(rest) == 2 && strings.HasSuffix(rest[1], ".json") && isKnownConfigKind(rest[0]):
 				m.ConfigKind, m.Name = rest[0], strings.TrimSuffix(rest[1], ".json")
 			default:
@@ -233,7 +234,7 @@ func (s *Scanner) isGUIDFile(name string) bool {
 
 func isKnownConfigKind(k string) bool {
 	switch k {
-	case ConfigSchemas, ConfigWorkflows, ConfigLinks, ConfigComments:
+	case ConfigLinks, ConfigComments:
 		return true
 	}
 	return false

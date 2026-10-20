@@ -70,6 +70,7 @@ export const api = {
   search: (params: { q?: string; kind?: string; type?: string; path?: string; subtree?: boolean; limit?: number; [k: string]: string | number | boolean | undefined }) =>
     request<{ artifacts: Summary[]; total: number }>("GET", "/repository/search" + q(params)),
   types: (path: string) => request<{ types: Schema[] }>("GET", "/repository/types" + q({ path })),
+  values: (type: string, field: string, path = "") => request<{ values: { value: string; count: number }[] }>("GET", "/repository/values" + q({ type, field, path })),
   validate: () => request<{ issues: Issue[]; errors: number; warnings: number }>("GET", "/repository/validate"),
   reindex: () => request<{ started: boolean }>("POST", "/repository/reindex"),
   moveFolder: (from: string, to: string) => request<{ moved: number }>("POST", "/repository/folders/move", { from, to }),
@@ -97,11 +98,7 @@ export const api = {
   fileUrl: (guid: string, name: string) => `/api/artifacts/${guid}/files/${encodeURIComponent(name)}`,
 
   effectiveSchema: (type: string, path: string) => request<Schema>("GET", "/schemas/effective" + q({ type, path })),
-  schemas: () => request<{ schemas: { path: string; scope: string; name: string; valid: boolean; error?: string; definition?: Schema }[] }>("GET", "/schemas"),
-  putSchema: (type: string, scope: string, def: unknown) => request<Schema>("PUT", `/schemas/${encodeURIComponent(type)}` + q({ scope }), def),
-  workflowDef: (id: string, path: string) => request<Workflow>("GET", `/workflows/${encodeURIComponent(id)}` + q({ path })),
-  workflowFiles: () => request<{ workflows: { path: string; scope: string; name: string; valid: boolean; definition?: Workflow }[] }>("GET", "/workflows"),
-  putWorkflow: (id: string, scope: string, def: unknown) => request<Workflow>("PUT", `/workflows/${encodeURIComponent(id)}` + q({ scope }), def),
+  workflowDef: (id: string, type: string, path: string) => request<Workflow>("GET", `/workflows/${encodeURIComponent(id)}` + q({ type, path })),
 };
 
 export type { Attachment };

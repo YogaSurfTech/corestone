@@ -59,8 +59,11 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	ctx := context.Background()
 	g1, g2, l1, c1 := model.NewGUID(), model.NewGUID(), model.NewGUID(), model.NewGUID()
 
-	commit(t, repo, "schema", gitx.Op{Path: ".corestone/schemas/req.json", Content: []byte(`{"type":"req","hid":{"prefix":"REQ"},"fields":[{"id":"prio","type":"text"}],"workflows":["dev"]}`)},
-		gitx.Op{Path: ".corestone/workflows/dev.json", Content: []byte(`{"id":"dev","states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)},
+	commit(t, repo, "config", gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"REQ"},"fields":["prio"],"workflows":["dev"]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"text"}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)},
+		gitx.Op{Path: ".corestone/config/links/types.json", Content: []byte(`{"types":[{"id":"refines"}]}`)},
+		gitx.Op{Path: ".corestone/config/comments/types.json", Content: []byte(`{"types":[{"id":"comment"}]}`)},
 		gitx.Op{Path: "README.md", Content: []byte("ignored")})
 	commit(t, repo, "e1", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-1", `"fields":{"prio":"high","n":2},"workflows":{"dev":"open"}`)},
 		gitx.Op{Path: "specs/a/" + g1 + "/notes.txt", Content: []byte("attachment")})
@@ -186,9 +189,9 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	if len(res) != 1 || res[0].Kind != model.KindLink { // only the link lives directly in specs
 		t.Fatalf("exact folder %+v", res)
 	}
-	schemas, workflows, err := p.Config(ctx)
-	if err != nil || schemas.Effective("req", "x") == nil || workflows.Resolve("dev", "x") == nil {
-		t.Fatal("config indexes")
+	cfg, err := p.Config(ctx)
+	if err != nil || cfg.Effective("req", "x") == nil || cfg.Workflow("req", "dev", "x") == nil {
+		t.Fatal("config index")
 	}
 	issues, err := p.Validate(ctx)
 	if err != nil {
@@ -200,7 +203,7 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 		}
 	}
 	st, _ := p.Stats(ctx)
-	if st.Artifacts["entry"] != 2 || st.Artifacts["link"] != 1 || st.Deleted != 1 || st.Schemas != 1 {
+	if st.Artifacts["entry"] != 2 || st.Artifacts["link"] != 1 || st.Deleted != 1 || st.Schemas != 3 { // req, refines, comment
 		t.Fatalf("stats %+v", st)
 	}
 }
@@ -213,7 +216,8 @@ func TestHostileFilesNeverWedgeProjection(t *testing.T) {
 	commit(t, repo, "hostile",
 		gitx.Op{Path: "a/" + g + "/.corestone.json", Content: []byte(`{"guid":"` + g + `","kind":"entry","type":"t","title":"nul\u0000here","fields":{"big":"` + big + `","weird":"\u0000"}}`)},
 		gitx.Op{Path: "a/" + model.NewGUID() + "/.corestone.json", Content: []byte(`not json at all`)},
-		gitx.Op{Path: ".corestone/schemas/bad.json", Content: []byte(`{"type":"other"}`)},
+		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"a"},{"id":"a"}]}`)},
+		gitx.Op{Path: ".corestone/schemas/old.json", Content: []byte(`{"type":"other"}`)}, // the old layout is not read at all
 		gitx.Op{Path: ".corestone/links/" + model.NewGUID() + ".json", Content: []byte(`{"guid":"nope"}`)},
 	)
 	if err := p.Sync(ctx); err != nil {
@@ -306,26 +310,26 @@ func TestConfigCacheSurvivesCancelledRequest(t *testing.T) {
 	p, repo := testDB(t)
 	ctx := context.Background()
 	commit(t, repo, "config",
-		gitx.Op{Path: ".corestone/schemas/req.json", Content: []byte(`{"type":"req","hid":{"prefix":"R"}}`)},
-		gitx.Op{Path: ".corestone/workflows/dev.json", Content: []byte(`{"id":"dev","initial":"open","states":["open"]}`)})
+		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"R"},"workflows":["dev"]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"initial":"open","states":["open"]}`)})
 	if err := p.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if schemas, _, err := p.Config(cancelled); err != nil {
+	if cfg, err := p.Config(cancelled); err != nil {
 		t.Logf("cancelled config load: %v", err) // failing is fine; caching a truncated result is not
-	} else if schemas.Effective("req", "") == nil {
+	} else if cfg.Effective("req", "") == nil {
 		t.Fatal("cancelled config load returned an incomplete result")
 	}
-	schemas, workflows, err := p.Config(ctx)
+	cfg, err := p.Config(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if schemas.Effective("req", "") == nil {
+	if cfg.Effective("req", "") == nil {
 		t.Fatal("schema missing after a cancelled request: the cache was poisoned")
 	}
-	if workflows == nil {
-		t.Fatal("nil workflow index")
+	if cfg.Workflow("req", "dev", "") == nil {
+		t.Fatal("workflow missing after a cancelled request")
 	}
 }

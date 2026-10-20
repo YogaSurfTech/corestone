@@ -50,22 +50,24 @@ func TestCleanFolder(t *testing.T) {
 	}
 }
 
-func mustSchema(t *testing.T, s string) *Schema {
-	t.Helper()
-	sc, err := ParseSchema([]byte(s))
-	if err != nil {
-		t.Fatalf("%s: %v", s, err)
-	}
-	return sc
-}
-
 func TestSchemaComposition(t *testing.T) {
-	root := mustSchema(t, `{"type":"req","displayName":"Requirement","hid":{"prefix":"REQ"},
-	  "fields":[{"id":"prio","name":"Priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},
-	            {"id":"owner","type":"text"}],"workflows":["dev"],"presentation":{"icon":"a","color":"red"},"x-custom":1}`)
-	team := mustSchema(t, `{"type":"req","fields":[{"id":"prio","name":"Prio","type":"enum","options":[{"value":"p1"}]},
-	  {"id":"cost","type":"currency","currency":"EUR"}],"workflows":["publish"],"presentation":{"icon":"b"}}`)
-	idx := NewSchemaIndex([]ScopedSchema{{Scope: "", Schema: root}, {Scope: "teams/a", Schema: team}})
+	base := map[string]string{
+		"|entries/types.json": `{"types":[{"id":"req","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		  "presentation":{"icon":"a","color":"red"},"x-custom":1}]}`,
+		"|entries/req-fields.json": `{"fields":[{"id":"prio","name":"Priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},
+		  {"id":"owner","type":"text"}]}`,
+	}
+	team := map[string]string{
+		"entries/types.json":      `{"types":[{"id":"req","workflows":["publish"],"presentation":{"icon":"b"}}]}`,
+		"entries/req-fields.json": `{"fields":[{"id":"prio","name":"Prio","type":"enum","options":[{"value":"p1"}]},{"id":"cost","type":"currency","currency":"EUR"}]}`,
+	}
+	with := func(scope string, m map[string]string) {
+		for k, v := range m {
+			base[scope+"|"+k] = v
+		}
+	}
+	with("teams/a", team)
+	idx := mustIndex(t, base)
 
 	eff := idx.Effective("req", "teams/a/sub")
 	if eff == nil || eff.DisplayName != "Requirement" || eff.HID.Prefix != "REQ" {
@@ -93,10 +95,13 @@ func TestSchemaComposition(t *testing.T) {
 	if r := idx.Effective("req", ""); fieldIDs(r) != "prio,owner" {
 		t.Fatal("root leaks subtree definitions")
 	}
-	// inheritance off severs everything above.
-	sev := mustSchema(t, `{"type":"req","inheritance":"off","fields":[{"id":"only","type":"text"}]}`)
-	idx2 := NewSchemaIndex([]ScopedSchema{{Scope: "", Schema: root}, {Scope: "iso", Schema: sev}, {Scope: "iso/deep", Schema: team}})
-	e2 := idx2.Effective("req", "iso/deep/x")
+	// A kind's inheritance switch severs everything above.
+	with("iso", map[string]string{
+		"entries/types.json":      `{"inheritance":"off","types":[{"id":"req"}]}`,
+		"entries/req-fields.json": `{"fields":[{"id":"only","type":"text"}]}`,
+	})
+	with("iso/deep", team)
+	e2 := mustIndex(t, base).Effective("req", "iso/deep/x")
 	if fieldIDs(e2) != "only,prio,cost" || e2.HID != nil || len(e2.Sources) != 2 {
 		t.Fatalf("severed: %s hid=%v sources=%v", fieldIDs(e2), e2.HID, e2.Sources)
 	}
@@ -118,11 +123,11 @@ func fieldIDs(s *Schema) string {
 }
 
 func TestLinkSchemas(t *testing.T) {
-	req := mustSchema(t, `{"type":"req"}`)
-	tc := mustSchema(t, `{"type":"tc"}`)
-	ver := mustSchema(t, `{"type":"verifies","kind":"link","sourceTypes":["tc"],"targetTypes":["req"],"cardinality":"many-to-one"}`)
-	any_ := mustSchema(t, `{"type":"related","kind":"link"}`)
-	idx := NewSchemaIndex([]ScopedSchema{{"", req}, {"", tc}, {"", ver}, {"", any_}})
+	idx := mustIndex(t, map[string]string{
+		"|entries/types.json": `{"types":[{"id":"req"},{"id":"tc"}]}`,
+		"|links/types.json": `{"types":[{"id":"verifies","sourceTypes":["tc"],"targetTypes":["req"],"cardinality":"many-to-one"},
+		  {"id":"related"}]}`,
+	})
 	src, tgt := idx.LinkTypesFor("req", "x")
 	if len(src) != 1 || src[0].Type != "related" || len(tgt) != 2 {
 		t.Fatalf("link types for req: %d %d", len(src), len(tgt))
@@ -207,13 +212,6 @@ func TestWorkflow(t *testing.T) {
 			t.Errorf("accepted %s", bad)
 		}
 	}
-	idx := NewWorkflowIndex(map[string][]*Workflow{"": {w}, "a": {{ID: "dev", Initial: "x", States: []State{{ID: "x"}}}}})
-	if idx.Resolve("dev", "a/b").Initial != "x" || idx.Resolve("dev", "b").Initial != "open" || idx.Resolve("nope", "") != nil {
-		t.Fatal("lexical workflow resolution")
-	}
-	if idx.Resolve("dev", "a").Scope != "a" {
-		t.Fatal("scope not recorded")
-	}
 }
 
 func TestArtifactAndOverlay(t *testing.T) {
@@ -293,7 +291,7 @@ func TestArtifactAndOverlay(t *testing.T) {
 
 func TestContent(t *testing.T) {
 	g := NewGUID()
-	blocks, _ := ojson.Parse([]byte(`[{"type":"section","title":"S","children":[{"type":"paragraph","text":"hello"},{"type":"entry","guid":"` + g + `"},{"type":"list","items":[{"type":"paragraph","text":"item"}]}]}]`))
+	blocks, _ := ojson.Parse([]byte(`[{"type":"toc"},{"type":"toc","depth":2},{"type":"section","title":"S","children":[{"type":"paragraph","text":"hello"},{"type":"entry","guid":"` + g + `"},{"type":"list","items":[{"type":"paragraph","text":"item"}]}]}]`))
 	if err := ValidateContent(blocks.([]any)); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +301,8 @@ func TestContent(t *testing.T) {
 	if txt := ContentText(blocks.([]any)); !strings.Contains(txt, "hello") || !strings.Contains(txt, "item") || !strings.Contains(txt, "S") {
 		t.Fatalf("text %q", txt)
 	}
-	for _, bad := range []string{`[{"type":"blob"}]`, `[{"type":"entry","guid":"x"}]`, `[1]`, `[{"type":"paragraph","text":5}]`, `[{"type":"image"}]`} {
+	for _, bad := range []string{`[{"type":"blob"}]`, `[{"type":"entry","guid":"x"}]`, `[1]`, `[{"type":"paragraph","text":5}]`, `[{"type":"image"}]`,
+		`[{"type":"toc","depth":0}]`, `[{"type":"toc","depth":1.5}]`, `[{"type":"toc","depth":"2"}]`, `[{"type":"toc","depth":99}]`} {
 		v, _ := ojson.Parse([]byte(bad))
 		if err := ValidateContent(v.([]any)); err == nil {
 			t.Errorf("accepted %s", bad)

@@ -35,12 +35,15 @@ native artifact kinds and nothing about any business domain:
 
 Everything domain-specific lives in JSON configuration inside the repository:
 
-- **Schemas** (`<scope>/.corestone/schemas/<type>.json`) define artifact types — fields with the
-  Foundation's generic field types, HID generation, workflow assignments, link-type endpoint rules
-  and cardinality, presentation hints. Schemas compose **lexically** from the repository root to the
-  artifact: nearer definitions refine or replace, `"inheritance": "off"` severs everything above.
-- **Workflows** (`<scope>/.corestone/workflows/<id>.json`) are state machines; an artifact can be in
-  several at once, each with its own state.
+- **The type system** lives in `<scope>/.corestone/config/`, with one directory per kind
+  (`entries/`, `documents/`, `links/`, `comments/`): `types.json` defines the kind's types (HID
+  generation, workflow assignments, link-type endpoint rules and cardinality, presentation hints),
+  `fields.json` and `<type>-fields.json` the fields with the Foundation's generic field types,
+  `enums/` the enumerations and `workflows/` the state machines — an artifact can be in several
+  workflows at once. Definitions resolve **lexically**, nearest folder first; a kind's
+  `types.json` can set `"inheritance": "off"` to give a subtree its own type system for that kind.
+  The server **enforces** it: types and fields must be defined where an artifact lives. See
+  [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 - **Scanner configuration** (`.corestone/scanner.json`) tells the repository scanner which markers to
   look for (GUID files, configuration folders, indexers), so applications can extend the format.
 
@@ -133,6 +136,7 @@ GET  /api/repository                      head, projection status, statistics, s
 GET  /api/repository/tree?path=&subtree=  folders and artifacts
 GET  /api/repository/search?q=&kind=&type=&path=&subtree=&hid=&field.<id>=&state.<wf>=&sort=&limit=&offset=
 GET  /api/repository/types?path=          effective schemas visible at a folder
+GET  /api/repository/values?type=&field=&path=   field values in use, most frequent first
 GET  /api/repository/validate             repository invariants: dangling refs, duplicate HIDs, cycles, misplaced metadata, …
 POST /api/repository/reindex              full phased rebuild (202; progress in status and over WebSocket)
 POST /api/repository/folders/move         {from, to} — moves artifacts, attachments, configuration and metadata
@@ -141,8 +145,9 @@ GET  /api/repository/hids/{hid}           current and historical owners of a HID
 GET  /api/repository/deleted?guid=        deleted artifacts with their deletion commit
 GET  /api/artifacts/{guid}/schema | overlay | workflows | relationships | comments | history
 POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifacts/{guid}/move  {path}
-GET  /api/schemas | /api/schemas/effective?type=&path= | PUT DELETE /api/schemas/{type}?scope=
-GET  /api/workflows | GET /api/workflows/{id}?path=       | PUT DELETE /api/workflows/{id}?scope=
+GET  /api/config?scope=[&path=]           a folder's configuration files, or one file (ETag)
+PUT  DELETE /api/config?scope=&path=      write or remove a file (If-Match); returns unresolved references as warnings
+GET  /api/schemas/effective?type=&path=   the composed type    GET /api/workflows/{id}?type=&path=   a resolved workflow
 WS   /api/ws                              session service: commits, status, presence
 ```
 

@@ -153,14 +153,67 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await ctx.close();
 });
 
+test("theme choice in the name dialog: preview, cancel, persist", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(`/folder/${folder}`);
+  const bgSum = async () => (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).match(/\d+/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0);
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? "auto");
+  const user = page.locator("header button[title='Your name and theme']");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // choosing previews right away; Cancel restores the previous theme
+  await user.click();
+  await expect(page.locator(".dialog [data-theme-choice=auto]")).toHaveAttribute("aria-checked", "true");
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  expect(await theme()).toBe("auto");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // Save keeps it, across reloads
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  // a forced light theme wins over a dark system; Auto follows the system again
+  await page.emulateMedia({ colorScheme: "dark" });
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=light]").click();
+  expect(await bgSum()).toBeGreaterThan(600);
+  await page.locator(".dialog [data-theme-choice=auto]").click();
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("auto");
+});
+
+test("invalid configuration files are announced and can be dismissed", async ({ page }) => {
+  const issue = { severity: "error", code: "invalid-config", path: `${folder}/.corestone/config/entries/types.json`, message: "validation failed: schema is not valid JSON: invalid character" };
+  await page.route("**/api/repository", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), invalidConfig: [issue] } });
+  });
+  await page.goto(`/folder/${folder}`);
+  const banner = page.locator("[data-test=config-warnings]");
+  await expect(banner).toContainText("A configuration problem");
+  await expect(banner).toContainText(issue.path);
+  await expect(banner).toContainText("not valid JSON");
+  await expect(banner).toContainText("this file is ignored");
+  await banner.getByRole("button", { name: "Dismiss" }).click();
+  await expect(banner).toHaveCount(0);
+});
+
 test("status indicator, user name and reindex", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await expect(page.locator("header .status")).toContainText("in sync", { timeout: 20000 });
-  await page.locator("header button[title='Set your name']").click();
+  await page.locator("header button[title='Your name and theme']").click();
   await answerPrompt(page, "Zoë");
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   await page.reload();
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   const before = (await get<{ projection: { lastRebuild?: string } }>("/repository")).projection.lastRebuild ?? "";
   await page.locator("header button", { hasText: "Reindex" }).click();
   await expect(page.locator(".toast", { hasText: "Reindex started" })).toBeVisible();
@@ -203,6 +256,31 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
+});
+
+test("the folder navigation edge can be dragged, keyed, reset, and is remembered", async ({ page }) => {
+  await page.goto(`/folder/${folder}`);
+  const nav = page.locator("corestone-sidebar");
+  const bar = page.locator("[data-test=nav-splitter]");
+  const width = async () => (await nav.boundingBox())!.width;
+  const initial = await width();
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + 3, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 123, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeGreaterThan(initial + 100);
+  const dragged = await width();
+  await page.reload();
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await bar.focus();
+  await page.keyboard.press("ArrowLeft");
+  expect(await width()).toBeLessThan(dragged);
+  await bar.dblclick();
+  await expect.poll(width).toBeCloseTo(initial, -1);
+  // hidden with the navigation
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await expect(bar).toBeHidden();
 });
 
 test("table headers sort ascending and descending, columns resize, and both are remembered", async ({ page }) => {

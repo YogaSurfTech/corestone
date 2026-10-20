@@ -3,7 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
-import type { Schema, Summary } from "./types";
+import type { Kind, Schema, Summary } from "./types";
 import { kindIcon, relTime } from "./util";
 
 // Artifact overview (design guide §7.4): every artifact matching the
@@ -290,12 +290,13 @@ export class Overview extends LitElement {
   private newMenu() {
     const r = this.s.route;
     const open = (opts: Record<string, unknown>) => { this.menu = false; store.set({ dialog: { kind: "new", folder: r.folder, ...opts } }); };
+    // Only the kinds that have types here: a kind without types is not available in this folder.
+    const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
+    const items: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
     return html`<div class="menu" @click=${(e: Event) => e.stopPropagation()}>
       <div class="group">in ${r.folder || "/"}</div>
-      <button class="item" data-test="new-entry" @click=${() => open({ kinds: ["entry"] })}>Entry…</button>
-      <button class="item" data-test="new-document" @click=${() => open({ kinds: ["document"] })}>Document…</button>
-      <button class="item" data-test="new-link" @click=${() => open({ kinds: ["link"] })}>Link between artifacts…</button>
-      <button class="item" data-test="new-comment" @click=${() => open({ kinds: ["comment"] })}>Comment…</button>
+      ${items.filter(([k]) => kinds.has(k)).map(([k, test, name]) => html`<button class="item" data-test=${test} @click=${() => open({ kinds: [k] })}>${name}</button>`)}
+      ${kinds.size ? nothing : html`<div class="item muted" data-test="no-types">No types are defined in this folder.</div>`}
       <div class="group">any</div>
       <button class="item" data-test="new-any" @click=${() => open({})}>Choose a type…</button>
     </div>`;

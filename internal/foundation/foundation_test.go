@@ -35,25 +35,40 @@ func obj(t *testing.T, s string) *ojson.Object {
 	return o
 }
 
+// linkTypes is the root links/types.json of the test domain.
+const linkTypes = `{"types":[
+	{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-one","fields":["coverage"]},
+	{"id":"related"}]}`
+
+// seedCommits is the number of commits seed makes (one per file).
+const seedCommits = 8
+
 func seed(t *testing.T, f *Foundation) {
 	t.Helper()
-	ctx := context.Background()
-	must := func(_ any, err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatal(err)
-		}
+	put := func(rel, body string) { putConfig(t, f, "", rel, body) }
+	put("entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],
+		"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"},{"from":"review","to":"open"}]}`)
+	put("entries/enums/priority-enum.json", `{"options":[{"value":"low"},{"value":"medium"},{"value":"high"}]}`)
+	put("entries/fields.json", `{"fields":[{"id":"priority","name":"Priority","type":"enum","enum":"priority"},
+		{"id":"rationale","type":"multiline"},{"id":"effort","type":"integer"},{"id":"owner","type":"reference"},{"id":"spec","type":"hyperlink"}]}`)
+	put("entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		 "fields":[{"id":"priority","required":true},"rationale","effort","owner","spec"]},
+		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
+	put("documents/types.json", `{"types":[{"id":"spec","hid":{"prefix":"SPEC"}}]}`)
+	put("links/fields.json", `{"fields":[{"id":"coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}`)
+	put("links/types.json", linkTypes)
+	put("comments/types.json", `{"types":[{"id":"comment"}]}`)
+}
+
+// putConfig stores a configuration file and fails the test on errors.
+func putConfig(t *testing.T, f *Foundation, scope, rel, body string) *ConfigWrite {
+	t.Helper()
+	res, err := f.PutConfig(context.Background(), scope, rel, []byte(body), "")
+	if err != nil {
+		t.Fatalf("%s/%s: %v", scope, rel, err)
 	}
-	must(f.PutWorkflow(ctx, "", "dev", []byte(`{"id":"dev","initial":"open","states":["open","review","done"],
-		"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"},{"from":"review","to":"open"}]}`)))
-	must(f.PutSchema(ctx, "", "requirement", []byte(`{"type":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		"fields":[{"id":"priority","name":"Priority","type":"enum","required":true,"options":[{"value":"low"},{"value":"medium"},{"value":"high"}]},
-		          {"id":"rationale","type":"multiline"},{"id":"effort","type":"integer"},{"id":"owner","type":"reference"},{"id":"spec","type":"hyperlink"}]}`)))
-	must(f.PutSchema(ctx, "", "testcase", []byte(`{"type":"testcase","hid":{"prefix":"TC","digits":3}}`)))
-	must(f.PutSchema(ctx, "", "spec", []byte(`{"type":"spec","kind":"document","hid":{"prefix":"SPEC"}}`)))
-	must(f.PutSchema(ctx, "", "verifies", []byte(`{"type":"verifies","kind":"link","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-one",
-		"fields":[{"id":"coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}`)))
-	must(f.PutSchema(ctx, "", "related", []byte(`{"type":"related","kind":"link"}`)))
+	return res
 }
 
 func create(t *testing.T, f *Foundation, kind model.Kind, body string) *View {
@@ -240,9 +255,8 @@ func TestLifecycle(t *testing.T) {
 	}
 
 	// move: identity, metadata locality and attachments follow
-	if _, err := f.PutSchema(ctx, "archive", "requirement", []byte(`{"type":"requirement","fields":[{"id":"reason","type":"text"}]}`)); err != nil {
-		t.Fatal(err)
-	}
+	putConfig(t, f, "archive", "entries/types.json", `{"types":[{"id":"requirement","fields":["reason"]}]}`)
+	putConfig(t, f, "archive", "entries/fields.json", `{"fields":[{"id":"reason","type":"text"}]}`)
 	mv, err := f.MoveArtifact(ctx, r1.Meta.GUID, "archive/2026")
 	if err != nil {
 		t.Fatal(err)
@@ -445,7 +459,7 @@ func TestConcurrentWritersAndSecondProcess(t *testing.T) {
 		}
 	}
 	log, _ := f.Repo.Log(ctx, mustHead(t, f), nil, 0)
-	if len(log) != n+6 { // 6 seed commits
+	if len(log) != n+seedCommits {
 		t.Fatalf("commits %d", len(log))
 	}
 }
@@ -497,4 +511,175 @@ func dump(t *testing.T, p *projection.DB) string {
 		rows.Close()
 	}
 	return b.String()
+}
+
+func TestConfigFiles(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+
+	// A reference to something not written yet is accepted with a warning,
+	// and the warning clears once the definition exists.
+	res := putConfig(t, f, "tasks", "entries/types.json", `{"inheritance":"off","types":[{"id":"task","workflows":["task"],"fields":["size"]}]}`)
+	if len(res.Warnings) != 2 || res.Path != "tasks/.corestone/config/entries/types.json" || res.ETag == "" {
+		t.Fatalf("write %+v", res)
+	}
+	putConfig(t, f, "tasks", "entries/workflows/task-workflow.json", `{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)
+	if res := putConfig(t, f, "tasks", "entries/fields.json", `{"fields":[{"id":"size","type":"integer"}]}`); len(res.Warnings) != 0 {
+		t.Fatalf("warnings after completing the configuration: %+v", res.Warnings)
+	}
+	types, err := f.Types(ctx, "tasks/sprint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, s := range types {
+		ids = append(ids, s.Type)
+	}
+	// Only the entry types are cut off: document, link and comment types still inherit.
+	if strings.Join(ids, ",") != "comment,related,spec,task,verifies" {
+		t.Fatalf("types in the task folder: %v", ids)
+	}
+	if w, err := f.WorkflowDef(ctx, "task", "task", "tasks"); err != nil || w.Scope != "tasks" {
+		t.Fatalf("task workflow %+v %v", w, err)
+	}
+
+	// Files that do not parse, and paths outside the layout, are rejected.
+	for rel, body := range map[string]string{
+		"entries/types.json":          `{"types":[{"id":"a"},{"id":"a"}]}`,
+		"entries/fields.json":         `{"fields":[{"id":"x","type":"nope"}]}`,
+		"entries/schema.json":         `{}`,
+		"docs/types.json":             `{"types":[]}`,
+		"entries/../types.json":       `{"types":[]}`,
+		"entries/enums/p-enum.json":   `not json`,
+		"entries/workflows/x.json":    `{"states":["a"]}`,
+		"entries/enums/priority.json": `{"options":[{"value":"a"}]}`,
+	} {
+		if _, err := f.PutConfig(ctx, "tasks", rel, []byte(body), ""); !errors.Is(err, model.ErrValidation) {
+			t.Errorf("%s: %v", rel, err)
+		}
+	}
+
+	// Read back with the ETag; stale writes and deletes are refused.
+	data, etag, err := f.ConfigFile(ctx, "tasks", "entries/fields.json")
+	if err != nil || !strings.Contains(string(data), "size") {
+		t.Fatalf("read %s %v", data, err)
+	}
+	if _, err := f.PutConfig(ctx, "tasks", "entries/fields.json", []byte(`{"fields":[]}`), "stale"); !errors.Is(err, model.ErrPrecondition) {
+		t.Fatalf("stale write: %v", err)
+	}
+	warnings, err := f.DeleteConfig(ctx, "tasks", "entries/fields.json", etag)
+	if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0].Message, `"size"`) {
+		t.Fatalf("delete leaves a dangling field: %+v %v", warnings, err)
+	}
+	if _, err := f.DeleteConfig(ctx, "tasks", "entries/fields.json", ""); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+	files, err := f.ConfigFiles(ctx, "tasks", false)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("files %+v %v", files, err)
+	}
+}
+
+func TestEnforcement(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+	invalid := func(what string, err error) {
+		t.Helper()
+		if !errors.Is(err, model.ErrValidation) {
+			t.Errorf("%s: want a validation error, got %v", what, err)
+		}
+	}
+	entry := func(body string) error {
+		_, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, body))
+		return err
+	}
+
+	// Types must be defined where the artifact lives, for every kind.
+	invalid("undefined entry type", entry(`{"path":"a","type":"nope","title":"x"}`))
+	invalid("missing type", entry(`{"path":"a","title":"x"}`))
+	invalid("document type used for an entry", entry(`{"path":"a","type":"spec","title":"x"}`))
+	r := create(t, f, model.KindEntry, `{"path":"a","type":"requirement","title":"R","fields":{"priority":"low","effort":3}}`)
+	tc := create(t, f, model.KindEntry, `{"path":"a","type":"testcase","title":"T"}`)
+	_, err := f.CreateLink(ctx, obj(t, `{"type":"blocks","source":"`+tc.Meta.GUID+`","target":"`+r.Meta.GUID+`"}`))
+	invalid("undefined link type", err)
+	putConfig(t, f, "quiet", "comments/types.json", `{"inheritance":"off","types":[]}`)
+	q := create(t, f, model.KindEntry, `{"path":"quiet","type":"requirement","title":"Q","fields":{"priority":"low"}}`)
+	_, err = f.CreateComment(ctx, obj(t, `{"subject":"`+q.Meta.GUID+`","text":"hi"}`))
+	invalid("comment where no comment type is defined", err)
+	if _, err := f.CreateComment(ctx, obj(t, `{"subject":"`+r.Meta.GUID+`","text":"hi"}`)); err != nil {
+		t.Fatalf("comment with the root comment type: %v", err)
+	}
+
+	// Fields must be defined to be added or changed.
+	invalid("undefined field on create", entry(`{"path":"a","type":"requirement","title":"x","fields":{"priority":"low","colour":"red"}}`))
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"colour":"red"}}`))
+	invalid("undefined field on update", err)
+
+	// A field removed from the configuration stays on existing artifacts:
+	// kept unchanged on save, not changeable, removable.
+	putConfig(t, f, "", "entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		 "fields":[{"id":"priority","required":true},"rationale","owner","spec"]},
+		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
+	if _, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R renamed"}`)); err != nil {
+		t.Fatalf("save with a field no longer defined: %v", err)
+	}
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"effort":4}}`))
+	invalid("changing a field no longer defined", err)
+	v, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"fields":{"effort":null}}`))
+	if err != nil || v.Meta.Fields["effort"] != nil {
+		t.Fatalf("removing a field no longer defined: %+v %v", v, err)
+	}
+
+	// A field made required later is enforced on the next save.
+	putConfig(t, f, "", "entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		 "fields":[{"id":"priority","required":true},{"id":"rationale","required":true},"owner","spec"]},
+		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
+	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R again"}`))
+	invalid("save without a field made required later", err)
+	if _, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R again","fields":{"rationale":"now given"}}`)); err != nil {
+		t.Fatalf("save once the required field is filled: %v", err)
+	}
+
+	// Moves: into a folder whose entry types are cut off, refused for the
+	// artifact and for a folder holding it; a folder that brings its own
+	// configuration may move.
+	putConfig(t, f, "tasks", "entries/types.json", `{"inheritance":"off","types":[{"id":"task"}]}`)
+	_, err = f.MoveArtifact(ctx, r.Meta.GUID, "tasks")
+	invalid("moving a requirement into the task folder", err)
+	_, err = f.MoveFolder(ctx, "a", "tasks/a")
+	invalid("moving a folder of requirements into the task folder", err)
+	create(t, f, model.KindEntry, `{"path":"kit/parts","type":"requirement","title":"K","fields":{"priority":"low","rationale":"r"}}`)
+	putConfig(t, f, "kit", "entries/types.json", `{"types":[{"id":"requirement"}]}`)
+	if _, err := f.MoveFolder(ctx, "kit", "tasks/kit"); err != nil {
+		t.Fatalf("a folder with its own configuration: %v", err)
+	}
+
+	// Direct pushes cannot be refused; validation reports what they bring.
+	head := mustHead(t, f)
+	g := model.NewGUID()
+	c, err := f.Repo.BuildCommit(ctx, head, "direct push", []gitx.Op{
+		{Path: "a/" + g + "/.corestone.json", Content: []byte(`{"guid":"` + g + `","kind":"entry","type":"ghost","title":"pushed"}`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Repo.Publish(ctx, head, c); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.UpdateArtifact(ctx, tc.Meta.GUID, "", obj(t, `{"title":"T"}`)) // sync
+	issues, err := f.DB.Validate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, i := range issues {
+		found[i.Code+" "+i.GUID] = true
+	}
+	if !found["unknown-type "+g] {
+		t.Fatalf("validation missed the pushed artifact of an undefined type: %+v", issues)
+	}
 }
