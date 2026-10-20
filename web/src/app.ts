@@ -16,6 +16,7 @@ import "./toast";
 // the main workspace with the artifact overview above the detail view.
 
 const DEFAULT_SPLIT = 38, MIN_SPLIT = 12, MAX_SPLIT = 85;
+const DEFAULT_NAV_W = 288, MIN_NAV_W = 180, MAX_NAV_W = 640; // sidebar width, px
 
 @customElement("corestone-app")
 export class App extends LitElement {
@@ -26,6 +27,7 @@ export class App extends LitElement {
   private lastGuid: string | null = null;
   private statusTimer = 0;
   @state() private split = Number(localStorage.getItem("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
+  @state() private navW = Number(localStorage.getItem("corestone.navWidth")) || DEFAULT_NAV_W;
 
   override createRenderRoot() { return this; }
   override connectedCallback() {
@@ -97,6 +99,36 @@ export class App extends LitElement {
     this.setSplit(this.split + step);
   };
 
+  private setNavW(px: number, persist = true) {
+    this.navW = Math.min(MAX_NAV_W, Math.max(MIN_NAV_W, px));
+    if (persist) localStorage.setItem("corestone.navWidth", String(Math.round(this.navW)));
+  }
+
+  // The divider between the folder navigation and the main area.
+  private dragNav = (e: PointerEvent) => {
+    const bar = e.currentTarget as HTMLElement;
+    const left = bar.parentElement!.getBoundingClientRect().left;
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("dragging");
+    const move = (m: PointerEvent) => this.setNavW(m.clientX - left, false);
+    const up = () => {
+      bar.classList.remove("dragging");
+      bar.removeEventListener("pointermove", move);
+      this.setNavW(this.navW);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up, { once: true });
+    bar.addEventListener("pointercancel", up, { once: true });
+    e.preventDefault();
+  };
+
+  private keyNav = (e: KeyboardEvent) => {
+    const step = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
+    if (!step) return;
+    e.preventDefault();
+    this.setNavW(this.navW + step);
+  };
+
   private setName = () => {
     const theme = this.s.theme; // the dialog previews themes live; Cancel restores this one
     store.prompt("Your name", { text: "Shown to others while you view or edit an artifact.", value: this.s.user, confirmLabel: "Save", theme: true })
@@ -125,7 +157,7 @@ export class App extends LitElement {
     const health = !status ? "bad" : p?.maintenance ? "warn" : status.inSync ? "ok" : "warn";
     const healthText = !status ? "server unreachable" : p?.maintenance ? `maintenance: ${p.phase || p.reason || ""} ${p.total ? `${p.progress}/${p.total}` : ""}` : status.inSync ? "in sync" : "syncing…";
     const mainClass = route.guid && this.selectedKind === "document" ? "document" : route.expanded ? "expanded" : "";
-    return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}">
+    return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}" style=${`--nav-w:${this.navW}px`}>
       <header class="header">
         <button class="btn sm icon" title="Toggle navigation" aria-label="Toggle navigation" @click=${() => store.toggleNav()}>☰</button>
         <a class="brand" href="/" @click=${(e: Event) => { e.preventDefault(); navigate({ folder: "", guid: null, q: "", type: "", kind: "" }); }}><span class="logo"></span>Corestone</a>
@@ -137,6 +169,9 @@ export class App extends LitElement {
         <button class="btn sm" title="Your name and theme" @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>
+      <div class="nav-splitter" data-test="nav-splitter" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"
+        aria-valuemin=${MIN_NAV_W} aria-valuemax=${MAX_NAV_W} aria-valuenow=${Math.round(this.navW)}
+        @pointerdown=${this.dragNav} @keydown=${this.keyNav} @dblclick=${() => this.setNavW(DEFAULT_NAV_W)}></div>
       <div class="nav-scrim" @click=${() => store.toggleNav()}></div>
       <div class="main ${mainClass}" style=${`--split:${this.split}%`}>
         <corestone-overview></corestone-overview>

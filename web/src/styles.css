@@ -43,8 +43,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 corestone-app { display: block; height: 100%; }
 .shell { display: grid; grid-template-rows: var(--header-h) minmax(0, 1fr); grid-template-columns: var(--nav-w) minmax(0, 1fr); height: 100%; overflow: hidden; }
 .shell.nav-collapsed { grid-template-columns: 0 1fr; }
-.shell.nav-collapsed corestone-sidebar { display: none; }
-.header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.shell.nav-collapsed corestone-sidebar, .shell.nav-collapsed .nav-splitter { display: none; }
+.header { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .header .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: 0.2px; }
 .header .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
 .header .brand .logo::after { content: ""; width: 12px; height: 12px; border: 3px solid #fff; border-radius: 50%; }
@@ -56,8 +56,13 @@ corestone-app { display: block; height: 100%; }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }
 .dot.bad { background: var(--danger); }
-corestone-sidebar, .nav-scrim { grid-column: 1; }
-.main { grid-column: 2; display: grid; grid-template-rows: minmax(120px, var(--split, 38%)) 7px minmax(0, 1fr); min-height: 0; min-width: 0; }
+corestone-sidebar, .nav-scrim { grid-column: 1; grid-row: 2; }
+/* Overlays the sidebar's right border, sharing its grid cell. */
+.nav-splitter { grid-column: 1; grid-row: 2; justify-self: end; width: 7px; margin-right: -4px; z-index: 5; cursor: col-resize; touch-action: none; position: relative; }
+.nav-splitter:hover, .nav-splitter.dragging, .nav-splitter:focus-visible { background: var(--accent-soft); outline: none; }
+.nav-splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; }
+.nav-splitter:hover::after, .nav-splitter.dragging::after, .nav-splitter:focus-visible::after { background: var(--accent); }
+.main { grid-column: 2; grid-row: 2; display: grid; grid-template-rows: minmax(120px, var(--split, 38%)) 7px minmax(0, 1fr); min-height: 0; min-width: 0; }
 .main.expanded { grid-template-rows: 1fr; }
 .main.expanded corestone-overview { display: none; }
 .main.document { grid-template-rows: 1fr; }
@@ -289,6 +294,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-bottom-wid
   .shell:not(.nav-collapsed) corestone-sidebar { position: fixed; top: var(--header-h); bottom: 0; left: 0; width: min(320px, 90vw); z-index: 30; box-shadow: var(--shadow); }
   .shell:not(.nav-collapsed) .nav-scrim { display: block; position: fixed; top: var(--header-h); right: 0; bottom: 0; left: 0; z-index: 29; background: rgba(10, 14, 24, 0.35); }
   .shell.nav-collapsed corestone-sidebar { display: none; }
+  .nav-splitter { display: none; }
   .header .crumbs { display: none; }
   .header .status { display: none; }
   .toolbar .hint { display: none; }
