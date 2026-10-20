@@ -10,7 +10,7 @@ cmd/corestone              wiring: flags, HTTP server, response headers, access 
             ├─ internal/projection   PostgreSQL projection (sync, replay, reindex, queries, validation)
             │     └─ internal/scanner    configurable repository scanner + foundation indexer
             ├─ internal/gitx         bare-repository Git plumbing
-            └─ internal/model        domain rules (pure): identity, folders, fields, schemas, workflows, overlays
+            └─ internal/model        domain rules (pure): identity, folders, fields, configuration, workflows, overlays
                   └─ internal/ojson      order- and format-preserving JSON
 web/                     Lit + TypeScript client (talks only to /api)
 ```
@@ -47,10 +47,14 @@ Fuzzed for the fixed-point property.
   GUID-shaped segments, control characters, pathspec magic, depth/length limits), plus lineage
   helpers.
 - `fields.go` — the field types of design guide §4.6 and value validation.
-- `schema.go` — schema definitions, `Compose` (root → artifact, nearest wins, fields merge by id
-  with complete replacement, `inheritance: off`), and the `SchemaIndex` used to resolve effective
-  schemas, visible types and allowed link types.
-- `workflow.go` — definitions, lexical resolution (nearest wins wholesale), transition lookup.
+- `config.go` — the configuration layout of [CONFIGURATION.md](CONFIGURATION.md): classifies files
+  below `.corestone/config/` by path, parses types, fields, enumerations and workflows, and the
+  `ConfigIndex` that resolves them for a folder — nearest folder first, a per-kind inheritance
+  switch, type-specific before shared definitions — into effective schemas, visible types, allowed
+  link types and workflows; `Problems` reports references that do not resolve.
+- `schema.go` — the effective schema of a type and `Compose`, which merges a type's definitions from
+  the root down (nearest wins per property).
+- `workflow.go` — definitions and transition lookup.
 - `artifact.go` — the typed view over an artifact document; writes go back into the document so
   unknown properties survive.
 - `overlay.go` — base-chain resolution with cycle and depth detection, per-field origin.
@@ -59,8 +63,8 @@ Fuzzed for the fixed-point property.
 ## internal/scanner — which files matter
 
 `scanner.json` (`guid_files`, `config_folders`, `indexers`) with defaults. `Classify` turns a path
-into *artifact file*, *attachment*, *configuration file* (schemas, workflows, links, comments,
-scanner, other) or *ignore*; configured indexers decide whether a match is processed. Only the
+into *artifact file*, *attachment*, *configuration file* (`config/` — the type
+system —, links, comments, scanner, other) or *ignore*; configured indexers decide whether a match is processed. Only the
 `foundation` indexer is built in; the registry is the extension point for application indexers.
 
 ## internal/projection — the PostgreSQL projection
@@ -73,7 +77,7 @@ scanner, other) or *ignore*; configured indexers decide whether a match is proce
   malformed files become rows with `valid = false`, never failures.
 - `sync.go` — `Sync` compares `processed_hash` with HEAD and replays the first-parent chain one
   commit per transaction (`ProjectCommit` + CAS advance); anything else triggers a rebuild. Also the
-  cached schema/workflow indexes.
+  configuration index, cached per processed revision, and its unresolved references.
 - `reindex.go` — the phased rebuild: identity (GUID → path), fields, full text (drop GIN index,
   parallel workers stream text, recreate index), history scan (deletions, HID history, timestamps).
 - `query.go` — locate, get, search (filters, states, fields, full text), folders, scopes, HID
@@ -89,7 +93,9 @@ scanner, other) or *ignore*; configured indexers decide whether a match is proce
   reference validation, workflow initialization, cascading deletes, folder moves with metadata
   relocation and maintenance mode for large operations, the relocate-metadata maintenance job.
 - `metadata.go` — links (endpoint rules, cardinality, duplicates), comments (threads), transitions.
-- `config.go` — schema and workflow files, attachments.
+- `config.go` — configuration files (read, write with warnings for unresolved references, delete),
+  attachments. Enforcement of the configuration — types defined where an artifact lives, including
+  after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.
 - `read.go` — views: artifact, effective schema, visible types, overlay analysis, workflow
   evaluation, relationship analysis, comments, history across moves, tree, search, status.
 

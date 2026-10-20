@@ -3,11 +3,52 @@ import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
-import type { Schema, Summary } from "./types";
+import type { Kind, Schema, Summary } from "./types";
 import { kindIcon, relTime } from "./util";
 
 // Artifact overview (design guide §7.4): every artifact matching the
 // navigation context in a table whose columns come from the schemas.
+
+const LIMIT = 1000; // rows loaded per view; sorting happens on these in the client
+const DEFAULT_COL_W = 150, MIN_COL_W = 48, MAX_COL_W = 1200;
+
+/** A table column. Built-in ids start with "$" so they never collide with schema field ids. */
+interface Column {
+  id: string;
+  name: string;
+  value: (row: Summary) => string | number | null; // what the column sorts by
+  render: (row: Summary) => TemplateResult | string;
+  cls?: string;
+  title?: (row: Summary) => string;
+}
+
+/** Column widths and sort order, remembered in the browser for every view. */
+interface TableLayout { widths: Record<string, number>; sort: { col: string; dir: "asc" | "desc" } | null }
+
+function loadLayout(): TableLayout {
+  try {
+    const l = JSON.parse(localStorage.getItem("corestone.table") ?? "{}");
+    return { widths: l.widths && typeof l.widths === "object" ? l.widths : {}, sort: l.sort?.col ? l.sort : null };
+  } catch { return { widths: {}, sort: null }; }
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Natural order; numbers by value; empty values last in either direction. */
+function compare(a: string | number | null, b: string | number | null, dir: number): number {
+  const ea = a === null || a === "", eb = b === null || b === "";
+  if (ea || eb) return ea === eb ? 0 : ea ? 1 : -1;
+  return dir * (typeof a === "number" && typeof b === "number" ? a - b : collator.compare(String(a), String(b)));
+}
+
+function fieldValue(row: Summary, id: string): string | number | null {
+  const v = row.fields?.[id];
+  if (v == null) return null;
+  if (typeof v === "number") return v;
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "object") return "{…}";
+  return String(v);
+}
 
 @customElement("corestone-overview")
 export class Overview extends LitElement {
@@ -20,6 +61,8 @@ export class Overview extends LitElement {
   @state() private error = "";
   @state() private schemas: Record<string, Schema> = {};
   @state() private menu = false;
+  @state() private layout = loadLayout();
+  private sorted?: { rows: Summary[]; key: unknown[]; out: Summary[] };
   private key = "";
   private lastTick = -1;
 
@@ -49,7 +92,7 @@ export class Overview extends LitElement {
     try {
       const params: Record<string, string | number | boolean | undefined> = {
         q: r.q, path: r.folder, subtree: r.subtree || !!r.q || !!r.type, type: r.type,
-        kind: r.kind || "entry,document", limit: 500, sort: r.q ? "" : "path",
+        kind: r.kind || "entry,document", limit: LIMIT, sort: r.q ? "" : "path",
       };
       const direct = !params.subtree;
       const [res, types, deep] = await Promise.all([
@@ -71,8 +114,27 @@ export class Overview extends LitElement {
     }
   }
 
-  /** Columns: HID, title, type, workflow states, then schema-declared columns, then social/modified. */
-  private columns(): { id: string; name: string }[] {
+  /** Columns: HID, title, type, workflow states, then schema-declared columns, then folder, social and modified. */
+  private columns(): Column[] {
+    const type = (row: Summary) => this.schemas[row.type]?.displayName ?? row.type;
+    return [
+      { id: "$hid", name: "ID", value: (row) => row.hid || row.guid,
+        render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },
+      { id: "$title", name: "Title", value: (row) => row.title || row.kind, title: (row) => row.title ?? "",
+        render: (row) => html`${kindIcon(row.kind)}${row.title || html`<span class="muted">${row.kind}</span>`}` },
+      { id: "$type", name: "Type", value: type, render: type },
+      { id: "$state", name: "State", value: (row) => Object.values(row.workflows ?? {}).join(" "),
+        render: (row) => html`${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
+      ...this.fieldColumns().map((c): Column => ({ ...c, value: (row) => fieldValue(row, c.id), render: (row) => String(fieldValue(row, c.id) ?? "") })),
+      { id: "$folder", name: "Folder", cls: "muted", value: (row) => row.folder, render: (row) => row.folder || "/" },
+      { id: "$social", name: "Social", cls: "social", value: (row) => row.links, title: () => "links · comments",
+        render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },
+      { id: "$modified", name: "Modified", cls: "muted", value: (row) => (row.modifiedAt ? Date.parse(row.modifiedAt) || null : null), render: (row) => relTime(row.modifiedAt) },
+    ];
+  }
+
+  /** The columns the schemas of the listed artifacts declare for the overview. */
+  private fieldColumns(): { id: string; name: string }[] {
     const cols = new Map<string, string>();
     const wanted = new Set<string>();
     for (const row of this.rows) {
@@ -90,13 +152,77 @@ export class Overview extends LitElement {
     return [...cols].map(([id, name]) => ({ id, name }));
   }
 
-  private cell(row: Summary, id: string): TemplateResult | string {
-    const v = row.fields?.[id];
-    if (v == null) return "";
-    if (Array.isArray(v)) return v.join(", ");
-    if (typeof v === "object") return "{…}";
-    return String(v);
+  /** The rows in the chosen order; ties keep the server's order. */
+  private sortedRows(cols: Column[]): Summary[] {
+    const sort = this.layout.sort;
+    const col = sort && cols.find((c) => c.id === sort.col);
+    if (!col) return this.rows;
+    const key = [sort.col, sort.dir, this.schemas];
+    if (this.sorted?.rows === this.rows && this.sorted.key.every((k, i) => k === key[i])) return this.sorted.out;
+    const dir = sort.dir === "asc" ? 1 : -1;
+    const out = this.rows.map((row) => ({ row, v: col.value(row) })).sort((a, b) => compare(a.v, b.v, dir)).map((x) => x.row);
+    this.sorted = { rows: this.rows, key, out };
+    return out;
   }
+
+  private saveLayout(layout: TableLayout) {
+    this.layout = layout;
+    localStorage.setItem("corestone.table", JSON.stringify(layout));
+  }
+
+  /** A header click sorts ascending; clicking the sorted column again flips the direction. */
+  private toggleSort(col: string) {
+    const cur = this.layout.sort;
+    this.saveLayout({ ...this.layout, sort: { col, dir: cur?.col === col && cur.dir === "asc" ? "desc" : "asc" } });
+  }
+
+  private setWidth(widths: Record<string, number>, col: string, px: number, persist = true) {
+    const next = { ...widths, [col]: Math.round(Math.min(MAX_COL_W, Math.max(MIN_COL_W, px))) };
+    if (persist) this.saveLayout({ ...this.layout, widths: next });
+    else this.layout = { ...this.layout, widths: next };
+  }
+
+  /** The first resize fixes every visible column at its current width, so only the dragged one moves. */
+  private frozenWidths(): Record<string, number> {
+    const widths = { ...this.layout.widths };
+    for (const th of this.querySelectorAll<HTMLElement>("table.grid th[data-col]")) widths[th.dataset.col!] ??= Math.ceil(th.getBoundingClientRect().width) + 1; // rounding down would clip cells that just fit
+    return widths;
+  }
+
+  private dragWidth = (e: PointerEvent) => {
+    const handle = e.currentTarget as HTMLElement;
+    const th = handle.parentElement!;
+    const col = th.dataset.col!;
+    const widths = this.frozenWidths();
+    const startX = e.clientX, start = th.getBoundingClientRect().width;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("dragging");
+    this.setWidth(widths, col, start, false);
+    const move = (m: PointerEvent) => this.setWidth(widths, col, start + m.clientX - startX, false);
+    const up = () => {
+      handle.classList.remove("dragging");
+      handle.removeEventListener("pointermove", move);
+      this.saveLayout(this.layout);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", up, { once: true });
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  /** Double-click on a column edge: fit the column to its widest cell. */
+  private fitWidth = (e: MouseEvent) => {
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLTableCellElement;
+    const i = th.cellIndex;
+    // A range measures the content itself; scrollWidth never reports less than the current column width.
+    const range = document.createRange();
+    const content = (el: Element) => { range.selectNodeContents(el); return range.getBoundingClientRect().width; };
+    let w = content(th.querySelector(".th-sort")!) + 32; // padding and the sort marker
+    for (const tr of this.querySelectorAll<HTMLTableRowElement>("table.grid tbody tr")) if (tr.cells[i]) w = Math.max(w, content(tr.cells[i]) + 20);
+    this.setWidth(this.frozenWidths(), th.dataset.col!, Math.ceil(w) + 2);
+  };
 
   private context(): string {
     const r = this.s.route;
@@ -109,6 +235,11 @@ export class Overview extends LitElement {
     if (!this.s) return nothing;
     const r = this.s.route;
     const cols = this.columns();
+    const rows = this.sortedRows(cols);
+    const { widths, sort } = this.layout;
+    // Once any visible column has a width, the layout is fixed and a filler column takes the rest.
+    const fixed = cols.some((c) => widths[c.id]);
+    const total = cols.reduce((sum, c) => sum + (widths[c.id] ?? DEFAULT_COL_W), 0);
     const sel = r.guid;
     return html`
       <div class="toolbar">
@@ -118,7 +249,8 @@ export class Overview extends LitElement {
         </div>
         <span class="title">${this.context()}</span>
         <span class="hint">${this.loading ? "loading…" : html`${this.total} artifact${this.total === 1 ? "" : "s"}${r.subtree || r.q || r.type ? " incl. subfolders"
-          : this.below > this.total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
+          : this.below > this.total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}${
+          this.rows.length < this.total ? html` · <span data-test="partial">showing ${this.rows.length}${sort ? ", sorted within these" : ""}</span>` : nothing}`}</span>
         <span class="grow"></span>
         <div class="chips">
           ${[["", "Entries + Docs"], ["entry", "Entries"], ["document", "Documents"], ["link", "Links"], ["comment", "Comments"]].map(([k, name]) => html`
@@ -131,17 +263,14 @@ export class Overview extends LitElement {
       <div class="table-wrap">
         ${!this.loading && !this.rows.length ? html`<div class="empty-state"><div class="big">Nothing here yet</div>
           ${r.q ? "No artifacts match your search." : html`Create your first artifact with <b>＋ New</b>, or pick another folder.`}</div>` : html`
-        <table class="grid">
-          <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>State</th>${cols.map((c) => html`<th>${c.name}</th>`)}<th>Folder</th><th>Social</th><th>Modified</th></tr></thead>
-          <tbody>${this.rows.map((row) => html`<tr class=${row.guid === sel ? "selected" : ""} data-guid=${row.guid} @click=${() => navigate({ guid: row.guid, folder: r.folder })}>
-            <td>${row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>`}</td>
-            <td title=${row.title ?? ""}>${kindIcon(row.kind)}${row.title || html`<span class="muted">${row.kind}</span>`}</td>
-            <td>${this.schemas[row.type]?.displayName ?? row.type}</td>
-            <td>${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}</td>
-            ${cols.map((c) => html`<td>${this.cell(row, c.id)}</td>`)}
-            <td class="muted">${row.folder || "/"}</td>
-            <td class="social" title="links · comments">⇄ ${row.links} · ✎ ${row.comments}</td>
-            <td class="muted">${relTime(row.modifiedAt)}</td></tr>`)}</tbody>
+        <table class="grid ${fixed ? "fixed" : ""}" style=${fixed ? `min-width:${total}px` : ""}>
+          ${fixed ? html`<colgroup>${cols.map((c) => html`<col style=${`width:${widths[c.id] ?? DEFAULT_COL_W}px`}>`)}<col></colgroup>` : nothing}
+          <thead><tr>${cols.map((c) => html`<th data-col=${c.id} aria-sort=${sort?.col === c.id ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+            <button class="th-sort" title="Sort by ${c.name}" @click=${() => this.toggleSort(c.id)}>${c.name}</button>
+            <span class="col-resize" title="Drag to resize; double-click to fit" @pointerdown=${this.dragWidth} @dblclick=${this.fitWidth} @click=${(e: Event) => e.stopPropagation()}></span></th>`)}
+            ${fixed ? html`<th class="filler"></th>` : nothing}</tr></thead>
+          <tbody>${rows.map((row) => html`<tr class=${row.guid === sel ? "selected" : ""} data-guid=${row.guid} @click=${() => navigate({ guid: row.guid, folder: r.folder })}>
+            ${cols.map((c) => html`<td class=${c.cls ?? ""} title=${c.title?.(row) ?? nothing}>${c.render(row)}</td>`)}${fixed ? html`<td></td>` : nothing}</tr>`)}</tbody>
         </table>`}
       </div>`;
   }
@@ -161,12 +290,13 @@ export class Overview extends LitElement {
   private newMenu() {
     const r = this.s.route;
     const open = (opts: Record<string, unknown>) => { this.menu = false; store.set({ dialog: { kind: "new", folder: r.folder, ...opts } }); };
+    // Only the kinds that have types here: a kind without types is not available in this folder.
+    const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
+    const items: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
     return html`<div class="menu" @click=${(e: Event) => e.stopPropagation()}>
       <div class="group">in ${r.folder || "/"}</div>
-      <button class="item" data-test="new-entry" @click=${() => open({ kinds: ["entry"] })}>Entry…</button>
-      <button class="item" data-test="new-document" @click=${() => open({ kinds: ["document"] })}>Document…</button>
-      <button class="item" data-test="new-link" @click=${() => open({ kinds: ["link"] })}>Link between artifacts…</button>
-      <button class="item" data-test="new-comment" @click=${() => open({ kinds: ["comment"] })}>Comment…</button>
+      ${items.filter(([k]) => kinds.has(k)).map(([k, test, name]) => html`<button class="item" data-test=${test} @click=${() => open({ kinds: [k] })}>${name}</button>`)}
+      ${kinds.size ? nothing : html`<div class="item muted" data-test="no-types">No types are defined in this folder.</div>`}
       <div class="group">any</div>
       <button class="item" data-test="new-any" @click=${() => open({})}>Choose a type…</button>
     </div>`;

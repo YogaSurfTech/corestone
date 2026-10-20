@@ -148,12 +148,11 @@ func (c *changeset) message() string {
 
 // txn is the state one attempt of the transaction validates against.
 type txn struct {
-	f         *Foundation
-	ctx       context.Context
-	head      string
-	schemas   *model.SchemaIndex
-	workflows *model.WorkflowIndex
-	ops       map[string]gitx.Op // staged ops by path (last wins)
+	f    *Foundation
+	ctx  context.Context
+	head string
+	cfg  *model.ConfigIndex
+	ops  map[string]gitx.Op // staged ops by path (last wins)
 }
 
 // prepare builds the changeset for one attempt. It is re-run from scratch
@@ -206,11 +205,11 @@ func (f *Foundation) write(ctx context.Context, allowMaintenance bool, build pre
 			lastErr = fmt.Errorf("%w: projection behind repository", model.ErrConflict)
 			continue
 		}
-		schemas, workflows, err := f.DB.Config(ctx)
+		cfg, err := f.DB.Config(ctx)
 		if err != nil {
 			return nil, err
 		}
-		t := &txn{f: f, ctx: ctx, head: head, schemas: schemas, workflows: workflows, ops: map[string]gitx.Op{}}
+		t := &txn{f: f, ctx: ctx, head: head, cfg: cfg, ops: map[string]gitx.Op{}}
 		cs, err := build(t)
 		if err != nil {
 			// A conflict raised while validating may be transient: another

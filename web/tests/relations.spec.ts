@@ -36,7 +36,7 @@ test("two independent workflows on one artifact, with diagram and rework", async
   await expect(page.locator("#sec-history .history-row", { hasText: "transitioned from review to open" })).toHaveCount(1);
 });
 
-test("relationships: typed links both ways, removal, free-form type, and endpoint rules", async ({ page }) => {
+test("relationships: typed links both ways, removal, and endpoint rules", async ({ page }) => {
   const r1 = await post("/entries", { path: folder, type: "req", title: `Req A ${id}`, fields: { priority: "low" } });
   const r2 = await post("/entries", { path: folder, type: "req", title: `Req B ${id}`, fields: { priority: "low" } });
   const t1 = await post("/entries", { path: folder, type: "tc", title: `Test A ${id}` });
@@ -49,9 +49,8 @@ test("relationships: typed links both ways, removal, free-form type, and endpoin
   await page.locator(".picker-results .row", { hasText: `Test A ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(1);
   await expect(rel.locator(".link-row .arrow")).toHaveText("←");
-  // free-form "related" link via the prompt
-  await rel.locator(".actions button", { hasText: "other" }).click();
-  await answerPrompt(page, "related");
+  // a "related" link through its own button
+  await rel.locator(".actions button", { hasText: "related to" }).click();
   await page.locator("corestone-picker input").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(2);
@@ -66,8 +65,7 @@ test("relationships: typed links both ways, removal, free-form type, and endpoin
   await expect(page.locator("table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 0");
   // endpoint rule violation surfaces as a toast, not a silent failure
   await page.goto(`/artifact/${t1.meta.guid}`);
-  await page.locator("#sec-relationships .actions button", { hasText: "other" }).click();
-  await answerPrompt(page, "verifies");
+  await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
   await page.locator("corestone-picker input").fill(`Test A ${id}`); // a test case as target of verifies is not allowed
   await expect(page.locator(".picker-results")).toContainText("No matching"); // itself is excluded
   await page.locator("corestone-picker input").fill(`Req A ${id}`);
@@ -85,20 +83,40 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(ov.locator(".chain .node.self")).toContainText("this entry");
   await expect(ov).toContainText("effort: 5");
   await expect(ov).toContainText("rationale: from base");
-  await expect(page.locator("[data-field=effort] .inherited")).toBeVisible();
-  await expect(page.locator("[data-field=priority] select")).toHaveValue("");
-  // override effort locally
+  // inherited values are shown, locked, and name the level they come from by HID
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText(`inherited from base ${mid.meta.hid}`);
+  await expect(page.locator("[data-field=effort] input")).toHaveValue("5");
+  await expect(page.locator("[data-field=effort] input")).toBeDisabled();
+  await expect(page.locator("[data-field=priority] .inherited")).toContainText(`inherited from base ${base.meta.hid}`);
+  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
+  await expect(page.locator("[data-field=priority] select")).toBeDisabled();
+  await expect(ov).toContainText(`effort: 5 from ${mid.meta.hid}`);
+  // override effort locally: unlock, edit, save
+  await page.locator("[data-field=effort] [data-test=override]").click();
+  await expect(page.locator("[data-field=effort] input")).toBeEnabled();
   await page.locator("[data-field=effort] input").fill("3");
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(page.locator("[data-field=effort] .inherited")).toHaveCount(0);
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText(`overrides base ${mid.meta.hid}`);
   await expect(ov).toContainText("effort: 3");
-  // clearing it reverts to the inherited value
-  await page.locator("[data-field=effort] input").fill("");
+  // revert to base drops the own value
+  await page.locator("[data-field=effort] [data-test=revert]").click();
+  await expect(page.locator("[data-field=effort] input")).toHaveValue("5");
+  await expect(page.locator("[data-field=effort] input")).toBeDisabled();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(page.locator("[data-field=effort] .inherited")).toBeVisible();
   await expect(ov).toContainText("effort: 5");
+  // clearing an override also reverts to the inherited value
+  await page.locator("[data-field=effort] [data-test=override]").click();
+  await page.locator("[data-field=effort] input").fill("");
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText("inherited from base");
+  await expect(page.locator("[data-test=save]")).toHaveCount(0); // nothing changed
+  // an unlocked but unsaved override can be reverted before saving
+  await page.locator("[data-field=priority] [data-test=override]").click();
+  await page.locator("[data-field=priority] select").selectOption("low");
+  await page.locator("[data-field=priority] [data-test=revert]").click();
+  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();
   await expect(page.locator("corestone-detail h2")).toHaveText(`Base ${id}`);

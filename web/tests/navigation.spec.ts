@@ -153,14 +153,67 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await ctx.close();
 });
 
+test("theme choice in the name dialog: preview, cancel, persist", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(`/folder/${folder}`);
+  const bgSum = async () => (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).match(/\d+/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0);
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? "auto");
+  const user = page.locator("header button[title='Your name and theme']");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // choosing previews right away; Cancel restores the previous theme
+  await user.click();
+  await expect(page.locator(".dialog [data-theme-choice=auto]")).toHaveAttribute("aria-checked", "true");
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  expect(await theme()).toBe("auto");
+  expect(await bgSum()).toBeGreaterThan(600);
+  // Save keeps it, across reloads
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=dark]").click();
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("dark");
+  expect(await bgSum()).toBeLessThan(200);
+  // a forced light theme wins over a dark system; Auto follows the system again
+  await page.emulateMedia({ colorScheme: "dark" });
+  await user.click();
+  await page.locator(".dialog [data-theme-choice=light]").click();
+  expect(await bgSum()).toBeGreaterThan(600);
+  await page.locator(".dialog [data-theme-choice=auto]").click();
+  expect(await bgSum()).toBeLessThan(200);
+  await page.locator(".dialog button[type=submit]").click();
+  await page.reload();
+  await expect(user).toBeVisible();
+  expect(await theme()).toBe("auto");
+});
+
+test("invalid configuration files are announced and can be dismissed", async ({ page }) => {
+  const issue = { severity: "error", code: "invalid-config", path: `${folder}/.corestone/config/entries/types.json`, message: "validation failed: schema is not valid JSON: invalid character" };
+  await page.route("**/api/repository", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), invalidConfig: [issue] } });
+  });
+  await page.goto(`/folder/${folder}`);
+  const banner = page.locator("[data-test=config-warnings]");
+  await expect(banner).toContainText("A configuration problem");
+  await expect(banner).toContainText(issue.path);
+  await expect(banner).toContainText("not valid JSON");
+  await expect(banner).toContainText("this file is ignored");
+  await banner.getByRole("button", { name: "Dismiss" }).click();
+  await expect(banner).toHaveCount(0);
+});
+
 test("status indicator, user name and reindex", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await expect(page.locator("header .status")).toContainText("in sync", { timeout: 20000 });
-  await page.locator("header button[title='Set your name']").click();
+  await page.locator("header button[title='Your name and theme']").click();
   await answerPrompt(page, "Zoë");
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   await page.reload();
-  await expect(page.locator("header button[title='Set your name']")).toHaveText("Zoë");
+  await expect(page.locator("header button[title='Your name and theme']")).toHaveText("Zoë");
   const before = (await get<{ projection: { lastRebuild?: string } }>("/repository")).projection.lastRebuild ?? "";
   await page.locator("header button", { hasText: "Reindex" }).click();
   await expect(page.locator(".toast", { hasText: "Reindex started" })).toBeVisible();
@@ -204,6 +257,81 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
 });
+
+test("the folder navigation edge can be dragged, keyed, reset, and is remembered", async ({ page }) => {
+  await page.goto(`/folder/${folder}`);
+  const nav = page.locator("corestone-sidebar");
+  const bar = page.locator("[data-test=nav-splitter]");
+  const width = async () => (await nav.boundingBox())!.width;
+  const initial = await width();
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + 3, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 123, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeGreaterThan(initial + 100);
+  const dragged = await width();
+  await page.reload();
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await bar.focus();
+  await page.keyboard.press("ArrowLeft");
+  expect(await width()).toBeLessThan(dragged);
+  await bar.dblclick();
+  await expect.poll(width).toBeCloseTo(initial, -1);
+  // hidden with the navigation
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await expect(bar).toBeHidden();
+});
+
+test("table headers sort ascending and descending, columns resize, and both are remembered", async ({ page }) => {
+  const sub = `${folder}/sorting`;
+  await post("/entries", { path: sub, type: "req", title: `Mu 10 ${id}`, fields: { priority: "low", effort: 10 } });
+  await post("/entries", { path: sub, type: "req", title: `alpha ${id}`, fields: { priority: "high", effort: 9 } });
+  await post("/entries", { path: sub, type: "tc", title: `Mu 9 ${id}` });
+  await post("/entries", { path: sub, type: "tc", title: `Zeta ${id}` });
+  await page.goto(`/folder/${sub}`);
+  const header = (col: string) => page.locator(`table.grid th[data-col="${col}"]`);
+  const column = (col: string) => page.evaluate((c) => {
+    const i = document.querySelector<HTMLTableCellElement>(`table.grid th[data-col="${c}"]`)!.cellIndex;
+    return [...document.querySelectorAll<HTMLTableRowElement>("table.grid tbody tr")].map((tr) => tr.cells[i].innerText.trim());
+  }, col);
+  const titles = async () => (await column("$title")).map((t) => t.replace(/^[EDLC]\s*/, ""));
+  const names = [`alpha ${id}`, `Mu 9 ${id}`, `Mu 10 ${id}`, `Zeta ${id}`]; // case-insensitive, natural number order
+  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await header("$title").locator(".th-sort").click();
+  await expect(header("$title")).toHaveAttribute("aria-sort", "ascending");
+  expect(await titles()).toEqual(names);
+  await header("$title").locator(".th-sort").click();
+  await expect(header("$title")).toHaveAttribute("aria-sort", "descending");
+  expect(await titles()).toEqual([...names].reverse());
+  // numbers sort by value and empty cells stay last in both directions
+  await header("effort").locator(".th-sort").click();
+  expect(await column("effort")).toEqual(["9", "10", "", ""]);
+  await header("effort").locator(".th-sort").click();
+  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  await expect(header("$title")).toHaveAttribute("aria-sort", "none");
+  // drag the title column's edge
+  const width = async () => (await header("$title").boundingBox())!.width;
+  const before = await width();
+  const edge = (await header("$title").locator(".col-resize").boundingBox())!;
+  await page.mouse.move(edge.x + 3, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 123, edge.y + edge.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending"); // the drag did not sort
+  expect(await width()).toBeCloseTo(before + 120, -1);
+  const dragged = await width();
+  await page.reload();
+  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
+  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  // double-click fits the column to its content
+  await header("$title").locator(".col-resize").dblclick();
+  await expect.poll(width).toBeLessThan(dragged);
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
+});
+
 test("opening an artifact keeps the folder, the navigation and the table as they are", async ({ page }) => {
   await page.goto(`/?subtree=1`);
   const row = page.locator("table.grid tbody tr", { hasText: `Beta two ${id}` });

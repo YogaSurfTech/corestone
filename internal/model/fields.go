@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -64,6 +65,7 @@ type Field struct {
 	Required     bool           `json:"required,omitempty"`
 	Options      []EnumOption   `json:"options,omitempty"`
 	Extendable   bool           `json:"extendable,omitempty"`  // enum: values outside options allowed
+	Enum         string         `json:"enum,omitempty"`        // enum: enumeration id (configuration layout); resolved into Options
 	Currency     string         `json:"currency,omitempty"`    // currency: ISO code
 	Workflow     string         `json:"workflow,omitempty"`    // workflow: definition id
 	TargetTypes  []string       `json:"targetTypes,omitempty"` // reference(s): allowed artifact types
@@ -84,7 +86,15 @@ func (f *Field) ValidateDefinition() error {
 	if f.Type == FieldWorkflow && f.Workflow == "" {
 		return Invalid("workflow field %q needs a workflow id", f.ID)
 	}
-	if f.Type == FieldEnum && len(f.Options) == 0 && !f.Extendable {
+	if f.Enum != "" {
+		if f.Type != FieldEnum {
+			return Invalid("field %q: only enum fields reference an enumeration", f.ID)
+		}
+		if err := ValidateTypeID(f.Enum); err != nil {
+			return fmt.Errorf("field %q enumeration: %w", f.ID, err)
+		}
+	}
+	if f.Type == FieldEnum && f.Enum == "" && len(f.Options) == 0 && !f.Extendable {
 		return Invalid("enum field %q has no options", f.ID)
 	}
 	return nil

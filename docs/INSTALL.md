@@ -74,14 +74,21 @@ Populate a demo domain and open <http://127.0.0.1:8080>:
 
 ## 5. Define your own domain
 
-Corestone has no built-in types. A domain is a set of schema and workflow files, stored through the
-API (each store is one commit) or committed directly into the repository.
-
-**A workflow** — a state machine that artifact types can reference:
+Corestone has no built-in types. A domain is a set of configuration files in a folder's
+`.corestone/config/` directory, laid out per kind and described in
+[CONFIGURATION.md](CONFIGURATION.md). Store them through the API — one commit per file — or commit
+them directly into the repository. The examples write to the repository root (`scope=`); add a folder
+to define or refine types for a subtree only.
 
 ```sh
-curl -X PUT http://127.0.0.1:8080/api/workflows/dev -H 'Content-Type: application/json' -d '{
-  "id": "dev", "initial": "open",
+cfg() { curl -sfS -X PUT "http://127.0.0.1:8080/api/config?scope=$1&path=$2" -H 'Content-Type: application/json' -d "$3"; }
+```
+
+**A workflow** — a state machine that entry types can reference:
+
+```sh
+cfg "" entries/workflows/dev-workflow.json '{
+  "initial": "open",
   "states": ["open", {"id": "review", "name": "In review"}, "done"],
   "transitions": [
     {"id": "submit",  "name": "Submit for review", "from": "open",   "to": "review"},
@@ -90,41 +97,61 @@ curl -X PUT http://127.0.0.1:8080/api/workflows/dev -H 'Content-Type: applicatio
   ]}'
 ```
 
-**An entry type** — fields, HID generation, workflow assignment, presentation:
+**Fields and an enumeration** — shared by the kind's types, or `<type>-fields.json` for one type:
 
 ```sh
-curl -X PUT http://127.0.0.1:8080/api/schemas/requirement -H 'Content-Type: application/json' -d '{
-  "type": "requirement", "displayName": "Requirement",
-  "hid": {"prefix": "REQ"}, "workflows": ["dev"],
-  "fields": [
-    {"id": "priority",  "name": "Priority",  "type": "enum", "required": true,
-     "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]},
-    {"id": "rationale", "name": "Rationale", "type": "multiline"},
-    {"id": "due",       "name": "Due",       "type": "date"}
-  ],
-  "presentation": {"columns": ["priority", "due"]}}'
+cfg "" entries/enums/priority-enum.json '{"options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]}'
+cfg "" entries/fields.json '{"fields": [
+  {"id": "priority",  "name": "Priority",  "type": "enum", "enum": "priority"},
+  {"id": "rationale", "name": "Rationale", "type": "multiline"},
+  {"id": "due",       "name": "Due",       "type": "date"}]}'
 ```
 
 Field types: `hid`, `boolean`, `integer`, `float`, `currency`, `date`, `time`, `datetime`, `text`,
-`multiline`, `richtext`, `enum` (single or `"multiple": true`, optionally `"extendable": true`),
-`hyperlink`, `reference`, `references`, `attachment`, `json`, `workflow`.
+`multiline`, `richtext`, `enum` (options inline or `"enum": "<id>"`; single or `"multiple": true`;
+`"extendable": true` allows other values, which are stored in the artifact only), `hyperlink`,
+`reference`, `references`, `attachment`, `json`, `workflow`.
 
-**A link type** — endpoint rules and cardinality:
+**Entry types** — HID generation, workflows, the fields they use (order and `required` per type),
+presentation:
 
 ```sh
-curl -X PUT http://127.0.0.1:8080/api/schemas/verifies -H 'Content-Type: application/json' -d '{
-  "type": "verifies", "kind": "link",
-  "sourceTypes": ["testcase"], "targetTypes": ["requirement"], "cardinality": "many-to-many"}'
+cfg "" entries/types.json '{"types": [
+  {"id": "requirement", "displayName": "Requirement", "hid": {"prefix": "REQ"}, "workflows": ["dev"],
+   "fields": [{"id": "priority", "required": true}, "rationale", "due"],
+   "presentation": {"columns": ["priority", "due"]}},
+  {"id": "testcase", "displayName": "Test case", "hid": {"prefix": "TC"}}]}'
 ```
 
-**Scoped refinement** — add `?scope=some/folder` to define or refine a type for a subtree only.
-Schemas compose from the root down: `specs/safety` can add an `asil` field to `requirement`
-without touching the root definition; `"inheritance": "off"` in a scoped schema ignores everything
-defined above it.
+**Link and comment types** — a kind without types is not available, so define at least a comment
+type if you want comments:
 
-**A document type** — `{"type": "spec", "kind": "document", ...}`; documents carry `content`, a tree
-of blocks: `section` (title, children), `paragraph` (text), `entry` (guid), `list` (items), `code`,
-`image` (src = attachment name or URL).
+```sh
+cfg "" links/types.json '{"types": [
+  {"id": "verifies", "sourceTypes": ["testcase"], "targetTypes": ["requirement"], "cardinality": "many-to-many"},
+  {"id": "related"}]}'
+cfg "" comments/types.json '{"types": [{"id": "comment"}]}'
+```
+
+The response of each write lists `warnings`: references that do not resolve yet, such as a field a
+type uses but no file defines. A file that does not parse is refused.
+
+**Scoped refinement and independent subtrees** — definitions resolve nearest folder first, so
+`specs/safety` can add an `asil` field to `requirement` without touching the root definition, and a
+kind's `types.json` with `"inheritance": "off"` ignores everything above for that kind:
+
+```sh
+cfg specs/safety entries/requirement-fields.json '{"fields": [{"id": "asil", "type": "enum", "options": [{"value": "A"}, {"value": "D"}]}]}'
+cfg specs/safety entries/types.json '{"types": [{"id": "requirement", "fields": ["asil"]}]}'
+cfg tasks entries/types.json '{"inheritance": "off", "types": [{"id": "task", "hid": {"prefix": "TSK"}}]}'
+```
+
+**A document type** — in `documents/types.json`; documents carry `content`, a tree of blocks:
+`section` (title, children), `paragraph` (text), `entry` (guid), `list` (items), `code`, `image`
+(src = attachment name or URL).
+
+The server enforces the configuration: an artifact's type must be defined where it lives (also when
+it is moved), and fields its type does not define cannot be added or changed.
 
 Create an entry:
 

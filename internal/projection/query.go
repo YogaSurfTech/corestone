@@ -643,7 +643,7 @@ type Stats struct {
 	Invalid   int            `json:"invalid"`
 	Deleted   int            `json:"deleted"`
 	Folders   int            `json:"folders"`
-	Schemas   int            `json:"schemas"`
+	Schemas   int            `json:"schemas"` // type definitions in types.json files
 	Workflows int            `json:"workflows"`
 }
 
@@ -672,10 +672,65 @@ func (p *DB) Stats(ctx context.Context) (*Stats, error) {
 		(SELECT count(*) FROM artifacts WHERE NOT valid),
 		(SELECT count(*) FROM deleted_artifacts),
 		(SELECT count(DISTINCT folder) FROM artifacts WHERE folder <> ''),
-		(SELECT count(*) FROM config_files WHERE category = 'schemas'),
-		(SELECT count(*) FROM config_files WHERE category = 'workflows')`).
+		(SELECT COALESCE(sum(jsonb_array_length(data->'types')), 0) FROM config_files
+			WHERE category = 'config' AND valid AND name LIKE '%/types.json' AND jsonb_typeof(data->'types') = 'array'),
+		(SELECT count(*) FROM config_files WHERE category = 'config' AND name LIKE '%-workflow.json')`).
 		Scan(&st.Invalid, &st.Deleted, &st.Folders, &st.Schemas, &st.Workflows)
 	return st, unavailable(err)
+}
+
+// ValueCount is a field value in use and how many artifacts hold it.
+type ValueCount struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// FieldValues lists the values of a field in use by artifacts of a type in
+// a folder and its subfolders, most frequent first.
+func (p *DB) FieldValues(ctx context.Context, typ, field, folder string, limit int) ([]ValueCount, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT f.value, count(*) FROM artifact_fields f JOIN artifacts a ON a.guid = f.guid
+		WHERE f.field = $1 AND a.type = $2 AND a.path <@ $3::ltree GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT $4`, field, typ, PathOf(folder), limit)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	out := []ValueCount{}
+	for rows.Next() {
+		var v ValueCount
+		if err := rows.Scan(&v.Value, &v.Count); err != nil {
+			return nil, unavailable(err)
+		}
+		out = append(out, v)
+	}
+	return out, unavailable(rows.Err())
+}
+
+// TypeAt is an entry or document type in use in one folder.
+type TypeAt struct {
+	Folder string
+	Kind   model.Kind
+	Type   string
+	Count  int
+}
+
+// TypesUnder lists the entry and document types in use in a folder and its
+// subfolders, per folder.
+func (p *DB) TypesUnder(ctx context.Context, folder string) ([]TypeAt, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT folder, kind, type, count(*) FROM artifacts
+		WHERE path <@ $1::ltree AND kind IN ('entry','document') GROUP BY 1, 2, 3 ORDER BY 1, 3`, PathOf(folder))
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	var out []TypeAt
+	for rows.Next() {
+		var t TypeAt
+		if err := rows.Scan(&t.Folder, &t.Kind, &t.Type, &t.Count); err != nil {
+			return nil, unavailable(err)
+		}
+		out = append(out, t)
+	}
+	return out, unavailable(rows.Err())
 }
 
 // TypesInUse lists artifact types with counts, optionally within a subtree.

@@ -2,7 +2,7 @@ import { LitElement, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { navigate } from "./router";
-import { store, type Dialog, type State } from "./store";
+import { store, type Dialog, type State, type Theme } from "./store";
 import type { Kind, Schema, Summary } from "./types";
 import { collectionOf, displayName, kindIcon, kindLabel, kindPlural, label } from "./util";
 import "./fields";
@@ -70,16 +70,25 @@ export class Dialogs extends LitElement {
         ${d.folder
           ? html`<corestone-folder-field test="prompt" .value=${(d.value as string) ?? ""} .ignore=${(d.ignore as string) ?? ""}></corestone-folder-field>`
           : html`<input type="text" data-test="prompt" .value=${(d.value as string) ?? ""} placeholder=${(d.placeholder as string) ?? ""} aria-label=${d.title as string}>`}
+        ${d.theme ? this.themeChoice() : nothing}
         <div class="foot"><button type="button" class="btn" @click=${() => this.dismiss()}>Cancel</button>
         <button type="submit" class="btn primary">${(d.confirmLabel as string) ?? "OK"}</button></div>
       </form>`;
   }
 
+  private themeChoice() {
+    const themes: [Theme, string][] = [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]];
+    return html`<div class="theme-choice" role="radiogroup" aria-label="Theme"><span class="muted small">Theme</span>
+      ${themes.map(([t, name]) => html`<button type="button" role="radio" data-theme-choice=${t} aria-checked=${this.s.theme === t ? "true" : "false"}
+        class="btn sm ${this.s.theme === t ? "primary" : ""}" title=${t === "auto" ? "Follow the system setting" : ""} @click=${() => store.setTheme(t)}>${name}</button>`)}</div>`;
+  }
+
   private confirm(d: Dialog) {
     return html`<h2>${d.title as string}</h2>
       <p>${d.text as string}</p>
-      <div class="foot"><button class="btn" @click=${() => this.dismiss()}>Cancel</button>
-      <button class="btn ${(d.danger as boolean) ? "danger" : "primary"}" @click=${() => { store.set({ dialog: null }); (d.onConfirm as () => void)(); }}>${(d.confirmLabel as string) ?? "OK"}</button></div>`;
+      <div class="foot"><button class="btn" data-test="dialog-cancel" @click=${() => this.dismiss()}>Cancel</button>
+      ${d.altLabel ? html`<button class="btn" data-test="dialog-alt" @click=${() => { store.set({ dialog: null }); (d.onAlt as () => void)(); }}>${d.altLabel as string}</button>` : nothing}
+      <button class="btn ${(d.danger as boolean) ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => { store.set({ dialog: null }); (d.onConfirm as () => void)(); }}>${(d.confirmLabel as string) ?? "OK"}</button></div>`;
   }
 }
 

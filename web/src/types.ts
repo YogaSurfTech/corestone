@@ -142,13 +142,15 @@ export interface RepoStatus {
   projection: ProjectionStatus;
   inSync: boolean;
   stats?: { artifacts: Record<string, number>; types: Record<string, number>; invalid: number; deleted: number; folders: number; schemas: number; workflows: number };
+  /** Configuration problems: invalid files the server ignores (code invalid-config) and unresolved references (config-reference). */
+  invalidConfig?: Issue[];
 }
 
 export interface Issue { severity: "error" | "warning"; code: string; guid?: string; path?: string; message: string }
 
 export interface Block {
   id?: string;
-  type: "section" | "paragraph" | "entry" | "image" | "list" | "code";
+  type: "section" | "paragraph" | "entry" | "image" | "list" | "code" | "toc";
   title?: string;
   text?: string;
   guid?: string;
@@ -156,5 +158,7 @@ export interface Block {
   alt?: string;
   children?: Block[];
   items?: Block[];
+  /** toc: how many section levels to list; all when absent. */
+  depth?: number;
   [k: string]: unknown;
 }
