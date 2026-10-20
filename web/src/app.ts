@@ -39,8 +39,6 @@ export class App extends LitElement {
           api.get(s.route.guid).then((v) => {
             if (store.state.route.guid !== v.meta.guid) return;
             this.selectedKind = v.meta.kind;
-            // A deep link to an artifact shows it in the context of its folder.
-            if (!store.state.route.folder && v.meta.folder && !store.state.route.q && !store.state.route.type) navigate({ folder: v.meta.folder }, true);
           }).catch(() => { this.selectedKind = "missing"; });
         } else announceView("");
       }

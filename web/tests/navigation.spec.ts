@@ -204,3 +204,20 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
 });
+test("opening an artifact keeps the folder, the navigation and the table as they are", async ({ page }) => {
+  await page.goto(`/?subtree=1`);
+  const row = page.locator("table.grid tbody tr", { hasText: `Beta two ${id}` });
+  await expect(row).toBeVisible();
+  await expect(page.locator(".tree .row.selected")).toContainText("Repository");
+  let searches = 0;
+  page.on("request", (r) => { if (r.url().includes("/api/search")) searches++; });
+  await row.click();
+  await expect(page.locator("corestone-detail h2")).toHaveText(`Beta two ${id}`);
+  await expect(page).not.toHaveURL(/folder=/);
+  await expect(page.locator(".tree .row.selected")).toContainText("Repository");
+  await expect(page.locator(".toolbar .title")).toHaveText("Repository");
+  await page.locator("table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
+  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator(".tree .row.selected")).toContainText("Repository");
+  expect(searches).toBe(0);
+});

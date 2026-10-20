@@ -1,3 +1,4 @@
+import { api } from "./api";
 import { defaultRoute, store, type Route } from "./store";
 
 // Bidirectional synchronization between the store and the browser URL
@@ -53,6 +54,16 @@ export function navigate(patch: Partial<Route>, replace = false) {
 }
 
 export function installRouter() {
-  store.setRoute(parseRoute());
+  const initial = parseRoute();
+  store.setRoute(initial);
+  // A link to an artifact without a folder (bookmarked or shared) shows it in
+  // the context of its folder. Only on page load: inside the app, opening an
+  // artifact keeps the current folder, including the repository root.
+  if (initial.guid && !initial.folder && !initial.q && !initial.type) {
+    api.get(initial.guid).then((v) => {
+      const r = store.state.route;
+      if (r.guid === v.meta.guid && !r.folder && !r.q && !r.type && v.meta.folder) navigate({ folder: v.meta.folder }, true);
+    }).catch(() => {});
+  }
   window.addEventListener("popstate", () => store.setRoute(parseRoute()));
 }
