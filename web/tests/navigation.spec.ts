@@ -204,3 +204,52 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
 });
+
+test("table headers sort ascending and descending, columns resize, and both are remembered", async ({ page }) => {
+  const sub = `${folder}/sorting`;
+  await post("/entries", { path: sub, type: "req", title: `Mu 10 ${id}`, fields: { priority: "low", effort: 10 } });
+  await post("/entries", { path: sub, type: "req", title: `alpha ${id}`, fields: { priority: "high", effort: 9 } });
+  await post("/entries", { path: sub, type: "tc", title: `Mu 9 ${id}` });
+  await post("/entries", { path: sub, type: "tc", title: `Zeta ${id}` });
+  await page.goto(`/folder/${sub}`);
+  const header = (col: string) => page.locator(`table.grid th[data-col="${col}"]`);
+  const column = (col: string) => page.evaluate((c) => {
+    const i = document.querySelector<HTMLTableCellElement>(`table.grid th[data-col="${c}"]`)!.cellIndex;
+    return [...document.querySelectorAll<HTMLTableRowElement>("table.grid tbody tr")].map((tr) => tr.cells[i].innerText.trim());
+  }, col);
+  const titles = async () => (await column("$title")).map((t) => t.replace(/^[EDLC]\s*/, ""));
+  const names = [`alpha ${id}`, `Mu 9 ${id}`, `Mu 10 ${id}`, `Zeta ${id}`]; // case-insensitive, natural number order
+  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await header("$title").locator(".th-sort").click();
+  await expect(header("$title")).toHaveAttribute("aria-sort", "ascending");
+  expect(await titles()).toEqual(names);
+  await header("$title").locator(".th-sort").click();
+  await expect(header("$title")).toHaveAttribute("aria-sort", "descending");
+  expect(await titles()).toEqual([...names].reverse());
+  // numbers sort by value and empty cells stay last in both directions
+  await header("effort").locator(".th-sort").click();
+  expect(await column("effort")).toEqual(["9", "10", "", ""]);
+  await header("effort").locator(".th-sort").click();
+  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  await expect(header("$title")).toHaveAttribute("aria-sort", "none");
+  // drag the title column's edge
+  const width = async () => (await header("$title").boundingBox())!.width;
+  const before = await width();
+  const edge = (await header("$title").locator(".col-resize").boundingBox())!;
+  await page.mouse.move(edge.x + 3, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 123, edge.y + edge.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending"); // the drag did not sort
+  expect(await width()).toBeCloseTo(before + 120, -1);
+  const dragged = await width();
+  await page.reload();
+  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
+  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  // double-click fits the column to its content
+  await header("$title").locator(".col-resize").dblclick();
+  await expect.poll(width).toBeLessThan(dragged);
+  await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
+});
