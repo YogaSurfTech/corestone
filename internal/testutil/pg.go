@@ -28,6 +28,9 @@ func DSN(t testing.TB) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := ensureLtree(admin); err != nil {
+		t.Fatalf("ltree extension: %v", err)
+	}
 	if _, err := admin.Exec(`CREATE SCHEMA ` + name); err != nil {
 		t.Fatalf("create test schema: %v", err)
 	}
@@ -42,4 +45,24 @@ func DSN(t testing.TB) string {
 		sep = "&"
 	}
 	return dsn + sep + "search_path=" + name + ",public"
+}
+
+// ensureLtree installs ltree in public before any test schema exists.
+// Otherwise the first test's CREATE EXTENSION puts it into that test's
+// schema: the other tests then find the extension but not its type, and
+// dropping the schema removes it again. Packages run as parallel
+// processes, so a concurrent CREATE may fail while another one succeeds.
+func ensureLtree(admin *sql.DB) error {
+	var err error
+	for range 5 {
+		if _, err = admin.Exec(`CREATE EXTENSION IF NOT EXISTS ltree SCHEMA public`); err == nil {
+			return nil
+		}
+		var ok bool
+		if admin.QueryRow(`SELECT true FROM pg_extension WHERE extname = 'ltree'`).Scan(&ok) == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
 }
