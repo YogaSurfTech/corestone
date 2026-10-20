@@ -291,7 +291,7 @@ func TestArtifactAndOverlay(t *testing.T) {
 
 func TestContent(t *testing.T) {
 	g := NewGUID()
-	blocks, _ := ojson.Parse([]byte(`[{"type":"section","title":"S","children":[{"type":"paragraph","text":"hello"},{"type":"entry","guid":"` + g + `"},{"type":"list","items":[{"type":"paragraph","text":"item"}]}]}]`))
+	blocks, _ := ojson.Parse([]byte(`[{"type":"toc"},{"type":"toc","depth":2},{"type":"section","title":"S","children":[{"type":"paragraph","text":"hello"},{"type":"entry","guid":"` + g + `"},{"type":"list","items":[{"type":"paragraph","text":"item"}]}]}]`))
 	if err := ValidateContent(blocks.([]any)); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,8 @@ func TestContent(t *testing.T) {
 	if txt := ContentText(blocks.([]any)); !strings.Contains(txt, "hello") || !strings.Contains(txt, "item") || !strings.Contains(txt, "S") {
 		t.Fatalf("text %q", txt)
 	}
-	for _, bad := range []string{`[{"type":"blob"}]`, `[{"type":"entry","guid":"x"}]`, `[1]`, `[{"type":"paragraph","text":5}]`, `[{"type":"image"}]`} {
+	for _, bad := range []string{`[{"type":"blob"}]`, `[{"type":"entry","guid":"x"}]`, `[1]`, `[{"type":"paragraph","text":5}]`, `[{"type":"image"}]`,
+		`[{"type":"toc","depth":0}]`, `[{"type":"toc","depth":1.5}]`, `[{"type":"toc","depth":"2"}]`, `[{"type":"toc","depth":99}]`} {
 		v, _ := ojson.Parse([]byte(bad))
 		if err := ValidateContent(v.([]any)); err == nil {
 			t.Errorf("accepted %s", bad)
