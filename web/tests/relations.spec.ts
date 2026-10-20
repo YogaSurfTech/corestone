@@ -85,20 +85,40 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(ov.locator(".chain .node.self")).toContainText("this entry");
   await expect(ov).toContainText("effort: 5");
   await expect(ov).toContainText("rationale: from base");
-  await expect(page.locator("[data-field=effort] .inherited")).toBeVisible();
-  await expect(page.locator("[data-field=priority] select")).toHaveValue("");
-  // override effort locally
+  // inherited values are shown, locked, and name the level they come from by HID
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText(`inherited from base ${mid.meta.hid}`);
+  await expect(page.locator("[data-field=effort] input")).toHaveValue("5");
+  await expect(page.locator("[data-field=effort] input")).toBeDisabled();
+  await expect(page.locator("[data-field=priority] .inherited")).toContainText(`inherited from base ${base.meta.hid}`);
+  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
+  await expect(page.locator("[data-field=priority] select")).toBeDisabled();
+  await expect(ov).toContainText(`effort: 5 from ${mid.meta.hid}`);
+  // override effort locally: unlock, edit, save
+  await page.locator("[data-field=effort] [data-test=override]").click();
+  await expect(page.locator("[data-field=effort] input")).toBeEnabled();
   await page.locator("[data-field=effort] input").fill("3");
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(page.locator("[data-field=effort] .inherited")).toHaveCount(0);
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText(`overrides base ${mid.meta.hid}`);
   await expect(ov).toContainText("effort: 3");
-  // clearing it reverts to the inherited value
-  await page.locator("[data-field=effort] input").fill("");
+  // revert to base drops the own value
+  await page.locator("[data-field=effort] [data-test=revert]").click();
+  await expect(page.locator("[data-field=effort] input")).toHaveValue("5");
+  await expect(page.locator("[data-field=effort] input")).toBeDisabled();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(page.locator("[data-field=effort] .inherited")).toBeVisible();
   await expect(ov).toContainText("effort: 5");
+  // clearing an override also reverts to the inherited value
+  await page.locator("[data-field=effort] [data-test=override]").click();
+  await page.locator("[data-field=effort] input").fill("");
+  await expect(page.locator("[data-field=effort] .inherited")).toContainText("inherited from base");
+  await expect(page.locator("[data-test=save]")).toHaveCount(0); // nothing changed
+  // an unlocked but unsaved override can be reverted before saving
+  await page.locator("[data-field=priority] [data-test=override]").click();
+  await page.locator("[data-field=priority] select").selectOption("low");
+  await page.locator("[data-field=priority] [data-test=revert]").click();
+  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();
   await expect(page.locator("corestone-detail h2")).toHaveText(`Base ${id}`);

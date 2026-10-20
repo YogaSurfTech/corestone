@@ -7,6 +7,7 @@ import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, W
 import { announceEdit } from "./ws";
 import { deepEqual, fmtSize, fmtTime, kindIcon, label, relTime } from "./util";
 import "./fields";
+import type { OverlayState } from "./fields";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -25,6 +26,8 @@ export class Detail extends LitElement {
   @state() private rel: Relationships | null = null;
   @state() private comments: CommentView[] = [];
   @state() private overlay: OverlayView | null = null;
+  /** The base's effective fields: what this entry shows where it sets nothing itself. */
+  @state() private baseOverlay: OverlayView | null = null;
   @state() private history: LogEntry[] = [];
   @state() private draft: { title: string; hid: string; fields: Record<string, unknown> } | null = null;
   @state() private busy = false;
@@ -87,18 +90,19 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.rel = null; this.comments = []; this.history = []; this.workflows = []; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.comments = []; this.history = []; this.workflows = []; }
     this.error = "";
     try {
       const view = await api.get(guid);
       if (stale()) return;
-      const [schema, wf, rel, comments, history, overlay] = await Promise.all([
+      const [schema, wf, rel, comments, history, overlay, baseOverlay] = await Promise.all([
         api.schemaOf(guid).catch(() => ({ schema: null })),
         api.workflows(guid).catch(() => ({ workflows: [] })),
         api.relationships(guid).catch(() => null),
         api.comments(guid).catch(() => ({ comments: [] })),
         api.history(guid).catch(() => ({ history: [] })),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
+        view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
       ]);
       if (stale()) return;
       // Judge the draft against the view it was made from, after every
@@ -121,6 +125,7 @@ export class Detail extends LitElement {
       this.comments = comments.comments;
       this.history = history.history;
       this.overlay = overlay;
+      this.baseOverlay = baseOverlay;
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
     } catch (e) {
       if (stale()) return;
@@ -338,19 +343,36 @@ export class Detail extends LitElement {
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
     return html`<section class="section" id="sec-fields"><h3>Fields</h3>
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
-      ${fields.map((f) => html`<corestone-field .field=${f} .value=${d.fields[f.id]} .attachments=${this.view?.attachments ?? []}
-        .inheritedFrom=${this.inheritedFrom(f.id)} @focusin=${this.touched}
+      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []}
+        .overlay=${ov} @focusin=${this.touched}
+        @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
+        @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
-        @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`)}
+        @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
       ${extra.map((k) => html`<corestone-field .field=${{ id: k, name: k + " (unschematized)", type: typeof d.fields[k] === "object" ? "json" : typeof d.fields[k] === "boolean" ? "boolean" : "text" }} .value=${d.fields[k]}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}
     </section>`;
   }
 
-  private inheritedFrom(fieldId: string): string | null {
-    if (!this.overlay || this.draft!.fields[fieldId] !== undefined) return null;
-    const origin = this.overlay.origin[fieldId];
-    return origin && origin !== this.guid ? origin : null;
+  /** Overlay state of a field the base chain provides a value for; null when the base sets nothing. */
+  private overlayState(fieldId: string): OverlayState | null {
+    const base = this.baseOverlay;
+    if (!base || base.fields[fieldId] === undefined) return null;
+    return { from: this.levelLabel(base.origin[fieldId]), state: this.draft!.fields[fieldId] === undefined ? "inherited" : "overridden", baseValue: base.fields[fieldId] };
+  }
+
+  /** Overriding copies the base value into this entry; reverting removes the own value again. */
+  private setOwnField(id: string, value: unknown) {
+    const next = { ...this.draft!.fields };
+    if (value === undefined) delete next[id]; else next[id] = value;
+    this.draft = { ...this.draft!, fields: next };
+    this.touched();
+  }
+
+  /** An overlay chain level by HID, then title, then short GUID. */
+  private levelLabel(guid: string): string {
+    const lvl = this.overlay?.chain.find((l) => l.guid === guid);
+    return lvl?.hid || lvl?.title || guid.slice(0, 8);
   }
 
   private workflowSection() {
@@ -428,7 +450,7 @@ export class Detail extends LitElement {
         <div class="node ${lvl.guid === this.guid ? "self" : ""}">
           ${lvl.guid === this.guid ? html`<b>this entry</b>` : html`<a href=${"/artifact/" + lvl.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: lvl.guid }); }}>${lvl.hid || lvl.title || lvl.guid.slice(0, 8)}</a>`}
           <small>${lvl.fields.length ? "sets " + lvl.fields.join(", ") : "sets nothing"}</small></div>`)}</div>
-        <dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : ov.origin[k].slice(0, 8)}</span></div>`)}</dd></dl>` : html`<div class="muted small">This entry has no base.</div>`}
+        <dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : html`<div class="muted small">This entry has no base.</div>`}
       ${ov.overlays.length ? html`<h4 class="small muted" style="margin-top:10px">Variants deriving from this entry</h4>${ov.overlays.map((o) => html`<div><a href=${"/artifact/" + o.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: o.guid }); }}>${o.hid ? o.hid + " " : ""}${o.title}</a></div>`)}` : nothing}
     </section>`;
   }

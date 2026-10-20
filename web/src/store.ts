@@ -15,6 +15,8 @@ export interface Route {
   expanded: boolean;     // detail fills the workspace
 }
 
+export type Theme = "auto" | "light" | "dark";
+
 export interface Toast { id: number; text: string; level: "info" | "error" | "success"; action?: { label: string; run: () => void } }
 
 export interface Presence { viewers: string[]; editors: string[] }
@@ -31,6 +33,8 @@ export interface PromptOptions {
   confirmLabel?: string;
   /** The value is a folder path: show the folder field instead of a plain input. */
   folder?: boolean;
+  /** Also offer the colour theme; choosing one applies it right away. */
+  theme?: boolean;
   /** With folder: the folder being moved, which is no typo candidate. */
   ignore?: string;
 }
@@ -41,6 +45,7 @@ export interface State {
   connected: boolean;
   session: string;
   user: string;
+  theme: Theme;
   selection: View | null;
   selectionError: string | null;
   loading: boolean;
@@ -63,6 +68,7 @@ class Store {
     connected: false,
     session: "",
     user: localStorage.getItem("corestone.user") || "",
+    theme: applyTheme(localStorage.getItem("corestone.theme") as Theme | null),
     selection: null,
     selectionError: null,
     loading: false,
@@ -117,6 +123,11 @@ class Store {
     this.set({ user: name });
   }
 
+  setTheme(theme: Theme) {
+    if (theme === "auto") localStorage.removeItem("corestone.theme"); else localStorage.setItem("corestone.theme", theme);
+    this.set({ theme: applyTheme(theme) });
+  }
+
   toggleNav() {
     const c = !this.state.navCollapsed;
     localStorage.setItem("corestone.nav", c ? "collapsed" : "open");
@@ -127,6 +138,13 @@ class Store {
   closeNavIfOverlay() {
     if (narrowScreen() && !this.state.navCollapsed) this.set({ navCollapsed: true });
   }
+}
+
+/** Sets the theme on <html>; "auto" leaves it to the system preference. */
+function applyTheme(theme: Theme | null): Theme {
+  const t: Theme = theme === "light" || theme === "dark" ? theme : "auto";
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  return t;
 }
 
 function narrowScreen(): boolean {
