@@ -204,3 +204,28 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
 });
+
+test("the folder navigation edge can be dragged, keyed, reset, and is remembered", async ({ page }) => {
+  await page.goto(`/folder/${folder}`);
+  const nav = page.locator("corestone-sidebar");
+  const bar = page.locator("[data-test=nav-splitter]");
+  const width = async () => (await nav.boundingBox())!.width;
+  const initial = await width();
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + 3, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 123, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeGreaterThan(initial + 100);
+  const dragged = await width();
+  await page.reload();
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await bar.focus();
+  await page.keyboard.press("ArrowLeft");
+  expect(await width()).toBeLessThan(dragged);
+  await bar.dblclick();
+  await expect.poll(width).toBeCloseTo(initial, -1);
+  // hidden with the navigation
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await expect(bar).toBeHidden();
+});
