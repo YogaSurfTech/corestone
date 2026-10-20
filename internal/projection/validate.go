@@ -3,6 +3,7 @@ package projection
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/thomdehoog/corestone/internal/model"
@@ -17,8 +18,9 @@ type Issue struct {
 	Message  string `json:"message"`
 }
 
-// InvalidConfig lists the configuration files (schemas, workflows, ...) that
-// failed to parse or validate. They are ignored: composition skips them.
+// InvalidConfig lists configuration problems: files that failed to parse
+// or validate (errors; they are ignored) and references between files that
+// do not resolve (warnings).
 func (p *DB) InvalidConfig(ctx context.Context) ([]Issue, error) {
 	rows, err := p.sql.QueryContext(ctx, `SELECT path, error FROM config_files WHERE NOT valid ORDER BY path`)
 	if err != nil {
@@ -35,6 +37,13 @@ func (p *DB) InvalidConfig(ctx context.Context) ([]Issue, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, unavailable(err)
+	}
+	problems, err := p.ConfigProblems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pr := range problems {
+		issues = append(issues, Issue{Severity: "warning", Code: "config-reference", Path: pr.Path, Message: pr.Message})
 	}
 	return issues, nil
 }
@@ -173,29 +182,43 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 		return nil, unavailable(err)
 	}
 
-	// workflow consistency
-	schemas, workflows, err := p.Config(ctx)
+	// types, fields and workflows against the configuration. Links resolve
+	// their type at the source's folder, comments at the subject's folder.
+	cfg, err := p.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err = p.sql.QueryContext(ctx, `SELECT guid, file_path, type, folder, states FROM artifacts WHERE valid AND kind IN ('entry','document')`)
+	rows, err = p.sql.QueryContext(ctx, `SELECT a.guid, a.file_path, a.kind, a.type, COALESCE(s.folder, a.folder), a.states, a.fields
+		FROM artifacts a LEFT JOIN artifacts s ON s.guid = COALESCE(a.source, a.subject) WHERE a.valid`)
 	if err != nil {
 		return nil, unavailable(err)
 	}
 	for rows.Next() {
-		var g, path, typ, folder, statesJSON string
-		_ = rows.Scan(&g, &path, &typ, &folder, &statesJSON)
-		eff := schemas.Effective(typ, folder)
-		if eff == nil {
-			add("warning", "unknown-type", g, path, "no schema defines type \""+typ+"\" at this location")
+		var g, path, kind, typ, folder, statesJSON, fieldsJSON string
+		_ = rows.Scan(&g, &path, &kind, &typ, &folder, &statesJSON, &fieldsJSON)
+		eff := cfg.Effective(typ, folder)
+		if eff == nil || string(eff.Kind) != kind {
+			add("error", "unknown-type", g, path, fmt.Sprintf("type %q is not defined for %ss here", typ, kind))
 			continue
+		}
+		var fields map[string]any
+		_ = json.Unmarshal([]byte(fieldsJSON), &fields)
+		names := make([]string, 0, len(fields))
+		for k := range fields {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, k := range names {
+			if eff.Field(k) == nil {
+				add("warning", "undeclared-field", g, path, fmt.Sprintf("field %q is not defined for type %q", k, typ))
+			}
 		}
 		var states map[string]string
 		_ = json.Unmarshal([]byte(statesJSON), &states)
 		for _, wid := range eff.AllWorkflows() {
-			wf := workflows.Resolve(wid, folder)
+			wf := cfg.Workflow(typ, wid, folder)
 			if wf == nil {
-				add("warning", "unknown-workflow", g, path, "schema assigns workflow \""+wid+"\" which is not defined here")
+				add("warning", "unknown-workflow", g, path, "type assigns workflow \""+wid+"\" which is not defined here")
 				continue
 			}
 			if st, ok := states[wid]; ok && !wf.HasState(st) {

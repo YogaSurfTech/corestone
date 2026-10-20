@@ -1,48 +1,107 @@
 #!/usr/bin/env bash
-# Seeds a running corestone with a small requirements-management domain:
-# workflows, schemas (entries, a document type, link types), entries with
-# overlays, a document composed of entry references, links and comments.
+# Seeds a running corestone with two domains, configured as described in
+# docs/CONFIGURATION.md:
+#
+#  - a requirements domain at the root: workflows, entry/document/link/comment
+#    types with shared and type-specific fields and enumerations, a subtree
+#    (specs/safety) that refines the requirement type, entries with overlays,
+#    a document composed of entry references, links and comments;
+#  - the dogfooding task tracker in corestone_tasks/, whose entry types are
+#    cut off from the root (only tasks there) while links and comments are
+#    still inherited.
 #
 #   ./examples/seed.sh [http://127.0.0.1:8080]
 set -euo pipefail
 API=${1:-http://127.0.0.1:8080}/api
 
 post() { curl -sfS -X POST "$API/$1" -H 'Content-Type: application/json' -d "$2"; }
-put()  { curl -sfS -X PUT  "$API/$1" -H 'Content-Type: application/json' -d "$2" >/dev/null; }
+# cfg <folder> <path below .corestone/config> <file content>
+cfg()  { curl -sfS -X PUT "$API/config?scope=$1&path=$2" -H 'Content-Type: application/json' -d "$3" >/dev/null; }
 guid() { python3 -c 'import json,sys; print(json.load(sys.stdin)["meta"]["guid"])'; }
 
-put "workflows/dev" '{"id":"dev","name":"Development","initial":"open",
+# ---- root configuration ------------------------------------------------------
+
+DEV='{"name":"Development","initial":"open",
   "states":[{"id":"open","name":"Open"},{"id":"review","name":"In review","color":"#b7791f"},{"id":"done","name":"Done","color":"#1f9d55"}],
   "transitions":[{"id":"submit","name":"Submit for review","from":"open","to":"review"},
                  {"id":"approve","name":"Approve","from":"review","to":"done"},
                  {"id":"rework","name":"Request rework","from":"review","to":"open"},
                  {"id":"reopen","name":"Reopen","from":"done","to":"open"}]}'
-put "workflows/publish" '{"id":"publish","name":"Publishing","initial":"draft","states":["draft","released"],
+PUBLISH='{"name":"Publishing","initial":"draft","states":["draft","released"],
   "transitions":[{"id":"release","from":"draft","to":"released"},{"id":"withdraw","from":"released","to":"draft"}]}'
+cfg "" entries/workflows/dev-workflow.json "$DEV"
+cfg "" entries/workflows/publish-workflow.json "$PUBLISH"
+cfg "" documents/workflows/publish-workflow.json "$PUBLISH"
 
-put "schemas/requirement" '{"type":"requirement","displayName":"Requirement","description":"A single verifiable statement of need",
-  "hid":{"prefix":"REQ"},"workflows":["dev","publish"],
-  "fields":[{"id":"priority","name":"Priority","type":"enum","required":true,"options":[{"value":"low"},{"value":"medium"},{"value":"high","color":"#d6455d"}]},
-            {"id":"rationale","name":"Rationale","type":"multiline"},
-            {"id":"effort","name":"Effort (days)","type":"integer"},
-            {"id":"due","name":"Due","type":"date"},
-            {"id":"tags","name":"Tags","type":"enum","multiple":true,"extendable":true,"options":[{"value":"safety"},{"value":"performance"},{"value":"ux"}]},
-            {"id":"spec","name":"Spec link","type":"hyperlink"}],
-  "presentation":{"columns":["priority","effort","due"],"icon":"list-check"}}'
-put "schemas/testcase" '{"type":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"workflows":["dev"],
-  "fields":[{"id":"steps","name":"Steps","type":"multiline"},{"id":"automated","name":"Automated","type":"boolean"},
-            {"id":"owner","name":"Owner","type":"text"}]}'
-put "schemas/component" '{"type":"component","displayName":"Component","hid":{"prefix":"CMP"},
-  "fields":[{"id":"vendor","name":"Vendor","type":"text"},{"id":"cost","name":"Unit cost","type":"currency","currency":"EUR"},
-            {"id":"parts","name":"Sub-components","type":"references","targetTypes":["component"]}]}'
-put "schemas/spec" '{"type":"spec","kind":"document","displayName":"Specification","hid":{"prefix":"SPEC"},"workflows":["publish"],
-  "fields":[{"id":"audience","name":"Audience","type":"enum","options":[{"value":"internal"},{"value":"customer"}]}]}'
-put "schemas/verifies" '{"type":"verifies","kind":"link","displayName":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many",
-  "fields":[{"id":"coverage","name":"Coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}'
-put "schemas/implements" '{"type":"implements","kind":"link","displayName":"implements","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many"}'
-put "schemas/related" '{"type":"related","kind":"link","displayName":"related to"}'
-# a subtree that refines the requirement type: an extra field, a stricter priority list
-put "schemas/requirement?scope=specs/safety" '{"type":"requirement","fields":[{"id":"asil","name":"ASIL","type":"enum","options":[{"value":"A"},{"value":"B"},{"value":"C"},{"value":"D"}]}]}'
+cfg "" entries/enums/priority-enum.json '{"name":"Priority","options":[{"value":"low"},{"value":"medium"},{"value":"high","color":"#d6455d"}]}'
+cfg "" entries/enums/tags-enum.json '{"name":"Tags","extendable":true,"options":[{"value":"safety"},{"value":"performance"},{"value":"ux"}]}'
+cfg "" entries/fields.json '{"fields":[
+  {"id":"priority","name":"Priority","type":"enum","enum":"priority"},
+  {"id":"effort","name":"Effort (days)","type":"integer"},
+  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true}]}'
+cfg "" entries/requirement-fields.json '{"fields":[
+  {"id":"rationale","name":"Rationale","type":"multiline"},
+  {"id":"due","name":"Due","type":"date"},
+  {"id":"spec","name":"Spec link","type":"hyperlink"}]}'
+cfg "" entries/testcase-fields.json '{"fields":[
+  {"id":"steps","name":"Steps","type":"multiline"},{"id":"automated","name":"Automated","type":"boolean"},
+  {"id":"owner","name":"Owner","type":"text"}]}'
+cfg "" entries/component-fields.json '{"fields":[
+  {"id":"vendor","name":"Vendor","type":"text"},{"id":"cost","name":"Unit cost","type":"currency","currency":"EUR"},
+  {"id":"parts","name":"Sub-components","type":"references","targetTypes":["component"]}]}'
+cfg "" entries/types.json '{"types":[
+  {"id":"requirement","displayName":"Requirement","description":"A single verifiable statement of need",
+   "hid":{"prefix":"REQ"},"workflows":["dev","publish"],
+   "fields":[{"id":"priority","required":true},"rationale","effort","due","tags","spec"],
+   "presentation":{"columns":["priority","effort","due"],"icon":"list-check"}},
+  {"id":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"workflows":["dev"]},
+  {"id":"component","displayName":"Component","hid":{"prefix":"CMP"}}]}'
+
+cfg "" documents/spec-fields.json '{"fields":[{"id":"audience","name":"Audience","type":"enum","options":[{"value":"internal"},{"value":"customer"}]}]}'
+cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification","hid":{"prefix":"SPEC"},"workflows":["publish"]}]}'
+
+cfg "" links/verifies-fields.json '{"fields":[{"id":"coverage","name":"Coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}'
+cfg "" links/types.json '{"types":[
+  {"id":"verifies","displayName":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"},
+  {"id":"implements","displayName":"implements","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many"},
+  {"id":"related","displayName":"related to"}]}'
+
+cfg "" comments/types.json '{"types":[{"id":"comment","displayName":"Comment"}]}'
+
+# A subtree that refines the requirement type with an extra field.
+cfg specs/safety entries/enums/asil-enum.json '{"name":"ASIL","options":[{"value":"A"},{"value":"B"},{"value":"C"},{"value":"D"}]}'
+cfg specs/safety entries/requirement-fields.json '{"fields":[{"id":"asil","name":"ASIL","type":"enum","enum":"asil"}]}'
+cfg specs/safety entries/types.json '{"types":[{"id":"requirement","fields":["asil"]}]}'
+
+# ---- dogfooding: the task tracker --------------------------------------------
+
+T=corestone_tasks
+cfg $T entries/workflows/task-workflow.json '{"name":"Task","initial":"open",
+  "states":[
+    {"id":"open","name":"Open"},
+    {"id":"implementation","name":"In implementation","color":"#b7791f"},
+    {"id":"verification","name":"In verification","color":"#3b5bdb"},
+    {"id":"done","name":"Done","color":"#1f9d55"}],
+  "transitions":[
+    {"id":"start","name":"Start to implement","from":"open","to":"implementation"},
+    {"id":"verify","name":"Start verification","from":"implementation","to":"verification"},
+    {"id":"rework","name":"Request rework","from":"verification","to":"implementation"},
+    {"id":"close","name":"Close","from":"verification","to":"done"},
+    {"id":"reopen","name":"Reopen","from":"done","to":"open"}]}'
+cfg $T entries/enums/priority-enum.json '{"name":"Priority","options":[{"value":"low"},{"value":"medium"},
+  {"value":"high","color":"#a6852d"},{"value":"urgent","color":"#d6455d"}]}'
+cfg $T entries/enums/tags-enum.json '{"name":"Tags","extendable":true,"options":[{"value":"server"},{"value":"client"},{"value":"docs"}]}'
+cfg $T entries/fields.json '{"fields":[
+  {"id":"priority","name":"Priority","type":"enum","enum":"priority"},
+  {"id":"effort","name":"Effort (days)","type":"integer"},
+  {"id":"description","name":"Description","type":"multiline"},
+  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true}]}'
+cfg $T entries/types.json '{"inheritance":"off","types":[
+  {"id":"task","displayName":"Task","hid":{"prefix":"TSK"},"workflows":["task"],
+   "fields":[{"id":"priority","required":true},"effort","description","tags"],
+   "presentation":{"columns":["priority","effort"]}}]}'
+
+# ---- requirements domain content ---------------------------------------------
 
 R1=$(post entries '{"path":"specs/boot","type":"requirement","title":"System boots in under 2 seconds",
   "fields":{"priority":"high","rationale":"Startup latency is a key selling point.","effort":5,"due":"2026-12-01","tags":["performance"]}}' | guid)
@@ -79,4 +138,20 @@ post "artifacts/$R3/transition" '{"workflow":"dev","to":"submit"}' >/dev/null
 post "artifacts/$R3/transition" '{"workflow":"dev","to":"approve"}' >/dev/null
 post "artifacts/$D1/transition" '{"workflow":"publish","to":"release"}' >/dev/null
 
-echo "Seeded: requirements $R1 $R2 $R3, variant $V1, tests $T1 $T2, components $C1 $C2, document $D1"
+# ---- task tracker content: the configuration layout work itself --------------
+
+task() { post entries "{\"path\":\"$T\",\"type\":\"task\",\"title\":\"$1\",\"fields\":$2}" | guid; }
+step() { for to in "${@:2}"; do post "artifacts/$1/transition" "{\"workflow\":\"task\",\"to\":\"$to\"}" >/dev/null; done; }
+K1=$(task "Specify the configuration layout" '{"priority":"high","effort":1,"tags":["docs"],"description":"docs/CONFIGURATION.md"}')
+K2=$(task "Model for the configuration layout" '{"priority":"high","effort":2,"tags":["server"]}')
+K3=$(task "Configuration API and indexing" '{"priority":"high","effort":2,"tags":["server"]}')
+K4=$(task "Enforce types and fields" '{"priority":"high","effort":2,"tags":["server"],"description":"Reject undefined types (create, retype, move) and adding or changing undefined fields."}')
+K5=$(task "Show undefined fields read-only" '{"priority":"medium","effort":1,"tags":["client"]}')
+K6=$(task "Copy or move configuration dialog" '{"priority":"low","tags":["client","server"],"description":"Clone the complete settings, keep only local definitions, or ignore."}')
+step "$K1" start verify close
+step "$K2" start verify close
+step "$K3" start verify
+step "$K4" start
+post links "{\"type\":\"related\",\"source\":\"$K4\",\"target\":\"$K5\"}" >/dev/null
+
+echo "Seeded: requirements $R1 $R2 $R3, variant $V1, tests $T1 $T2, components $C1 $C2, document $D1, tasks $K1 $K2 $K3 $K4 $K5 $K6"

@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 )
 
 // Cardinality of a link type (design guide §4.8).
@@ -276,72 +275,4 @@ func Compose(defs []ScopedSchema) *Schema {
 		eff.DisplayName = eff.Type
 	}
 	return eff
-}
-
-// SchemaIndex is an in-memory view of all schema definitions in a
-// repository, keyed by scope, used to resolve effective schemas.
-type SchemaIndex struct {
-	byScope map[string][]*Schema // scope -> definitions in that scope
-}
-
-// NewSchemaIndex builds an index from (scope, schema) pairs.
-func NewSchemaIndex(defs []ScopedSchema) *SchemaIndex {
-	idx := &SchemaIndex{byScope: map[string][]*Schema{}}
-	for _, d := range defs {
-		idx.byScope[d.Scope] = append(idx.byScope[d.Scope], d.Schema)
-	}
-	return idx
-}
-
-// Effective resolves the effective schema of typ for an artifact in folder.
-func (idx *SchemaIndex) Effective(typ, folder string) *Schema {
-	var chain []ScopedSchema
-	for _, scope := range Lineage(folder) {
-		for _, s := range idx.byScope[scope] {
-			if s.Type == typ {
-				chain = append(chain, ScopedSchema{Scope: scope, Schema: s})
-			}
-		}
-	}
-	return Compose(chain)
-}
-
-// TypesVisible lists the effective schemas of every type that has at least
-// one definition visible from folder, sorted by type id.
-func (idx *SchemaIndex) TypesVisible(folder string) []*Schema {
-	set := map[string]bool{}
-	for _, scope := range Lineage(folder) {
-		for _, s := range idx.byScope[scope] {
-			set[s.Type] = true
-		}
-	}
-	types := make([]string, 0, len(set))
-	for t := range set {
-		types = append(types, t)
-	}
-	sort.Strings(types)
-	out := make([]*Schema, 0, len(types))
-	for _, t := range types {
-		if e := idx.Effective(t, folder); e != nil {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// LinkTypesFor lists link schemas visible from folder that allow the given
-// artifact type as source or target.
-func (idx *SchemaIndex) LinkTypesFor(typ, folder string) (asSource, asTarget []*Schema) {
-	for _, s := range idx.TypesVisible(folder) {
-		if s.Kind != KindLink {
-			continue
-		}
-		if AllowsEndpoint(s.SourceTypes, typ) {
-			asSource = append(asSource, s)
-		}
-		if AllowsEndpoint(s.TargetTypes, typ) {
-			asTarget = append(asTarget, s)
-		}
-	}
-	return
 }

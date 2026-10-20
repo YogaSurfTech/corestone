@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import { api } from "./api";
 import { store } from "./store";
 import type { Attachment, Field, Summary } from "./types";
@@ -11,6 +11,18 @@ import { label, safeHref } from "./util";
 
 export type FieldValue = unknown;
 
+// Values in use per type and field, for extendable enumerations: their
+// extra values live only in the artifacts. Shared briefly by all editors.
+const usedValues = new Map<string, { at: number; values: Promise<string[]> }>();
+function valuesInUse(type: string, field: string): Promise<string[]> {
+  const key = type + "\n" + field;
+  const hit = usedValues.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.values;
+  const values = api.values(type, field).then((r) => r.values.map((v) => v.value)).catch(() => []);
+  usedValues.set(key, { at: Date.now(), values });
+  return values;
+}
+
 /** How a field relates to the entry's overlay base: shown from the base and locked, or set here over a base value. */
 export interface OverlayState { from: string; state: "inherited" | "overridden"; baseValue: unknown }
 
@@ -21,6 +33,12 @@ export class FieldEditor extends LitElement {
   @property({ attribute: false }) overlay: OverlayState | null = null;
   @property({ attribute: false }) attachments: Attachment[] = [];
   @property({ type: Boolean }) readonly = false;
+  /** The artifact type, so extendable enumerations can suggest the values in use. */
+  @property({ attribute: false }) typeId = "";
+  /** The field is stored but the type does not define it: shown read-only, may be removed. */
+  @property({ type: Boolean }) undeclared = false;
+  @state() private used: string[] = [];
+  private usedKey = "";
   private refCache = new Map<string, Summary | null>();
 
   override createRenderRoot() { return this; }
@@ -46,7 +64,25 @@ export class FieldEditor extends LitElement {
   }
 
   /** Inherited values are shown from the base and stay locked until overridden. */
-  private get disabled() { return this.readonly || this.overlay?.state === "inherited"; }
+  private get disabled() { return this.readonly || this.undeclared || this.overlay?.state === "inherited"; }
+
+  override willUpdate() {
+    const f = this.field;
+    const key = f.type === "enum" && f.extendable && this.typeId ? this.typeId + "\n" + f.id : "";
+    if (key !== this.usedKey) {
+      this.usedKey = key;
+      this.used = [];
+      if (key) valuesInUse(this.typeId, f.id).then((v) => { if (this.usedKey === key) this.used = v; });
+    }
+  }
+
+  /** Suggestions for an extendable enumeration: the options, then the other values in use. */
+  private suggestions() {
+    const opts = this.field.options ?? [];
+    const known = new Set(opts.map((o) => o.value));
+    return html`<datalist id=${"dl-" + this.field.id}>${opts.map((o) => html`<option value=${o.value}>${o.label || o.value}</option>`)}
+      ${this.used.filter((v) => !known.has(v)).map((v) => html`<option value=${v}></option>`)}</datalist>`;
+  }
 
   override render() {
     const f = this.field;
@@ -56,6 +92,8 @@ export class FieldEditor extends LitElement {
         ${this.input()}
         ${f.description ? html`<div class="help">${f.description}</div>` : nothing}
         ${this.overlayNote()}
+        ${this.undeclared ? html`<div class="inherited undeclared">not defined for this type ·
+          <button type="button" data-test="remove-field" @click=${() => this.emit(null)}>✕ remove</button></div>` : nothing}
       </div>
     </div>`;
   }
@@ -136,16 +174,17 @@ export class FieldEditor extends LitElement {
       };
       return html`<div class="multi">${opts.map((o) => html`<label><input type="checkbox" .checked=${cur.includes(o.value)} ?disabled=${this.disabled}
         @change=${(e: Event) => toggle(o.value, (e.target as HTMLInputElement).checked)} />${o.label || o.value}</label>`)}
-        ${f.extendable ? html`<input type="text" placeholder="add value…" style="width:140px" @keydown=${(e: KeyboardEvent) => {
+        ${cur.filter((v) => !opts.some((o) => o.value === v)).map((v) => html`<label><input type="checkbox" checked ?disabled=${this.disabled}
+          @change=${(e: Event) => toggle(v, (e.target as HTMLInputElement).checked)} />${v}</label>`)}
+        ${f.extendable && !this.disabled ? html`<input type="text" placeholder="add value…" style="width:140px" list=${"dl-" + f.id} @keydown=${(e: KeyboardEvent) => {
           if (e.key === "Enter") { e.preventDefault(); const t = e.target as HTMLInputElement; if (t.value.trim()) { toggle(t.value.trim(), true); t.value = ""; } }
-        }} />` : nothing}</div>`;
+        }} />${this.suggestions()}` : nothing}</div>`;
     }
     const v = this.value == null ? "" : String(this.value);
     const known = opts.some((o) => o.value === v);
     if (f.extendable) {
       return html`<input id=${"f-" + f.id} type="text" list=${"dl-" + f.id} .value=${v} ?disabled=${this.disabled}
-        @input=${(e: Event) => this.emit((e.target as HTMLInputElement).value || null)} />
-        <datalist id=${"dl-" + f.id}>${opts.map((o) => html`<option value=${o.value}>${o.label || o.value}</option>`)}</datalist>`;
+        @input=${(e: Event) => this.emit((e.target as HTMLInputElement).value || null)} />${this.suggestions()}`;
     }
     return html`<select id=${"f-" + f.id} ?disabled=${this.disabled} @change=${(e: Event) => this.emit((e.target as HTMLSelectElement).value || null)}>
       <option value="" ?selected=${v === ""}>— select —</option>

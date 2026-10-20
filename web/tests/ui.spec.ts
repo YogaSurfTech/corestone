@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { defineTypes, defineWorkflow } from "./fixtures";
 
 // Browser tests of the generic client against a live corestone. They exercise
 // the MVP success criteria (design guide §9.9) through the UI only: define
@@ -11,10 +12,6 @@ const api = base + "/api";
 const stamp = Date.now().toString(36);
 const folder = `ui-${stamp}`;
 
-async function put(path: string, body: unknown) {
-  const res = await fetch(api + path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
-}
 async function post(path: string, body: unknown): Promise<{ meta: { guid: string; hid?: string } }> {
   const res = await fetch(api + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
@@ -22,14 +19,17 @@ async function post(path: string, body: unknown): Promise<{ meta: { guid: string
 }
 
 test.beforeAll(async () => {
-  await put(`/workflows/dev?scope=${folder}`, { id: "dev", initial: "open", states: ["open", "review", "done"],
+  await defineWorkflow(folder, ["entries"], "dev", { initial: "open", states: ["open", "review", "done"],
     transitions: [{ id: "submit", name: "Submit for review", from: "open", to: "review" }, { id: "approve", from: "review", to: "done" }] });
-  await put(`/schemas/req?scope=${folder}`, { type: "req", displayName: "Requirement", hid: { prefix: "UR" + stamp.slice(-3).toUpperCase() }, workflows: ["dev"],
-    fields: [{ id: "priority", name: "Priority", type: "enum", required: true, options: [{ value: "low" }, { value: "high" }] },
-             { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" }] });
-  await put(`/schemas/tc?scope=${folder}`, { type: "tc", displayName: "Test case", hid: { prefix: "UT" + stamp.slice(-3).toUpperCase() } });
-  await put(`/schemas/spec?scope=${folder}`, { type: "spec", kind: "document", displayName: "Specification" });
-  await put(`/schemas/verifies?scope=${folder}`, { type: "verifies", kind: "link", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many" });
+  await defineTypes(folder, "entries", [
+    { id: "req", displayName: "Requirement", hid: { prefix: "UR" + stamp.slice(-3).toUpperCase() }, workflows: ["dev"],
+      fields: [{ id: "priority", name: "Priority", type: "enum", required: true, options: [{ value: "low" }, { value: "high" }] },
+               { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" }] },
+    { id: "tc", displayName: "Test case", hid: { prefix: "UT" + stamp.slice(-3).toUpperCase() } },
+  ]);
+  await defineTypes(folder, "documents", [{ id: "spec", displayName: "Specification" }]);
+  await defineTypes(folder, "links", [{ id: "verifies", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many" }, { id: "related" }]);
+  await defineTypes(folder, "comments", [{ id: "comment" }]);
 });
 
 async function openFolder(page: Page) {

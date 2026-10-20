@@ -5,7 +5,7 @@ import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { deepEqual, fmtSize, fmtTime, kindIcon, label, relTime } from "./util";
+import { commentTypeOf, deepEqual, fmtSize, fmtTime, kindIcon, label, relTime, undeclaredField } from "./util";
 import "./fields";
 import type { OverlayState } from "./fields";
 
@@ -28,6 +28,8 @@ export class Detail extends LitElement {
   @state() private overlay: OverlayView | null = null;
   /** The base's effective fields: what this entry shows where it sets nothing itself. */
   @state() private baseOverlay: OverlayView | null = null;
+  /** The comment type to post with here; null when the folder defines none (no comments then). */
+  @state() private commentType: string | null = null;
   @state() private history: LogEntry[] = [];
   @state() private draft: { title: string; hid: string; fields: Record<string, unknown> } | null = null;
   @state() private busy = false;
@@ -95,7 +97,7 @@ export class Detail extends LitElement {
     try {
       const view = await api.get(guid);
       if (stale()) return;
-      const [schema, wf, rel, comments, history, overlay, baseOverlay] = await Promise.all([
+      const [schema, wf, rel, comments, history, overlay, baseOverlay, types] = await Promise.all([
         api.schemaOf(guid).catch(() => ({ schema: null })),
         api.workflows(guid).catch(() => ({ workflows: [] })),
         api.relationships(guid).catch(() => null),
@@ -103,6 +105,7 @@ export class Detail extends LitElement {
         api.history(guid).catch(() => ({ history: [] })),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
+        api.types(view.meta.folder).catch(() => ({ types: [] })),
       ]);
       if (stale()) return;
       // Judge the draft against the view it was made from, after every
@@ -126,6 +129,7 @@ export class Detail extends LitElement {
       this.history = history.history;
       this.overlay = overlay;
       this.baseOverlay = baseOverlay;
+      this.commentType = commentTypeOf(types.types);
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
     } catch (e) {
       if (stale()) return;
@@ -203,7 +207,7 @@ export class Detail extends LitElement {
   private async addComment() {
     if (!this.commentText.trim()) return;
     try {
-      await api.create("comments", { subject: this.guid, parent: this.replyTo ?? undefined, text: this.commentText, author: this.s.user });
+      await api.create("comments", { subject: this.guid, parent: this.replyTo ?? undefined, type: this.commentType, text: this.commentText, author: this.s.user });
       this.commentText = "";
       this.replyTo = null;
       this.reload(true);
@@ -343,13 +347,13 @@ export class Detail extends LitElement {
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
     return html`<section class="section" id="sec-fields"><h3>Fields</h3>
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
-      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []}
+      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""}
         .overlay=${ov} @focusin=${this.touched}
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
         @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
-      ${extra.map((k) => html`<corestone-field .field=${{ id: k, name: k + " (unschematized)", type: typeof d.fields[k] === "object" ? "json" : typeof d.fields[k] === "boolean" ? "boolean" : "text" }} .value=${d.fields[k]}
+      ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}
     </section>`;
   }
@@ -404,7 +408,8 @@ export class Detail extends LitElement {
     return html`<section class="section" id="sec-relationships"><h3>Relationships <span class="actions">
         ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
         ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>← ${s.displayName || s.type}</button>`)}
-        <button class="btn sm" @click=${() => store.prompt("Link type", { text: "Any link type; undefined types have no endpoint rules.", value: "related", confirmLabel: "Choose target…" }).then((t) => { if (t?.trim()) this.addLink(true, t.trim()); })}>＋ other…</button></span></h3>
+      </span></h3>
+      ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<div class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</div>` : nothing}
       ${!rel || (!rel.incoming.length && !rel.outgoing.length) ? html`<div class="muted small">No links yet.</div>` : html`<div class="links-list">
         ${rel.outgoing.map((l) => row(l as never, "out"))}${rel.incoming.map((l) => row(l as never, "in"))}</div>`}</section>`;
   }
@@ -420,17 +425,17 @@ export class Detail extends LitElement {
     const seen = new Set<string>();
     const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""}" data-comment=${c.meta.guid}>
       <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
-        <a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a></div>
+        ${this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
       <div class="text">${String(c.data?.text ?? "")}</div>
       ${render(c.meta.guid, depth + 1)}</div>`);
     return html`<section class="section" id="sec-comments"><h3>Comments</h3>
       ${!this.comments.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
-      <div class="inline-form">
+      ${!this.commentType ? html`<div class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form">
         <textarea id="comment-text" data-test="comment-text" placeholder=${this.replyTo ? "Reply…" : "Write a comment…"} .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
         <div style="display:flex;flex-direction:column;gap:4px">
           <button class="btn primary sm" data-test="comment-send" @click=${this.addComment}>Post</button>
           ${this.replyTo ? html`<button class="btn sm" @click=${() => (this.replyTo = null)}>cancel reply</button>` : nothing}
-        </div></div></section>`;
+        </div></div>`}</section>`;
   }
 
   private attachmentSection() {
@@ -469,3 +474,4 @@ export class Detail extends LitElement {
       <div class="help">Stored at <code>${this.view!.meta.path}</code></div></section>`;
   }
 }
+

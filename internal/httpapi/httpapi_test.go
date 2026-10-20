@@ -86,22 +86,36 @@ func meta(r resp, key string) string {
 }
 
 func (a *api) seed() {
-	a.ok("PUT", "/api/workflows/dev", `{"id":"dev","initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"}]}`, 200)
-	a.ok("PUT", "/api/schemas/requirement", `{"type":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		"fields":[{"id":"priority","type":"enum","required":true,"options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"}]}`, 200)
-	a.ok("PUT", "/api/schemas/testcase", `{"type":"testcase","hid":{"prefix":"TC"}}`, 200)
-	a.ok("PUT", "/api/schemas/spec", `{"type":"spec","kind":"document"}`, 200)
-	a.ok("PUT", "/api/schemas/verifies", `{"type":"verifies","kind":"link","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"}`, 200)
+	a.ok("PUT", "/api/config?path=entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],"fields":[{"id":"priority","required":true},"rationale"]},
+		{"id":"testcase","hid":{"prefix":"TC"}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec"}]}`, 200)
+	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"}]}`, 200)
+	a.ok("PUT", "/api/config?path=comments/types.json", `{"types":[{"id":"comment"}]}`, 200)
 }
 
 func TestRESTLifecycle(t *testing.T) {
 	a := newAPI(t)
 	a.seed()
 
-	// schema name mismatch and invalid schema
-	a.ok("PUT", "/api/schemas/other", `{"type":"requirement"}`, 400)
-	a.ok("PUT", "/api/schemas/bad", `{"type":"bad","fields":[{"id":"x","type":"nope"}]}`, 400)
-	a.ok("PUT", "/api/schemas/x", `not json`, 400)
+	// configuration: invalid files and paths outside the layout are refused;
+	// open references are accepted and reported
+	a.ok("PUT", "/api/config?path=entries/schema.json", `{}`, 400)
+	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"x","type":"nope"}]}`, 400)
+	a.ok("PUT", "/api/config?path=entries/types.json", `not json`, 400)
+	a.ok("PUT", "/api/config?scope=..&path=entries/types.json", `{"types":[]}`, 400)
+	cw := a.ok("PUT", "/api/config?scope=lab&path=entries/types.json", `{"types":[{"id":"probe","fields":["missing"]}]}`, 200)
+	if ws := cw.body["warnings"].([]any); len(ws) != 1 || cw.hdr.Get("ETag") == "" {
+		t.Fatalf("config write %s", cw.raw)
+	}
+	cf := a.ok("GET", "/api/config?scope=lab&path=entries/types.json", "", 200)
+	if !strings.Contains(string(cf.raw), `"probe"`) || cf.hdr.Get("ETag") != cw.hdr.Get("ETag") {
+		t.Fatalf("config read %s %v", cf.raw, cf.hdr)
+	}
+	a.ok("PUT", "/api/config?scope=lab&path=entries/types.json", `{"types":[]}`, 412, "If-Match", `"deadbeef"`)
+	a.ok("DELETE", "/api/config?scope=lab&path=entries/types.json", "", 200, "If-Match", cw.hdr.Get("ETag"))
 
 	r1 := a.ok("POST", "/api/entries", `{"path":"specs/boot","type":"requirement","title":"Boot fast","fields":{"priority":"high"}}`, 201)
 	g1 := meta(r1, "guid")
@@ -209,9 +223,14 @@ func TestRESTLifecycle(t *testing.T) {
 		t.Fatalf("subtree %s", tree.raw)
 	}
 	ty := a.ok("GET", "/api/repository/types?path=specs/boot", "", 200)
-	if n := len(ty.body["types"].([]any)); n != 4 {
+	if n := len(ty.body["types"].([]any)); n != 5 { // requirement, testcase, spec, verifies, comment
 		t.Fatalf("types %s", ty.raw)
 	}
+	vals := a.ok("GET", "/api/repository/values?type=requirement&field=priority", "", 200)
+	if vs := vals.body["values"].([]any); len(vs) == 0 || vs[0].(map[string]any)["count"].(float64) < 1 {
+		t.Fatalf("values %s", vals.raw)
+	}
+	a.ok("GET", "/api/repository/values?type=requirement", "", 400)
 	eff := a.ok("GET", "/api/schemas/effective?type=requirement&path=specs/boot", "", 200)
 	if eff.body["displayName"] != "Requirement" {
 		t.Fatalf("effective %s", eff.raw)
@@ -235,12 +254,13 @@ func TestRESTLifecycle(t *testing.T) {
 	if st.body["inSync"] != true {
 		t.Fatalf("status %s", st.raw)
 	}
-	sch := a.ok("GET", "/api/schemas", "", 200)
-	if n := len(sch.body["schemas"].([]any)); n != 4 {
-		t.Fatalf("schemas %s", sch.raw)
+	cfg := a.ok("GET", "/api/config", "", 200)
+	if n := len(cfg.body["files"].([]any)); n != 6 {
+		t.Fatalf("config files %s", cfg.raw)
 	}
-	a.ok("GET", "/api/workflows/dev?path=specs", "", 200)
-	a.ok("GET", "/api/workflows/nope", "", 404)
+	a.ok("GET", "/api/workflows/dev?type=requirement&path=specs", "", 200)
+	a.ok("GET", "/api/workflows/dev?type=spec&path=specs", "", 404) // entry workflows are not visible to document types
+	a.ok("GET", "/api/workflows/nope?type=requirement", "", 404)
 
 	// move artifact and folder
 	mv := a.ok("POST", "/api/artifacts/"+g1+"/move", `{"path":"archive"}`, 200)
@@ -264,9 +284,12 @@ func TestRESTLifecycle(t *testing.T) {
 		t.Fatalf("deleted %s", del.raw)
 	}
 	a.ok("DELETE", "/api/documents/"+gd, "", 204)
-	a.ok("DELETE", "/api/schemas/spec", "", 204)
-	a.ok("DELETE", "/api/schemas/spec", "", 404)
-	a.ok("DELETE", "/api/workflows/dev", "", 204)
+	a.ok("DELETE", "/api/config?path=documents/types.json", "", 200)
+	a.ok("DELETE", "/api/config?path=documents/types.json", "", 404)
+	dw := a.ok("DELETE", "/api/config?path=entries/workflows/dev-workflow.json", "", 200)
+	if ws := dw.body["warnings"].([]any); len(ws) != 1 { // requirement still uses the workflow
+		t.Fatalf("delete warnings %s", dw.raw)
+	}
 
 	// reindex is accepted and finishes
 	a.ok("POST", "/api/repository/reindex", "", 202)

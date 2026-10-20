@@ -106,14 +106,15 @@ export class App extends LitElement {
       });
   };
 
-  /** Invalid configuration files are ignored by the server: say which and why. */
+  /** Configuration problems: invalid files (ignored by the server) and references that do not resolve. */
   private configWarnings() {
     const issues = this.s.status?.invalidConfig ?? [];
     const key = issues.map((i) => `${i.path}\n${i.message}`).join("\n");
     if (!issues.length || key === this.dismissedConfig) return nothing;
     return html`<div class="config-warnings" role="alert" data-test="config-warnings">
-      <div class="title">⚠ ${issues.length === 1 ? "A configuration file is invalid and is ignored" : `${issues.length} configuration files are invalid and are ignored`}</div>
-      ${issues.map((i) => html`<div class="issue"><span class="mono">${i.path}</span><span>${i.message}</span></div>`)}
+      <div class="title">⚠ ${issues.length === 1 ? "A configuration problem" : `${issues.length} configuration problems`}</div>
+      ${issues.map((i) => html`<div class="issue"><span class="mono">${i.path}</span><span>${i.message}</span>
+        ${i.code === "invalid-config" ? html`<span class="ignored">this file is ignored</span>` : nothing}</div>`)}
       <button class="close" title="Dismiss" aria-label="Dismiss" @click=${() => (this.dismissedConfig = key)}>✕</button></div>`;
   }
 

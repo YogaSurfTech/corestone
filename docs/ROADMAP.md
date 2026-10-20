@@ -112,16 +112,16 @@ Saturation of the write mutex is invisible until users notice.
 
 ### 1.3 Schema editing in the client
 
-**Gap.** Schemas and workflows are JSON files managed through the API or Git. Fine for
-developers, a wall for everyone else.
+**Gap.** The type system is a set of JSON files ([CONFIGURATION.md](CONFIGURATION.md)) managed
+through `/api/config` or Git. Fine for developers, a wall for everyone else.
 
 **Plan.**
 
-1. Server: `POST /api/schemas/{type}/preview?scope=` takes a candidate schema and returns the
-   impact without writing: the artifacts of that type in scope that would become invalid, each
-   with the field and reason, using the existing validation in `internal/model` against the
-   candidate `SchemaIndex`. The same for `POST /api/workflows/{id}/preview` (artifacts whose
-   current state no longer exists). Both are cheap because the projection already indexes fields.
+1. Server: `POST /api/config/preview?scope=&path=` takes a candidate configuration file and returns
+   the impact without writing: the artifacts in scope that would become invalid (type no longer
+   defined, field values no longer valid, workflow states that no longer exist), each with the
+   reason, by resolving against a candidate `ConfigIndex`, plus the unresolved references the file
+   would leave. Cheap because the projection already indexes types, fields and states.
 2. Client, schema editor (`web/src/schema-editor.ts`): a form over the schema document, not a JSON
    text area. Field list with drag ordering, per-field type, required, options for enums, target
    types for references, presentation columns, HID prefix and digits, workflow assignment. Link
@@ -131,9 +131,10 @@ developers, a wall for everyone else.
    are added by clicking, with the initial state and transition names in a side panel.
 4. Impact panel: before saving, the preview endpoint runs and the editor lists what would break,
    with a link to each artifact. Saving with impact requires an explicit confirmation.
-5. Scope chooser: the editor shows where the file lives (which folder's `.corestone`) and which
-   folders inherit it, using the existing types endpoint.
-6. Tests: Foundation tests for both preview endpoints; browser tests that create a type from
+5. Scope chooser: the editor shows where the file lives (which folder's `.corestone/config`) and
+   which folders inherit it, using the existing types endpoint. Copying or moving configuration
+   gets the dialog planned in CONFIGURATION.md section 6.
+6. Tests: Foundation tests for the preview endpoint; browser tests that create a type from
    scratch, add an enum field, see the impact of removing a required field, and edit a workflow
    transition.
 

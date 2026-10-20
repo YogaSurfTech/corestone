@@ -11,6 +11,7 @@ import (
 	"github.com/thomdehoog/corestone/internal/model"
 	"github.com/thomdehoog/corestone/internal/ojson"
 	"github.com/thomdehoog/corestone/internal/projection"
+	"github.com/thomdehoog/corestone/internal/scanner"
 )
 
 // Get returns an artifact: projected metadata plus its document from Git.
@@ -111,11 +112,11 @@ func (f *Foundation) EffectiveSchema(ctx context.Context, typ, folder string) (*
 	if err != nil {
 		return nil, err
 	}
-	schemas, _, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
-	s := schemas.Effective(typ, folder)
+	s := cfg.Effective(typ, folder)
 	if s == nil {
 		return nil, fmt.Errorf("%w: no schema defines type %q at %s", model.ErrNotFound, typ, folderName(folder))
 	}
@@ -129,15 +130,29 @@ func (f *Foundation) Types(ctx context.Context, folder string) ([]*model.Schema,
 	if err != nil {
 		return nil, err
 	}
-	schemas, _, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := schemas.TypesVisible(folder)
+	out := cfg.TypesVisible(folder)
 	if out == nil {
 		out = []*model.Schema{}
 	}
 	return out, nil
+}
+
+// FieldValues lists the values of a field in use by artifacts of a type
+// in a folder and below, for suggestions in extendable enumerations, whose
+// extra values are stored only in the artifacts.
+func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string) ([]projection.ValueCount, error) {
+	folder, err := model.CleanFolder(folder)
+	if err != nil {
+		return nil, err
+	}
+	if typ == "" || field == "" {
+		return nil, model.Invalid("type and field are required")
+	}
+	return f.DB.FieldValues(ctx, typ, field, folder, 200)
 }
 
 // SchemaOf resolves the effective schema of an existing artifact.
@@ -146,26 +161,26 @@ func (f *Foundation) SchemaOf(ctx context.Context, guid string) (*model.Schema, 
 	if err != nil {
 		return nil, nil, err
 	}
-	schemas, _, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return schemas.Effective(loc.Type, loc.Folder), loc, nil
+	return cfg.Effective(loc.Type, loc.Folder), loc, nil
 }
 
-// WorkflowDef resolves a workflow definition visible from a folder.
-func (f *Foundation) WorkflowDef(ctx context.Context, id, folder string) (*model.Workflow, error) {
+// WorkflowDef resolves a workflow definition for an artifact type at a folder.
+func (f *Foundation) WorkflowDef(ctx context.Context, typ, id, folder string) (*model.Workflow, error) {
 	folder, err := model.CleanFolder(folder)
 	if err != nil {
 		return nil, err
 	}
-	_, workflows, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
-	w := workflows.Resolve(id, folder)
+	w := cfg.Workflow(typ, id, folder)
 	if w == nil {
-		return nil, fmt.Errorf("%w: workflow %q at %s", model.ErrNotFound, id, folderName(folder))
+		return nil, fmt.Errorf("%w: workflow %q for type %q at %s", model.ErrNotFound, id, typ, folderName(folder))
 	}
 	return w, nil
 }
@@ -220,17 +235,17 @@ func (f *Foundation) Workflows(ctx context.Context, guid string) ([]WorkflowStat
 	if err != nil {
 		return nil, err
 	}
-	schemas, workflows, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := []WorkflowState{}
-	eff := schemas.Effective(v.Meta.Type, v.Meta.Folder)
+	eff := cfg.Effective(v.Meta.Type, v.Meta.Folder)
 	if eff == nil {
 		return out, nil
 	}
 	for _, wid := range eff.AllWorkflows() {
-		def := workflows.Resolve(wid, v.Meta.Folder)
+		def := cfg.Workflow(v.Meta.Type, wid, v.Meta.Folder)
 		if def == nil {
 			continue
 		}
@@ -286,11 +301,11 @@ func (f *Foundation) Relationships(ctx context.Context, guid string) (*Relations
 	for _, l := range out {
 		r.Outgoing = append(r.Outgoing, other(l, l.Target))
 	}
-	schemas, _, err := f.DB.Config(ctx)
+	cfg, err := f.DB.Config(ctx)
 	if err != nil {
 		return nil, err
 	}
-	src, tgt := schemas.LinkTypesFor(loc.Type, loc.Folder)
+	src, tgt := cfg.LinkTypesFor(loc.Type, loc.Folder)
 	if src != nil {
 		r.AsSource = src
 	}
@@ -439,22 +454,14 @@ func (f *Foundation) Reindex() {
 	}()
 }
 
-// SchemaFiles lists schema definition files (all scopes or one scope).
-func (f *Foundation) SchemaFiles(ctx context.Context, scope string, all bool) ([]projection.ConfigRecord, error) {
+// ConfigFiles lists the configuration files of one folder, or of all
+// folders, with their validity.
+func (f *Foundation) ConfigFiles(ctx context.Context, scope string, all bool) ([]projection.ConfigRecord, error) {
 	scope, err := model.CleanFolder(scope)
 	if err != nil {
 		return nil, err
 	}
-	return f.DB.ConfigFiles(ctx, "schemas", scope, all)
-}
-
-// WorkflowFiles lists workflow definition files.
-func (f *Foundation) WorkflowFiles(ctx context.Context, scope string, all bool) ([]projection.ConfigRecord, error) {
-	scope, err := model.CleanFolder(scope)
-	if err != nil {
-		return nil, err
-	}
-	return f.DB.ConfigFiles(ctx, "workflows", scope, all)
+	return f.DB.ConfigFiles(ctx, scanner.ConfigConfig, scope, all)
 }
 
 // HIDLookup resolves a HID to its current and historical owners.

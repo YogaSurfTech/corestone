@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from "lit";
-import type { Kind, Schema, Summary } from "./types";
+import type { Field, Kind, Schema, Summary } from "./types";
 
 export const kindLabel: Record<Kind, string> = { entry: "Entry", document: "Document", link: "Link", comment: "Comment" };
 export const kindPlural: Record<Kind, string> = { entry: "Entries", document: "Documents", link: "Links", comment: "Comments" };
@@ -81,4 +81,15 @@ export function safeImageSrc(src: string | undefined, fallback: (name: string) =
   if (/^https?:\/\//i.test(src) || src.startsWith("/")) return src;
   if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return null;
   return fallback(src);
+}
+
+/** The comment type a folder offers: "comment" when defined, else the first comment type. */
+export function commentTypeOf(types: Schema[]): string | null {
+  const comments = types.filter((t) => t.kind === "comment");
+  return comments.find((t) => t.type === "comment")?.type ?? comments[0]?.type ?? null;
+}
+
+/** A stand-in definition to display a stored field its type does not define. */
+export function undeclaredField(id: string, value: unknown): Field {
+  return { id, name: id, type: typeof value === "object" && value !== null ? "json" : typeof value === "boolean" ? "boolean" : "text" };
 }
