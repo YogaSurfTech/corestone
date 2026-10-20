@@ -22,6 +22,7 @@ export class App extends LitElement {
   private unsub?: () => void;
   private s!: State;
   @state() private selectedKind: string | null = null;
+  @state() private dismissedConfig = ""; // the invalid-config set the user closed; a different set shows again
   private lastGuid: string | null = null;
   private statusTimer = 0;
   @state() private split = Number(localStorage.getItem("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
@@ -105,6 +106,17 @@ export class App extends LitElement {
       });
   };
 
+  /** Invalid configuration files are ignored by the server: say which and why. */
+  private configWarnings() {
+    const issues = this.s.status?.invalidConfig ?? [];
+    const key = issues.map((i) => `${i.path}\n${i.message}`).join("\n");
+    if (!issues.length || key === this.dismissedConfig) return nothing;
+    return html`<div class="config-warnings" role="alert" data-test="config-warnings">
+      <div class="title">⚠ ${issues.length === 1 ? "A configuration file is invalid and is ignored" : `${issues.length} configuration files are invalid and are ignored`}</div>
+      ${issues.map((i) => html`<div class="issue"><span class="mono">${i.path}</span><span>${i.message}</span></div>`)}
+      <button class="close" title="Dismiss" aria-label="Dismiss" @click=${() => (this.dismissedConfig = key)}>✕</button></div>`;
+  }
+
   override render() {
     if (!this.s) return nothing;
     const { route, status, connected, navCollapsed } = this.s;
@@ -134,6 +146,7 @@ export class App extends LitElement {
           : html`<div class="empty-state" style="display:grid;place-items:center"><div><div class="big">Select an artifact</div>Pick a row above, search with <kbd>/</kbd>, or create one with <kbd>n</kbd>.</div></div>`}
       </div>
     </div>
+    ${this.configWarnings()}
     <corestone-dialogs></corestone-dialogs>
     <corestone-toasts></corestone-toasts>`;
   }

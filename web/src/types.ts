@@ -142,6 +142,8 @@ export interface RepoStatus {
   projection: ProjectionStatus;
   inSync: boolean;
   stats?: { artifacts: Record<string, number>; types: Record<string, number>; invalid: number; deleted: number; folders: number; schemas: number; workflows: number };
+  /** Configuration files the server ignores because they are not valid. */
+  invalidConfig?: Issue[];
 }
 
 export interface Issue { severity: "error" | "warning"; code: string; guid?: string; path?: string; message: string }

@@ -17,6 +17,28 @@ type Issue struct {
 	Message  string `json:"message"`
 }
 
+// InvalidConfig lists the configuration files (schemas, workflows, ...) that
+// failed to parse or validate. They are ignored: composition skips them.
+func (p *DB) InvalidConfig(ctx context.Context) ([]Issue, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT path, error FROM config_files WHERE NOT valid ORDER BY path`)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	var issues []Issue
+	for rows.Next() {
+		var path, e string
+		if err := rows.Scan(&path, &e); err != nil {
+			return nil, unavailable(err)
+		}
+		issues = append(issues, Issue{Severity: "error", Code: "invalid-config", Path: path, Message: e})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, unavailable(err)
+	}
+	return issues, nil
+}
+
 // Validate checks the repository invariants of design guide §3.17 across
 // the projection: reference integrity, HID uniqueness, overlay acyclicity,
 // metadata locality, workflow consistency and file validity.
@@ -46,19 +68,11 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 	}
 	issues = append(issues, fileIssues...)
 
-	rows, err = p.sql.QueryContext(ctx, `SELECT path, error FROM config_files WHERE NOT valid ORDER BY path`)
+	configIssues, err := p.InvalidConfig(ctx)
 	if err != nil {
-		return nil, unavailable(err)
+		return nil, err
 	}
-	for rows.Next() {
-		var path, e string
-		_ = rows.Scan(&path, &e)
-		add("error", "invalid-config", "", path, e)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, unavailable(err)
-	}
+	issues = append(issues, configIssues...)
 
 	rows, err = p.sql.QueryContext(ctx, `SELECT hid, count(*), array_to_string(array_agg(guid), ',') FROM artifacts WHERE hid IS NOT NULL GROUP BY hid HAVING count(*) > 1`)
 	if err != nil {

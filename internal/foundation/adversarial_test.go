@@ -277,6 +277,21 @@ func TestHostileRepositoryContent(t *testing.T) {
 			t.Errorf("validation missed %s: %+v", want, codes)
 		}
 	}
+	// The status names the ignored configuration files, so clients can warn about them.
+	st, err := f.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, i := range st.InvalidConfig {
+		if i.Code != "invalid-config" || i.Message == "" {
+			t.Errorf("status config issue %+v", i)
+		}
+		paths[i.Path] = true
+	}
+	if len(st.InvalidConfig) != codes["invalid-config"] || !paths["bad/.corestone/schemas/requirement.json"] {
+		t.Errorf("status invalid config %+v, validation found %d", st.InvalidConfig, codes["invalid-config"])
+	}
 	// Writes still work, and the live projection equals a rebuild.
 	create(t, f, model.KindEntry, `{"path":"good","type":"requirement","title":"Still fine","fields":{"priority":"low"}}`)
 	if _, err := f.CreateArtifact(ctx, model.KindEntry, must(parse(`{"path":"good","type":"requirement","title":"dup","hid":"REQ-1","fields":{"priority":"low"}}`))); !errors.Is(err, model.ErrConflict) {

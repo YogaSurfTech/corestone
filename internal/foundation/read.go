@@ -408,6 +408,9 @@ type Status struct {
 	InSync     bool              `json:"inSync"`
 	Stats      *projection.Stats `json:"stats,omitempty"`
 	Scanner    any               `json:"scanner"`
+	// InvalidConfig lists configuration files that are ignored because
+	// they are not valid, so clients can warn about them.
+	InvalidConfig []projection.Issue `json:"invalidConfig,omitempty"`
 }
 
 // Status reports repository head, projection state and statistics.
@@ -420,6 +423,9 @@ func (f *Foundation) Status(ctx context.Context) (*Status, error) {
 	s := &Status{Branch: f.Repo.Branch, Head: head, Projection: st, InSync: st.ProcessedHash == head, Scanner: f.DB.Scanner().Config()}
 	if stats, err := f.DB.Stats(ctx); err == nil {
 		s.Stats = stats
+	}
+	if issues, err := f.DB.InvalidConfig(ctx); err == nil {
+		s.InvalidConfig = issues
 	}
 	return s, nil
 }
