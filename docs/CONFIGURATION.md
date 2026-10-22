@@ -136,6 +136,16 @@ The server enforces the effective configuration at the artifact's location:
 - **Extendable enumerations:** values outside the options are stored only in the artifact; the
   enumeration file is not changed. Autocomplete offers the configured options plus the values in
   use, read from the projection's field index.
+- **Overview sorting:** enumeration columns use the configured option sequence, reversed for
+  descending order, rather than alphabetical order. Multiple-choice fields sort by their highest
+  selected option in that sequence, regardless of selection order. Unlisted values follow configured
+  options and sort alphabetically (reversed when descending); empty cells stay last in both directions.
+  Text and numeric columns keep their natural and numeric ordering.
+- **Workflow sorting:** workflow fields and the overview's State column use the sequence of the
+  workflow's `states` list, reversed for descending order, not state names or transitions.
+  The State column compares workflows in the type's declared `workflows` order, using subsequent
+  workflows to break ties. Definitions are loaded for each artifact's folder and type. Unlisted
+  states follow defined states; missing states stay last in both directions.
 - Direct Git pushes cannot be refused. Violations they introduce are reported by the validation
   service (`unknown-type`, `undeclared-field`) and surfaced in the client.
 
