@@ -3,13 +3,18 @@
 #   bash examples/seed-large.sh [URL] [--count 1000] [--scale 100] [--root scale-lab]
 #   bash examples/seed-large.sh --dry-run --scale 1000
 # Writes through the API; never edits the Git repository directly. See docs/INSTALL.md.
+# The predefined icons (examples/icons, or $CORESTONE_ICONS) are stored in the
+# portfolio's own root folder, and every type selects one.
 set -euo pipefail
+export CORESTONE_ICONS="${CORESTONE_ICONS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/icons}"
 exec "${PYTHON:-python3}" - "$@" <<'PY'
 import argparse
 from collections import Counter
 from datetime import date, timedelta
 import hashlib
 import json
+import os
+from pathlib import Path
 import random
 import sys
 import time
@@ -94,6 +99,13 @@ LABELS = {"requirement": "Requirement", "specification": "Technical specificatio
           "verification": "Verification item", "bug": "Bug", "defect": "Defect", "story": "User story",
           "task": "Engineering task", "component": "Software component", "design-constraint": "Design constraint",
           "bench-check": "Bench characterization", "change": "Design change"}
+ICONS = {"requirement": "requirement", "specification": "specification", "testcase": "testcase", "verification": "test-passed",
+         "bug": "bug", "defect": "exclamation", "story": "user-requirement", "task": "task", "component": "component",
+         "design-constraint": "system-requirement", "bench-check": "measurement", "change": "change-request",
+         "architecture-note": "doc-spec", "verification-plan": "doc-test", "interface-contract": "doc-contract",
+         "verifies": "test-passed", "refines": "specification", "implements": "software", "affects": "issue", "fixes": "bug",
+         "blocks": "exclamation", "depends-on": "interface", "exposes": "hardware", "documents": "document",
+         "engineering-note": "note", "review-question": "question"}
 AUTHORS = ["Ada Chen", "Mira Patel", "Jonas Berg", "Elena Rossi", "Sam Okafor", "Lin Park"]
 VERIFICATION = {"testcase", "verification", "bench-check"}
 NEEDS = {"requirement", "design-constraint"}
@@ -129,10 +141,10 @@ class Client:
         self.digest = hashlib.sha256()
         self.started = time.monotonic()
 
-    def request(self, method, path, body=None):
-        data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
+    def request(self, method, path, body=None, raw=None, content_type="application/json"):
+        data = raw if raw is not None else None if body is None else json.dumps(body, separators=(",", ":")).encode()
         request = Request(self.api + path, data=data, method=method,
-                          headers={"Content-Type": "application/json", "X-Corestone-User": "scale-seeder"})
+                          headers={"Content-Type": content_type, "X-Corestone-User": "scale-seeder"})
         for attempt in range(41):
             try:
                 with urlopen(request, timeout=180) as response:
@@ -161,6 +173,16 @@ class Client:
         self.record("configs", scope + "/" + path, body)
         if not self.args.dry_run:
             self.request("PUT", "/config?" + urlencode(dict(scope=scope, path=path)), body)
+
+    def icon(self, scope, name, svg):
+        path = f"icons/{name}.svg"
+        key = (scope, path)
+        if key in self.configs:
+            raise RuntimeError(f"Duplicate configuration write: {key}")
+        self.configs.add(key)
+        self.record("configs", scope + "/" + path, hashlib.sha256(svg).hexdigest())
+        if not self.args.dry_run:
+            self.request("PUT", "/config?" + urlencode(dict(scope=scope, path=path)), raw=svg, content_type="image/svg+xml")
 
     def create(self, kind, body):
         self.record(kind, body.get("path", ""), body)
@@ -210,24 +232,32 @@ def common_fields():
 def type_defs(roles, prefix, workflow_id):
     return [dict(id=role, displayName=LABELS[role], hid=dict(prefix=f"{prefix}-{role[:3].upper()}", digits=6),
                  workflows=[workflow_id], fields=[dict(id="priority", required=True), "effort", "description", "tags", "owner", "iteration", "due"],
-                 presentation=dict(columns=["priority", "effort", "owner", "iteration"])) for role in roles]
+                 presentation=dict(columns=["priority", "effort", "owner", "iteration"], icon=ICONS[role])) for role in roles]
+
+
+def install_icons(client):
+    folder = os.environ.get("CORESTONE_ICONS", "")
+    for path in sorted(Path(folder).glob("*.svg")) if folder else []:
+        client.icon(client.args.root, path.stem, path.read_bytes())
 
 
 def configure(client):
     root = client.args.root
     cfg = client.config
+    install_icons(client)
     cfg(root, "entries/enums/priority-enum.json", enumeration(["low", "medium", "high", "urgent"]))
     cfg(root, "entries/enums/tags-enum.json", dict(extendable=True, options=[dict(value=s) for s in ["architecture", "reliability", "performance", "verification", "documentation"]]))
     cfg(root, "entries/fields.json", dict(fields=common_fields()))
     cfg(root, "entries/workflows/delivery-workflow.json", workflow(["open", "implementation", "verification", "done"]))
     cfg(root, "entries/types.json", dict(inheritance="off", types=type_defs(ALL_ROLES, "LAB", "delivery")))
     cfg(root, "documents/workflows/publication-workflow.json", workflow(["draft", "review", "released"]))
-    cfg(root, "documents/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, hid=dict(prefix=p), workflows=["publication"])
+    cfg(root, "documents/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, hid=dict(prefix=p), workflows=["publication"], presentation=dict(icon=ICONS[s]))
         for s, n, p in [("architecture-note", "Architecture note", "ARCH"), ("verification-plan", "Verification plan", "VPLAN"), ("interface-contract", "Interface contract", "IFACE")]]))
-    cfg(root, "links/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n) for s, n in [
+    cfg(root, "links/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, presentation=dict(icon=ICONS[s])) for s, n in [
         ("verifies", "verifies"), ("refines", "refines"), ("implements", "implements"), ("affects", "affects"),
         ("fixes", "fixes"), ("blocks", "blocks"), ("depends-on", "depends on"), ("exposes", "exposes API to"), ("documents", "documents")]]))
-    cfg(root, "comments/types.json", dict(inheritance="off", types=[dict(id="engineering-note", displayName="Engineering note"), dict(id="review-question", displayName="Review question")]))
+    cfg(root, "comments/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, presentation=dict(icon=ICONS[s]))
+        for s, n in [("engineering-note", "Engineering note"), ("review-question", "Review question")]]))
     for p in PROJECTS:
         scope = root + "/" + p["id"]
         cfg(scope, "entries/enums/priority-enum.json", enumeration(p["priorities"]))
