@@ -35,19 +35,19 @@ test("an entry with unsaved changes asks before another artifact opens", async (
   // Discard: leave, nothing stored
   await other.click();
   await dialog.locator("[data-test=dialog-alt]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Second ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Second ${id}`);
   expect(await stored(guids.a)).toBe(`First ${id}`);
 
   // Save: stored, then leave
   await title.fill(`Second saved ${id}`);
   await page.locator("table.grid tbody tr", { hasText: `First ${id}` }).click();
   await dialog.locator("[data-test=dialog-confirm]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`First ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`First ${id}`);
   expect(await stored(guids.b)).toBe(`Second saved ${id}`);
 
   // Without changes there is no question
   await page.locator("table.grid tbody tr", { hasText: `Second saved ${id}` }).click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Second saved ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Second saved ${id}`);
   await expect(dialog).toHaveCount(0);
 });
 

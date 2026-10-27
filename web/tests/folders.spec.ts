@@ -47,7 +47,7 @@ test("the folder field marks new segments, catches typos and browses the tree", 
   await page.locator("#new-title").fill(`Booted ${id}`);
   await page.locator(".dialog select").first().selectOption("high");
   await page.locator(".dialog button[type=submit]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Booted ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Booted ${id}`);
   const tree = await get<{ folders: { name: string }[] }>(`/repository/tree?path=${folder}/specs`);
   expect(tree.folders.map((f) => f.name)).toContain("boot");
 });
@@ -67,7 +67,7 @@ test("New folder plans a destination that becomes real with its first artifact",
   await page.locator("#new-title").fill(`Planned ${id}`);
   await page.locator(".dialog select").first().selectOption("high");
   await page.locator(".dialog button[type=submit]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Planned ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Planned ${id}`);
   await expect(row).not.toHaveClass(/pending/);
 });
 
@@ -137,7 +137,7 @@ test("the New dialog follows the typed folder's schema scope", async ({ page }) 
   await page.locator("#new-title").fill(`Deeper ${id}`);
   await page.locator(".dialog select").first().selectOption("high");
   await page.locator("[data-test=create]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Deeper ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Deeper ${id}`);
 });
 
 test("the overview says when subfolders hold more than the folder itself", async ({ page }) => {

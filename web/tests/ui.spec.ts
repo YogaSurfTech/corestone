@@ -63,8 +63,8 @@ test("create an entry through the + button with a schema-generated form", async 
   await page.locator("[data-test=create]").click();
   // created: dialog closes, the detail opens, the row is in the table with its generated HID
   await expect(page.locator(".dialog")).toHaveCount(0);
-  await expect(page.locator("corestone-detail h2")).toHaveText("Boot fast");
-  await expect(page.locator("corestone-detail .detail-head .hid")).toContainText("UR");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Boot fast");
+  await expect(page.locator("corestone-detail [data-test=hid]")).toHaveValue(/UR/);
   await expect(page.locator("table.grid tbody tr", { hasText: "Boot fast" })).toHaveCount(1);
   await expect(page).toHaveURL(/\/artifact\/[0-9a-f-]{36}/);
 });
@@ -72,14 +72,14 @@ test("create an entry through the + button with a schema-generated form", async 
 test("edit fields, save with optimistic concurrency, and see history", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Editable", fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
-  await expect(page.locator("corestone-detail h2")).toHaveText("Editable");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Editable");
   await page.locator("[data-test=title]").fill("Editable (v2)");
   await page.locator("[data-field=effort] input").fill("3");
   await expect(page.locator(".savebar .dirty")).toBeVisible();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success")).toContainText("Saved");
   await expect(page.locator(".savebar")).toHaveCount(0);
-  await expect(page.locator("corestone-detail h2")).toHaveText("Editable (v2)");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Editable (v2)");
   // while a draft is being edited, a concurrent change elsewhere is announced,
   // and saving is rejected (412) without losing the draft
   await page.locator("[data-test=title]").fill("my version");
@@ -123,7 +123,7 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("verifies");
   await row.locator("a").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Linked requirement ${stamp}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Linked requirement ${stamp}`);
   await expect(page.locator("#sec-relationships .link-row")).toContainText(`Linked test ${stamp}`);
   void r;
 });
@@ -131,6 +131,8 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
 test("comments are threaded", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Discussed", fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
+  // no comments yet: the section is folded, the heading button opens it
+  await page.locator("[data-test=comment-add]").click();
   await page.locator("[data-test=comment-text]").fill("First!");
   await page.locator("[data-test=comment-send]").click();
   await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
@@ -144,13 +146,13 @@ test("comments are threaded", async ({ page }) => {
 test("overlays: create a variant and see inherited fields", async ({ page }) => {
   const b = await post("/entries", { path: folder, type: "req", title: "Base requirement", fields: { priority: "high", rationale: "shared" } });
   await page.goto(`/artifact/${b.meta.guid}`);
-  await page.locator("#sec-overlay button", { hasText: "Create variant" }).click();
+  await page.locator("#sec-overlay button", { hasText: "Create overlay" }).click();
   await expect(page.locator(".dialog h2")).toContainText("New Requirement");
   await expect(page.locator(".dialog .ref-chip")).toContainText("Base requirement");
   await page.locator("#new-title").fill("Variant A");
   await page.locator(".dialog [data-field=priority] select").selectOption("low");
   await page.locator("[data-test=create]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText("Variant A");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Variant A");
   await expect(page.locator("#sec-overlay .chain .node")).toHaveCount(2);
   await expect(page.locator("[data-field=rationale] .inherited")).toContainText(`inherited from base ${b.meta.hid}`);
   await expect(page.locator("[data-field=rationale] textarea")).toHaveValue("shared");
@@ -185,7 +187,7 @@ test("documents: compose from entries and edit in the block editor", async ({ pa
   await expect(page.locator(".doc-side")).toContainText("Document properties");
   // clicking the entry card opens the entry
   await page.locator(".entry-card").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Referenced in doc ${stamp}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Referenced in doc ${stamp}`);
 });
 
 test("search, filters, subtree toggle and deep links", async ({ page }) => {
@@ -218,6 +220,7 @@ test("delete removes the artifact and its links", async ({ page }) => {
   const t = await post("/entries", { path: folder, type: "tc", title: `Doomed test ${stamp}` });
   await post("/links", { type: "verifies", source: t.meta.guid, target: r.meta.guid });
   await page.goto(`/artifact/${r.meta.guid}`);
+  await page.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await expect(page.locator(".dialog")).toContainText("1 link");
   await page.locator(".dialog .btn.danger").click();
