@@ -5,7 +5,8 @@ import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { Kind, Schema, Summary, Workflow } from "./types";
 import { compare, fieldSortValue, fieldValue, workflowKey, workflowSortValue, type SortValue } from "./sorting";
-import { kindIcon, relTime } from "./util";
+import { relTime } from "./util";
+import "./type-icon";
 import { overviewDefinitions, schemaKey } from "./overview-definitions";
 
 // Artifact overview (design guide §7.4): every artifact matching the
@@ -110,7 +111,7 @@ export class Overview extends LitElement {
       { id: "$hid", name: "ID", value: (row) => row.hid || row.guid,
         render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },
       { id: "$title", name: "Title", value: (row) => row.title || row.kind, title: (row) => row.title ?? "",
-        render: (row) => html`${kindIcon(row.kind)}${row.title || html`<span class="muted">${row.kind}</span>`}` },
+        render: (row) => html`<corestone-type-icon .kind=${row.kind} .type=${row.type} .folder=${row.folder} .schema=${this.rowSchemas[schemaKey(row)] ?? null}></corestone-type-icon>${row.title || html`<span class="muted">${row.kind}</span>`}` },
       { id: "$type", name: "Type", value: type, render: type },
       { id: "$state", name: "State", value: (row) => workflowSortValue(row, this.rowSchemas[schemaKey(row)], (id) => this.workflows[workflowKey(row, id)]),
         render: (row) => html`${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },

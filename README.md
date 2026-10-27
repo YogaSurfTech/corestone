@@ -148,6 +148,7 @@ POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifact
 GET  /api/config?scope=[&path=]           a folder's configuration files, or one file (ETag)
 PUT  DELETE /api/config?scope=&path=      write or remove a file (If-Match); returns unresolved references as warnings
 GET  /api/schemas/effective?type=&path=   the composed type    GET /api/workflows/{id}?type=&path=   a resolved workflow
+GET  /api/icons/{name}?path=              an icon (SVG) as seen from a folder, nearest folder first
 WS   /api/ws                              session service: commits, status, presence
 ```
 
