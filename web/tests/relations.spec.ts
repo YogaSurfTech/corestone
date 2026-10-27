@@ -33,6 +33,7 @@ test("two independent workflows on one artifact, with diagram and rework", async
   await expect(dev.locator(".wf-diagram")).toHaveCount(0);
   const stored = await get<{ meta: { workflows: Record<string, string> } }>(`/entries/${e.meta.guid}`);
   expect(stored.meta.workflows).toEqual({ dev: "open", publish: "released" });
+  await page.locator(".quicklinks a", { hasText: "History" }).click();
   await expect(page.locator("#sec-history .history-row", { hasText: "transitioned from review to open" })).toHaveCount(1);
 });
 
@@ -79,7 +80,7 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   const leaf = await post("/entries", { path: folder, type: "req", title: `Leaf ${id}`, base: mid.meta.guid, fields: {} });
   await page.goto(`/artifact/${leaf.meta.guid}`);
   const ov = page.locator("#sec-overlay");
-  await expect(ov.locator(".chain .node")).toHaveCount(3);
+  await expect(ov.locator(".chain .node")).toHaveCount(2); // only the direct base and this entry
   await expect(ov.locator(".chain .node.self")).toContainText("this entry");
   await expect(ov).toContainText("effort: 5");
   await expect(ov).toContainText("rationale: from base");
@@ -119,19 +120,21 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(page.locator("[data-test=save]")).toHaveCount(0);
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Base ${id}`);
-  await expect(page.locator("#sec-overlay")).toContainText("Variants deriving");
-  await expect(page.locator("#sec-overlay a", { hasText: `Mid ${id}` })).toBeVisible();
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Mid ${id}`);
+  // the middle level shows both neighbours: its base and its overlay
+  await expect(ov.locator(".chain .node a", { hasText: `Base ${id}` })).toBeVisible();
+  await expect(ov.locator("[data-test=overlays] .node a", { hasText: `Leaf ${id}` })).toBeVisible();
 });
 
 test("HID rename keeps history and lookup; move keeps identity", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Renamed", fields: { priority: "low" } });
   const oldHid = e.meta.hid!;
   await page.goto(`/artifact/${e.meta.guid}`);
-  await page.locator("#d-hid").fill(`${prefix}-9000`);
+  await page.locator("[data-test=hid]").fill(`${prefix}-9000`);
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(page.locator(".detail-head .hid")).toHaveText(`${prefix}-9000`);
+  await expect(page.locator("[data-test=hid]")).toHaveValue(`${prefix}-9000`);
+  await page.locator(".quicklinks a", { hasText: "History" }).click();
   await expect(page.locator("#sec-history .history-row", { hasText: `renamed to ${prefix}-9000` })).toHaveCount(1);
   const lookup = await get<{ records: { guid: string; current: boolean }[] }>(`/repository/hids/${oldHid}`);
   expect(lookup.records[0].guid).toBe(e.meta.guid);
@@ -139,14 +142,15 @@ test("HID rename keeps history and lookup; move keeps identity", async ({ page }
   // a duplicate HID is refused with the owner named
   const other = await post("/entries", { path: folder, type: "req", title: "Other", fields: { priority: "low" } });
   await page.goto(`/artifact/${other.meta.guid}`);
-  await page.locator("#d-hid").fill(`${prefix}-9000`);
+  await page.locator("[data-test=hid]").fill(`${prefix}-9000`);
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".notice.error")).toContainText("already used");
   // move through the prompt: folder tree and breadcrumbs follow, identity stays
+  await page.locator("[data-test=actions]").click();
   await page.locator(".detail-head button", { hasText: "Move" }).click();
   await answerPrompt(page, `${folder}/moved`);
   await expect(page.locator(".toast.success")).toContainText("Moved");
-  await expect(page.locator("#sec-general")).toContainText(`${folder}/moved`);
+  await expect(page.locator(".dh-crumbs a").last()).toHaveText("moved");
   await expect(page.locator(".tree .row[data-folder='" + folder + "/moved']")).toBeVisible();
   await expect(page.locator("header .crumbs")).toContainText("moved");
   await expect(page).toHaveURL(new RegExp(`artifact/${other.meta.guid}`));
@@ -169,11 +173,13 @@ test("folder move from the toolbar relocates the subtree", async ({ page }) => {
 test("delete asks for confirmation and can be cancelled", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: `Keep me ${id}`, fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
+  await page.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await expect(page.locator(".dialog")).toContainText("Delete");
   await page.locator(".dialog button", { hasText: "Cancel" }).click();
   await expect(page.locator(".dialog")).toHaveCount(0);
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Keep me ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Keep me ${id}`);
+  await page.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await page.keyboard.press("Escape");
   await expect(page.locator(".dialog")).toHaveCount(0);

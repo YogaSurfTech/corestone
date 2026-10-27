@@ -37,16 +37,16 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   // open an artifact, Escape closes it, back reopens it
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await page.locator("table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await page.locator("body").click({ position: { x: 700, y: 60 } });
   await page.keyboard.press("Escape");
   await expect(page.locator("corestone-detail")).toHaveCount(0);
   await page.goBack();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await page.goBack();
   await expect(page.locator("corestone-detail")).toHaveCount(0);
   await page.goForward();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   // the header brand goes home
   await page.locator("header .brand").click();
   await expect(page.locator(".toolbar .title")).toHaveText("Repository");
@@ -124,7 +124,7 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await page.locator(".nav-scrim").click({ position: { x: 700, y: 400 } }); // tapping beside the overlay closes it
   await expect(page.locator("corestone-sidebar")).toBeHidden();
   await page.locator("table.grid tbody tr").first().click();
-  await expect(page.locator("corestone-detail h2")).toBeVisible();
+  await expect(page.locator("corestone-detail [data-test=title]")).toBeVisible();
   const overflow = await page.evaluate(() => document.querySelector(".shell")!.scrollWidth - document.querySelector(".shell")!.clientWidth);
   expect(overflow).toBe(0);
   // a first visit on a phone starts with the navigation closed; choosing a folder closes it again
@@ -139,13 +139,13 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await expect(small.locator("corestone-sidebar")).toBeHidden();
   await expect(small).toHaveURL(new RegExp(`/folder/${folder}/alpha`));
   await small.locator("table.grid tbody tr").first().click();
-  await expect(small.locator("corestone-detail h2")).toBeVisible();
+  await expect(small.locator("corestone-detail [data-test=title]")).toBeVisible();
   await phone.close();
   // dark mode renders with dark background and readable text
   const ctx = await browser.newContext({ colorScheme: "dark", viewport: { width: 1200, height: 800 } });
   const dark = await ctx.newPage();
   await dark.goto(`/artifact/${guids.a}`);
-  await expect(dark.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(dark.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   const bg = await dark.evaluate(() => getComputedStyle(document.body).backgroundColor);
   expect(bg).toMatch(/rgb\((\d+), (\d+), (\d+)\)/);
   const [r, g, b] = bg.match(/\d+/g)!.map(Number);
@@ -253,7 +253,7 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await expect.poll(height).toBeCloseTo(initial, -1);
   // hidden when the detail view is expanded
   await page.goto(`/artifact/${guids.a}?x=1`);
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
 });
@@ -340,12 +340,12 @@ test("opening an artifact keeps the folder, the navigation and the table as they
   let searches = 0;
   page.on("request", (r) => { if (r.url().includes("/api/search")) searches++; });
   await row.click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Beta two ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Beta two ${id}`);
   await expect(page).not.toHaveURL(/folder=/);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   await expect(page.locator(".toolbar .title")).toHaveText("Repository");
   await page.locator("table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(`Alpha one ${id}`);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   expect(searches).toBe(0);
 });

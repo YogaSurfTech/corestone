@@ -73,7 +73,7 @@ test("all field types round-trip through the generated form", async ({ page }) =
   await page.locator(".picker-results .row", { hasText: target.title }).click();
   await expect(d.locator("[data-field=refs] .ref-chip")).toHaveCount(1);
   await d.locator("[data-test=create]").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText("Everything filled");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Everything filled");
   const guid = page.url().match(/artifact\/([0-9a-f-]{36})/)![1];
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${guid}`);
   expect(stored.data.fields).toMatchObject({
@@ -112,7 +112,7 @@ test("all field types round-trip through the generated form", async ({ page }) =
   expect(after.data.fields.blob).toEqual({ ok: true });
   // the reference chip links to the target
   await page.locator("[data-field=refs] .ref-chip a").click();
-  await expect(page.locator("corestone-detail h2")).toHaveText(target.title);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(target.title);
 });
 
 test("attachments: upload, list, use in an attachment field, open, delete", async ({ page }) => {
@@ -136,7 +136,8 @@ test("attachments: upload, list, use in an attachment field, open, delete", asyn
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${e.meta.guid}`);
   expect(stored.data.fields.file).toBe("notes.txt");
-  // history recorded the attachment commit
+  // history recorded the attachment commit (the section loads when opened)
+  await page.locator(".quicklinks a", { hasText: "History" }).click();
   await expect(page.locator("#sec-history .history-row", { hasText: "Attachment notes.txt" })).toHaveCount(1);
   // delete it: the field now shows it as missing
   await row.locator("button").click();

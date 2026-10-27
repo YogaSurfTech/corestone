@@ -28,7 +28,7 @@ test("presence: editing badge appears for the other user and clears on save", as
   await expect(bob.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
   await expect(alice.locator(".detail-head .presence")).toHaveCount(0);
   // alice's view refreshed with bob's change without reloading
-  await expect(alice.locator("corestone-detail h2")).toHaveText("bob is typing");
+  await expect(alice.locator("corestone-detail [data-test=title]")).toHaveValue("bob is typing");
   await c1.close();
   await c2.close();
 });
@@ -54,7 +54,8 @@ test("live updates: creations, transitions and deletions show up in the other se
   await expect(a.locator("table.grid tbody tr", { hasText: `Live ${id}` }).locator(".pill.state").first()).toHaveText("review");
   // a opens it, b deletes it: a lands on "not available"
   await a.locator("table.grid tbody tr", { hasText: `Live ${id}` }).click();
-  await expect(a.locator("corestone-detail h2")).toHaveText(`Live ${id}`);
+  await expect(a.locator("corestone-detail [data-test=title]")).toHaveValue(`Live ${id}`);
+  await b.locator("[data-test=actions]").click();
   await b.locator("[data-test=delete]").click();
   await b.locator(".dialog .btn.danger").click();
   await expect(a.locator("corestone-detail .empty-state, corestone-detail .notice.error").first()).toBeVisible();

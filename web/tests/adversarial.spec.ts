@@ -33,7 +33,7 @@ test("script-looking content is rendered as text everywhere", async ({ page }) =
   expect(e.status).toBe(201);
   await post("/comments", { subject: e.meta!.guid, text: xss, author: xss });
   await page.goto(`/artifact/${e.meta!.guid}`);
-  await expect(page.locator("corestone-detail h2")).toHaveText(xss);
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(xss);
   await expect(page.locator("table.grid tbody tr").first()).toContainText("<img src=x");
   await expect(page.locator("#sec-comments .comment .text")).toHaveText(xss);
   await expect(page.locator(".tree .row", { hasText: "<b>x<i>" })).toBeVisible();
@@ -81,7 +81,7 @@ test("double submit creates exactly one artifact", async ({ page }) => {
   await page.locator("#new-title").fill("only once");
   // two clicks in the same event loop turn: the second must be a no-op
   await page.locator("[data-test=create]").evaluate((b) => { (b as HTMLButtonElement).click(); (b as HTMLButtonElement).click(); });
-  await expect(page.locator("corestone-detail h2")).toHaveText("only once");
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("only once");
   const res = await (await fetch(`${api}/repository/search?path=${folder}/once&kind=entry`)).json();
   expect(res.total).toBe(1);
 });

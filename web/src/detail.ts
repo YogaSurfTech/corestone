@@ -5,7 +5,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State } from "./store";
 import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtSize, fmtTime, kindIcon, label, relTime, undeclaredField } from "./util";
+import { commentTypeOf, deepEqual, fmtSize, fmtTime, kindIcon, label, undeclaredField } from "./util";
 import "./fields";
 import type { OverlayState } from "./fields";
 
@@ -13,7 +13,13 @@ import type { OverlayState } from "./fields";
 // section the effective schema implies, quick links to sections, and an
 // optimistic-concurrency save (ETag / If-Match).
 
-const SECTIONS = ["general", "fields", "workflows", "relationships", "comments", "attachments", "overlay", "history", "metadata"] as const;
+const SECTIONS = ["fields", "workflows", "relationships", "comments", "overlay", "attachments", "history", "metadata"] as const;
+type Section = (typeof SECTIONS)[number];
+const OPEN_KEY = "corestone.detail.sections";
+
+function readOpenPrefs(): Record<string, boolean> {
+  try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "{}") ?? {}; } catch { return {}; }
+}
 
 @customElement("corestone-detail")
 export class Detail extends LitElement {
@@ -38,6 +44,10 @@ export class Detail extends LitElement {
   @state() private replyTo: string | null = null;
   @state() private commentText = "";
   @state() private showDiagram: string | null = null;
+  @state() private historyLoaded = false;
+  @state() private actionsOpen = false;
+  /** Sections the user opened or closed; remembered for the browser session. */
+  @state() private openPrefs: Record<string, boolean> = readOpenPrefs();
   private lastTick = -1;
   private editing = false;
   private loadSeq = 0;
@@ -57,6 +67,7 @@ export class Detail extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     setLeaveGuard(this.leaveGuard);
+    document.addEventListener("click", this.closeActions);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.refreshTick !== this.lastTick) {
@@ -66,9 +77,15 @@ export class Detail extends LitElement {
       this.requestUpdate();
     });
   }
-  override disconnectedCallback() { this.unsub?.(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  private closeActions = () => { if (this.actionsOpen) this.actionsOpen = false; };
+  override disconnectedCallback() { this.unsub?.(); document.removeEventListener("click", this.closeActions); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
-    if (changed.has("guid") && this.guid) { this.draft = null; this.reload(false); }
+    if (changed.has("guid") && this.guid) {
+      // A deep link to a section (?tab=history) opens it.
+      const tab = store.state.route.tab;
+      if ((SECTIONS as readonly string[]).includes(tab)) this.setOpen(tab as Section, true, false);
+      this.draft = null; this.reload(false);
+    }
   }
 
   private get dirty(): boolean {
@@ -101,7 +118,7 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.comments = []; this.history = []; this.workflows = []; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
     this.error = "";
     try {
       const view = await api.get(guid);
@@ -111,7 +128,8 @@ export class Detail extends LitElement {
         api.workflows(guid).catch(() => ({ workflows: [] })),
         api.relationships(guid).catch(() => null),
         api.comments(guid).catch(() => ({ comments: [] })),
-        api.history(guid).catch(() => ({ history: [] })),
+        // History is only fetched while its section is open.
+        this.isOpen("history") ? api.history(guid).catch(() => ({ history: [] })) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
         api.types(view.meta.folder).catch(() => ({ types: [] })),
@@ -135,7 +153,8 @@ export class Detail extends LitElement {
       this.workflows = wf.workflows;
       this.rel = rel;
       this.comments = comments.comments;
-      this.history = history.history;
+      this.history = history?.history ?? [];
+      this.historyLoaded = !!history;
       this.overlay = overlay;
       this.baseOverlay = baseOverlay;
       this.commentType = commentTypeOf(types.types);
@@ -256,7 +275,7 @@ export class Detail extends LitElement {
     });
   }
 
-  private createVariant() {
+  private createOverlay() {
     const v = this.view!;
     store.set({ dialog: { kind: "new", kinds: ["entry"], type: v.meta.type, folder: v.meta.folder, baseGuid: this.guid } });
     // the new dialog reads baseGuid via a small hook below
@@ -272,32 +291,19 @@ export class Detail extends LitElement {
     if (!this.draft) return html`<div class="empty-state">Loading…</div>`;
     const v = this.view;
     const r = this.s.route;
-    const presence = this.s.presence[this.guid];
-    const others = presence ? [...presence.editors].filter((n) => n !== this.s.user) : [];
-    const active = r.tab || "general";
+    const active = r.tab || "fields";
     return html`
-      <div class="detail-head">
-        ${kindIcon(v.meta.kind)}
-        ${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : nothing}
-        <h2>${this.draft?.title || v.meta.title || html`<span class="muted">untitled ${v.meta.kind}</span>`}</h2>
-        ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
-        <span class="meta"><span>${this.schema?.displayName ?? v.meta.type}</span><span>·</span><span>${v.meta.folder || "/"}</span><span>·</span><span title=${v.meta.modifiedAt ?? ""}>${relTime(v.meta.modifiedAt)}</span></span>
-        <button class="btn sm" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
-        <button class="btn sm" @click=${this.move}>Move…</button>
-        <button class="btn sm danger" data-test="delete" @click=${this.deleteArtifact}>Delete</button>
-        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, tab: "", expanded: false })}>✕</button>
-      </div>
+      ${this.header()}
       <div class="detail-body">
-        <nav class="quicklinks">${SECTIONS.filter((s) => this.hasSection(s)).map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.querySelector(`#sec-${s}`)?.scrollIntoView({ block: "start" }); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
+        <nav class="quicklinks">${SECTIONS.filter((s) => this.hasSection(s)).map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.reveal(s); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
         <div class="sections">
           ${this.error ? html`<div class="notice error" role="alert">${this.error} ${this.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.draft = null; this.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
-          ${this.general()}
           ${this.fieldsSection()}
           ${this.hasSection("workflows") ? this.workflowSection() : nothing}
           ${this.relSection()}
           ${this.commentSection()}
+          ${this.hasSection("overlay") ? this.overlaySection() : nothing}
           ${v.meta.kind === "entry" || v.meta.kind === "document" ? this.attachmentSection() : nothing}
-          ${this.overlay ? this.overlaySection() : nothing}
           ${this.historySection()}
           ${this.metadataSection()}
         </div>
@@ -305,6 +311,56 @@ export class Detail extends LitElement {
       ${this.dirty ? html`<div class="savebar"><span class="dirty">Unsaved changes</span>
         <button class="btn" @click=${() => this.resetDraft()}>Discard</button>
         <button class="btn primary" data-test="save" ?disabled=${this.busy} @click=${this.save}>${this.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
+  }
+
+  /** Three lines: dates and actions, the editable identity, the folder breadcrumb. */
+  private header() {
+    const v = this.view!;
+    const d = this.draft!;
+    const r = this.s.route;
+    const presence = this.s.presence[this.guid];
+    const others = presence ? [...presence.editors].filter((n) => n !== this.s.user) : [];
+    const typeName = this.schema?.displayName ?? v.meta.type;
+    const icon = this.schema?.presentation?.icon;
+    const hidCfg = this.schema?.hid;
+    const hidHint = hidCfg?.prefix ? hidCfg.prefix + (hidCfg.separator ?? "-") : "HID";
+    const ov = this.overlay;
+    const base = ov && ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
+    const overlays = ov?.overlays.length ?? 0;
+    const segs = v.meta.folder ? v.meta.folder.split("/") : [];
+    const toFolder = (folder: string) => (e: Event) => { e.preventDefault(); navigate({ folder, guid: null }); };
+    return html`<div class="detail-head">
+      <div class="dh-top">
+        <span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>
+        <span class="dh-actions">
+          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded=${this.actionsOpen}
+            @click=${(e: Event) => { e.stopPropagation(); this.actionsOpen = !this.actionsOpen; }}>⋯</button>
+          ${this.actionsOpen ? html`<div class="menu" role="menu">
+            <button class="item" role="menuitem" @click=${() => { this.actionsOpen = false; this.move(); }}>Move…</button>
+            <button class="item danger" role="menuitem" data-test="delete" @click=${() => { this.actionsOpen = false; this.deleteArtifact(); }}>Delete</button>
+          </div>` : nothing}
+        </span>
+      </div>
+      <div class="dh-title">
+        ${typeof icon === "string" && icon ? html`<span class="type-icon" title=${typeName} aria-label=${typeName} role="img">${icon}</span>` : nothing}
+        <input class="hid-input ${d.hid ? "" : "empty"}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint}
+          size=${Math.max((d.hid || hidHint).length, 3)}
+          title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${this.touched}
+          @input=${(e: Event) => { this.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} />
+        ${d.hid ? html`<span class="dash">–</span>` : nothing}
+        <h2><input class="title-input" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} @focus=${this.touched}
+          @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>
+        ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
+        ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.reveal("overlay")}>overlay of ${this.levelLabel(base.guid)}</button>` : nothing}
+        ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}
+        <button class="btn sm" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
+        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, tab: "", expanded: false })}>✕</button>
+      </div>
+      <nav class="dh-crumbs" aria-label="Folder">
+        <a href="/folder/" @click=${toFolder("")}>/</a>
+        ${segs.map((s, i) => { const path = segs.slice(0, i + 1).join("/"); return html`${i ? html`<span class="sep">›</span>` : nothing}<a href=${"/folder/" + path} @click=${toFolder(path)}>${s}</a>`; })}
+      </nav>
+    </div>`;
   }
 
   private hasSection(s: string): boolean {
@@ -316,37 +372,57 @@ export class Detail extends LitElement {
       default: return true;
     }
   }
-  private sectionName(s: string) { return { general: "General", fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", overlay: "Overlay", history: "History", metadata: "Additional metadata" }[s] ?? s; }
+  private isEmpty(s: Section): boolean {
+    switch (s) {
+      case "fields": return !(this.schema?.fields ?? []).some((f) => f.type !== "workflow") && !Object.keys(this.draft?.fields ?? {}).length;
+      case "relationships": return !this.rel || !(this.rel.incoming.length + this.rel.outgoing.length);
+      case "comments": return !this.comments.length;
+      case "attachments": return !this.view?.attachments?.length;
+      case "overlay": return !this.overlay || (this.overlay.chain.length <= 1 && !this.overlay.overlays.length);
+      case "history": case "metadata": return true; // closed unless asked for
+      default: return false;
+    }
+  }
+  private isOpen(s: Section): boolean { return this.openPrefs[s] ?? !this.isEmpty(s); }
+  private setOpen(s: Section, open: boolean, persist = true) {
+    this.openPrefs = { ...this.openPrefs, [s]: open };
+    if (persist) try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(this.openPrefs)); } catch { /* storage unavailable */ }
+    if (s === "history" && open && !this.historyLoaded) void this.loadHistory();
+  }
+  private async loadHistory() {
+    const guid = this.guid;
+    const h = await api.history(guid).catch(() => ({ history: [] }));
+    if (guid !== this.guid) return;
+    this.history = h.history;
+    this.historyLoaded = true;
+  }
+  /** Opens a section and scrolls to it. */
+  private async reveal(s: Section) {
+    if (!this.isOpen(s)) this.setOpen(s, true);
+    await this.updateComplete;
+    this.querySelector(`#sec-${s}`)?.scrollIntoView({ block: "start" });
+  }
+  /** A collapsible section; actions stay in the heading so they work while closed. */
+  private section(s: Section, body: () => unknown, actions: unknown = nothing) {
+    const open = this.isOpen(s);
+    const count = this.sectionCount(s);
+    return html`<section class="section ${open ? "" : "collapsed"}" id=${"sec-" + s}><h3>
+      <button class="sec-toggle" data-test=${"toggle-" + s} aria-expanded=${open} @click=${() => this.setOpen(s, !open)}>
+        <span class="chev">${open ? "▾" : "▸"}</span>${this.sectionName(s)}${count ? html`<span class="n">${count}</span>` : nothing}</button>
+      <span class="actions">${actions}</span></h3>
+      ${open ? body() : nothing}</section>`;
+  }
+  private sectionName(s: string) { return { fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
   private sectionCount(s: string): string {
     switch (s) {
       case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
       case "relationships": return String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
       case "comments": return String(this.comments.length || "");
       case "attachments": return String(this.view?.attachments?.length || "");
-      case "history": return String(this.history.length || "");
-      case "overlay": return String(((this.overlay?.chain.length ?? 1) - 1) || "");
+      case "history": return this.historyLoaded ? String(this.history.length || "") : "";
+      case "overlay": return String(((this.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (this.overlay?.overlays.length ?? 0) || "");
       default: return "";
     }
-  }
-
-  private general() {
-    const v = this.view!;
-    const d = this.draft!;
-    return html`<section class="section" id="sec-general"><h3>General</h3>
-      <div class="field"><label for="d-title">Title</label><div class="value"><input id="d-title" type="text" data-test="title" .value=${d.title} @focus=${this.touched}
-        @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></div></div>
-      <div class="field"><label for="d-hid">HID</label><div class="value"><input id="d-hid" type="text" .value=${d.hid} placeholder="none" @focus=${this.touched}
-        @input=${(e: Event) => { this.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} /><div class="help">Human-readable identifier; must be unique. Previous HIDs stay resolvable through history.</div></div></div>
-      <dl class="kv">
-        <dt>Type</dt><dd>${this.schema?.displayName ?? v.meta.type} <span class="muted">(${v.meta.type}${this.schema ? "" : ", no schema"})</span></dd>
-        <dt>Kind</dt><dd>${v.meta.kind}</dd>
-        <dt>Folder</dt><dd><a href=${"/folder/" + v.meta.folder} @click=${(e: Event) => { e.preventDefault(); navigate({ folder: v.meta.folder, guid: null }); }}>${v.meta.folder || "/"}</a></dd>
-        <dt>GUID</dt><dd class="mono">${v.meta.guid}</dd>
-        <dt>ETag</dt><dd class="mono">${v.etag.slice(0, 12)}</dd>
-        <dt>Created</dt><dd>${fmtTime(v.meta.createdAt)}</dd>
-        <dt>Modified</dt><dd>${fmtTime(v.meta.modifiedAt)}</dd>
-        ${this.schema?.sources?.length ? html`<dt>Schema from</dt><dd>${this.schema.sources.map((s) => s || "/").join(" → ")}</dd>` : nothing}
-      </dl></section>`;
   }
 
   private fieldsSection() {
@@ -354,7 +430,7 @@ export class Detail extends LitElement {
     const fields = (this.schema?.fields ?? []).filter((f) => f.type !== "workflow");
     const known = new Set(fields.map((f) => f.id));
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
-    return html`<section class="section" id="sec-fields"><h3>Fields</h3>
+    return this.section("fields", () => html`
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
       ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""}
         .overlay=${ov} @focusin=${this.touched}
@@ -363,8 +439,7 @@ export class Detail extends LitElement {
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
         @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
       ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared
-        @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}
-    </section>`;
+        @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}`);
   }
 
   /** Overlay state of a field the base chain provides a value for; null when the base sets nothing. */
@@ -389,7 +464,7 @@ export class Detail extends LitElement {
   }
 
   private workflowSection() {
-    return html`<section class="section" id="sec-workflows"><h3>Workflows</h3>
+    return this.section("workflows", () => html`
       ${this.workflows.map((w) => html`<div class="workflow" data-workflow=${w.id}>
         <span class="name">${w.definition.name || w.id}</span>
         <span class="pill state">${w.state}</span>
@@ -403,7 +478,7 @@ export class Detail extends LitElement {
           <span class="wf-edge">·</span>
           ${w.definition.transitions.map((t) => html`<span class="wf-edge">${t.from.join("|")} → ${t.to}${t.name ? ` (${t.name})` : ""}</span>`)}
           <span class="muted small">defined in ${w.definition.scope || "/"}</span></div>` : nothing}
-      </div>`)}</section>`;
+      </div>`)}`);
   }
 
   private relSection() {
@@ -414,13 +489,13 @@ export class Detail extends LitElement {
       <a href=${"/artifact/" + lv.other.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: lv.other.guid }); }}>${label(lv.other as never)}</a>
       <span class="grow"></span>
       <button class="btn sm" title="Remove link" aria-label="Remove link" @click=${() => api.remove(lv.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`;
-    return html`<section class="section" id="sec-relationships"><h3>Relationships <span class="actions">
+    const actions = html`
         ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
         ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>← ${s.displayName || s.type}</button>`)}
-      </span></h3>
-      ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<div class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</div>` : nothing}
+        ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
+    return this.section("relationships", () => html`
       ${!rel || (!rel.incoming.length && !rel.outgoing.length) ? html`<div class="muted small">No links yet.</div>` : html`<div class="links-list">
-        ${rel.outgoing.map((l) => row(l as never, "out"))}${rel.incoming.map((l) => row(l as never, "in"))}</div>`}</section>`;
+        ${rel.outgoing.map((l) => row(l as never, "out"))}${rel.incoming.map((l) => row(l as never, "in"))}</div>`}`, actions);
   }
 
   private commentSection() {
@@ -437,50 +512,74 @@ export class Detail extends LitElement {
         ${this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
       <div class="text">${String(c.data?.text ?? "")}</div>
       ${render(c.meta.guid, depth + 1)}</div>`);
-    return html`<section class="section" id="sec-comments"><h3>Comments</h3>
+    const actions = !this.commentType
+      ? html`<span class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</span>`
+      : html`<button class="btn sm" data-test="comment-add" @click=${async () => { await this.reveal("comments"); this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>＋ Comment</button>`;
+    return this.section("comments", () => html`
       ${!this.comments.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
-      ${!this.commentType ? html`<div class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form">
+      ${!this.commentType ? nothing : html`<div class="inline-form">
         <textarea id="comment-text" data-test="comment-text" placeholder=${this.replyTo ? "Reply…" : "Write a comment…"} .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
         <div style="display:flex;flex-direction:column;gap:4px">
           <button class="btn primary sm" data-test="comment-send" @click=${this.addComment}>Post</button>
           ${this.replyTo ? html`<button class="btn sm" @click=${() => (this.replyTo = null)}>cancel reply</button>` : nothing}
-        </div></div>`}</section>`;
+        </div></div>`}`, actions);
   }
 
   private attachmentSection() {
     const att = this.view?.attachments ?? [];
-    return html`<section class="section" id="sec-attachments"><h3>Attachments <span class="actions"><label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label></span></h3>
+    return this.section("attachments", () => html`
       ${!att.length ? html`<div class="muted small">Files stored in the artifact's GUID directory appear here.</div>` : nothing}
       ${att.map((a) => html`<div class="attach-row"><a href=${api.fileUrl(this.guid, a.name)} target="_blank" rel="noopener">${a.name}</a><span class="size">${fmtSize(a.size)}</span>
-        <button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`)}
-    </section>`;
+        <button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`)}`,
+      html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
   }
 
+  /** This entry with its direct neighbours: the base it overrides and the overlays overriding it. */
   private overlaySection() {
     const ov = this.overlay!;
-    return html`<section class="section" id="sec-overlay"><h3>Overlay composition <span class="actions"><button class="btn sm" @click=${this.createVariant}>＋ Create variant of this entry</button></span></h3>
-      ${ov.chain.length > 1 ? html`<div class="chain">${ov.chain.map((lvl, i) => html`
-        ${i ? html`<span class="arrow">→ overrides</span>` : nothing}
-        <div class="node ${lvl.guid === this.guid ? "self" : ""}">
-          ${lvl.guid === this.guid ? html`<b>this entry</b>` : html`<a href=${"/artifact/" + lvl.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: lvl.guid }); }}>${lvl.hid || lvl.title || lvl.guid.slice(0, 8)}</a>`}
-          <small>${lvl.fields.length ? "sets " + lvl.fields.join(", ") : "sets nothing"}</small></div>`)}</div>
-        <dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : html`<div class="muted small">This entry has no base.</div>`}
-      ${ov.overlays.length ? html`<h4 class="small muted" style="margin-top:10px">Variants deriving from this entry</h4>${ov.overlays.map((o) => html`<div><a href=${"/artifact/" + o.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: o.guid }); }}>${o.hid ? o.hid + " " : ""}${o.title}</a></div>`)}` : nothing}
-    </section>`;
+    const self = ov.chain[ov.chain.length - 1];
+    const base = ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
+    const sets = (fields: string[]) => html`<small>${fields.length ? "sets " + fields.join(", ") : "sets nothing"}</small>`;
+    const node = (guid: string, hid: string | undefined, title: string | undefined, fields: string[]) => html`<div class="node" data-guid=${guid}>
+      <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid }); }}>${hid ? html`<span class="hid">${hid}</span> ` : nothing}${title || (hid ? "" : guid.slice(0, 8))}</a>
+      ${sets(fields)}</div>`;
+    const empty = !base && !ov.overlays.length;
+    return this.section("overlay", () => empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
+      <div class="chain">
+        ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow">→ overrides</span>` : nothing}
+        <div class="col"><div class="node self"><b>this entry</b>${sets(self?.fields ?? [])}</div></div>
+        ${ov.overlays.length ? html`<span class="arrow">→ overrides</span>
+          <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
+      </div>
+      ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`,
+      html`<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
   }
+
 
   private historySection() {
-    return html`<section class="section" id="sec-history"><h3>History</h3>
+    return this.section("history", () => !this.historyLoaded ? html`<div class="muted small">Loading…</div>` : html`
       ${this.history.map((h) => html`<div class="history-row"><span class="when" title=${h.time}>${fmtTime(h.time)}</span><span>${h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}</span><span class="mono muted">${h.sha.slice(0, 8)}</span></div>`)}
-      ${!this.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}</section>`;
+      ${!this.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}`);
   }
 
+  /** Every read-only property not shown elsewhere, plus extra stored properties. */
   private metadataSection() {
-    const d = { ...(this.view!.data as Record<string, unknown>) };
+    const v = this.view!;
+    const d = { ...(v.data as Record<string, unknown>) };
     for (const k of ["guid", "kind", "type", "title", "hid", "fields", "workflows", "content"]) delete d[k];
-    return html`<section class="section" id="sec-metadata"><h3>Additional metadata</h3>
-      ${Object.keys(d).length ? html`<pre class="json">${JSON.stringify(d, null, 2)}</pre>` : html`<div class="muted small">No extra properties. Tools may add their own; they are preserved on save.</div>`}
-      <div class="help">Stored at <code>${this.view!.meta.path}</code></div></section>`;
+    return this.section("metadata", () => html`
+      <dl class="kv">
+        <dt>Type</dt><dd>${this.schema?.displayName ?? v.meta.type} <span class="muted">(${v.meta.type}${this.schema ? "" : ", no schema"})</span></dd>
+        <dt>Kind</dt><dd>${v.meta.kind}</dd>
+        <dt>Folder</dt><dd><a href=${"/folder/" + v.meta.folder} @click=${(e: Event) => { e.preventDefault(); navigate({ folder: v.meta.folder, guid: null }); }}>${v.meta.folder || "/"}</a></dd>
+        <dt>GUID</dt><dd class="mono">${v.meta.guid}</dd>
+        <dt>ETag</dt><dd class="mono">${v.etag.slice(0, 12)}</dd>
+        <dt>Created</dt><dd>${fmtTime(v.meta.createdAt)}</dd>
+        <dt>Modified</dt><dd>${fmtTime(v.meta.modifiedAt)}</dd>
+        ${this.schema?.sources?.length ? html`<dt>Schema from</dt><dd>${this.schema.sources.map((s) => s || "/").join(" → ")}</dd>` : nothing}
+        <dt>Path</dt><dd class="mono">${v.meta.path}</dd>
+      </dl>
+      <h4 class="small muted" style="margin-top:10px">Additional properties</h4>
+      ${Object.keys(d).length ? html`<pre class="json">${JSON.stringify(d, null, 2)}</pre>` : html`<div class="muted small">No extra properties. Tools may add their own; they are preserved on save.</div>`}`);
   }
 }
-
