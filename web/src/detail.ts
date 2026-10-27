@@ -342,6 +342,7 @@ export class Detail extends LitElement {
         </span>
       </div>
       <div class="dh-title">
+        <div class="dh-identity">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema} title=${typeName}></corestone-type-icon>
         <input class="hid-input ${d.hid ? "" : "empty"}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint}
           size=${Math.max((d.hid || hidHint).length, 3)}
@@ -350,6 +351,7 @@ export class Detail extends LitElement {
         ${d.hid ? html`<span class="dash">–</span>` : nothing}
         <h2><input class="title-input" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} @focus=${this.touched}
           @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>
+        </div>
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
         ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.reveal("overlay")}>overlay of ${this.levelLabel(base.guid)}</button>` : nothing}
         ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}

@@ -171,12 +171,13 @@ corestone-detail { display: flex; flex-direction: column; min-height: 0; min-wid
 .dh-actions .menu { left: auto; right: 0; min-width: 160px; }
 .menu .item.danger { color: var(--danger, #d14343); }
 .dh-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dh-title h2 { font-size: 17px; flex: 1; min-width: 200px; margin: 0; }
+.dh-identity { display: flex; align-items: center; gap: 8px; flex: 1; min-width: min(200px, 100%); }
+.dh-title h2 { font-size: 17px; flex: 1; min-width: 0; margin: 0; }
 .dh-title input { font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; }
 .dh-title input:hover { border-color: var(--border); }
 .dh-title input:focus { border-color: var(--accent); background: var(--bg); outline: none; }
 .dh-title .title-input { width: 100%; font-weight: 600; }
-.dh-title .hid-input { font-family: var(--mono); font-size: 13px; color: var(--accent); background: var(--accent-soft); }
+.dh-title .hid-input { width: auto; max-width: 40%; flex: none; font-family: var(--mono); font-size: 13px; color: var(--accent); background: var(--accent-soft); }
 .dh-title .hid-input.empty { background: transparent; opacity: 0.55; }
 .dh-title .dash { color: var(--muted); }
 .dh-title .badge { cursor: pointer; }
