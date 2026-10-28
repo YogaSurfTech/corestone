@@ -6,7 +6,8 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, commentTypeOf, deepEqual, fmtTime, kindIcon, label, relTime, safeImageSrc, undeclaredField } from "./util";
+import { blockId, commentTypeOf, deepEqual, fmtTime, label, relTime, safeImageSrc, undeclaredField } from "./util";
+import "./type-icon";
 import "./fields";
 
 // Document view (design guide §7.6, §9.5): a distraction-free editor of
@@ -302,7 +303,7 @@ export class DocumentView extends LitElement {
       case "entry": {
         const meta = this.entries.get(b.guid ?? "");
         body = meta ? html`<div class="entry-card" data-entry=${b.guid ?? ""} @click=${() => navigate({ guid: b.guid! })}>
-            <div class="head">${kindIcon("entry")}${meta.hid ? html`<span class="hid">${meta.hid}</span>` : nothing}<b>${meta.title}</b><span class="muted small">${meta.type}</span>
+            <div class="head"><corestone-type-icon kind="entry" .type=${meta.type} .folder=${meta.folder}></corestone-type-icon>${meta.hid ? html`<span class="hid">${meta.hid}</span>` : nothing}<b>${meta.title}</b><span class="muted small">${meta.type}</span>
               ${Object.entries(meta.workflows ?? {}).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
             <div class="fields">${Object.entries(meta.fields ?? {}).slice(0, 6).map(([k, v]) => html`<span><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)}</span>`)}</div></div>`
           : html`<div class="entry-card missing" data-entry=${b.guid ?? ""}>${this.entries.has(b.guid ?? "") ? html`Entry <code>${b.guid}</code> is missing` : "Loading entry…"}</div>`;

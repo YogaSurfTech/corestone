@@ -5,7 +5,8 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State } from "./store";
 import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtSize, fmtTime, kindIcon, label, undeclaredField } from "./util";
+import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
+import "./type-icon";
 import "./fields";
 import type { OverlayState } from "./fields";
 
@@ -321,7 +322,6 @@ export class Detail extends LitElement {
     const presence = this.s.presence[this.guid];
     const others = presence ? [...presence.editors].filter((n) => n !== this.s.user) : [];
     const typeName = this.schema?.displayName ?? v.meta.type;
-    const icon = this.schema?.presentation?.icon;
     const hidCfg = this.schema?.hid;
     const hidHint = hidCfg?.prefix ? hidCfg.prefix + (hidCfg.separator ?? "-") : "HID";
     const ov = this.overlay;
@@ -342,7 +342,8 @@ export class Detail extends LitElement {
         </span>
       </div>
       <div class="dh-title">
-        ${typeof icon === "string" && icon ? html`<span class="type-icon" title=${typeName} aria-label=${typeName} role="img">${icon}</span>` : nothing}
+        <div class="dh-identity">
+        <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema} title=${typeName}></corestone-type-icon>
         <input class="hid-input ${d.hid ? "" : "empty"}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint}
           size=${Math.max((d.hid || hidHint).length, 3)}
           title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${this.touched}
@@ -350,6 +351,7 @@ export class Detail extends LitElement {
         ${d.hid ? html`<span class="dash">–</span>` : nothing}
         <h2><input class="title-input" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} @focus=${this.touched}
           @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>
+        </div>
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
         ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.reveal("overlay")}>overlay of ${this.levelLabel(base.guid)}</button>` : nothing}
         ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}
@@ -483,9 +485,9 @@ export class Detail extends LitElement {
 
   private relSection() {
     const rel = this.rel;
-    const row = (lv: { link: { type: string; guid: string }; other: { guid: string; title?: string; hid?: string; kind: string } }, dir: "in" | "out") => html`<div class="link-row">
+    const row = (lv: { link: { type: string; guid: string }; other: { guid: string; title?: string; hid?: string; kind: string; type: string; folder: string } }, dir: "in" | "out") => html`<div class="link-row">
       <span class="type">${lv.link.type}</span><span class="arrow">${dir === "in" ? "←" : "→"}</span>
-      ${kindIcon(lv.other.kind as never)}${lv.other.hid ? html`<span class="hid">${lv.other.hid}</span>` : nothing}
+      <corestone-type-icon .kind=${lv.other.kind as never} .type=${lv.other.type} .folder=${lv.other.folder}></corestone-type-icon>${lv.other.hid ? html`<span class="hid">${lv.other.hid}</span>` : nothing}
       <a href=${"/artifact/" + lv.other.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: lv.other.guid }); }}>${label(lv.other as never)}</a>
       <span class="grow"></span>
       <button class="btn sm" title="Remove link" aria-label="Remove link" @click=${() => api.remove(lv.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`;

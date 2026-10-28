@@ -427,3 +427,36 @@ func TestHubCloseEndsSessionsAndRefusesNewOnes(t *testing.T) {
 		t.Fatalf("clients after close: %d", n)
 	}
 }
+
+func TestIcons(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	root := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/></svg>`
+	lab := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>`
+	a.ok("PUT", "/api/config?path=icons/testcase.svg", root, 200)
+	a.ok("PUT", "/api/config?scope=lab&path=icons/testcase.svg", lab, 200)
+	a.ok("PUT", "/api/config?path=icons/bad.svg", `<svg><script>alert(1)</script></svg>`, 400)
+	a.ok("PUT", "/api/config?path=icons/bad%20name.svg", root, 400)
+
+	// stored byte for byte, served as an inert image
+	r := a.ok("GET", "/api/icons/testcase?path=specs/boot", "", 200)
+	if string(r.raw) != root || r.hdr.Get("Content-Type") != "image/svg+xml" || !strings.Contains(r.hdr.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("root icon: %q %v", r.raw, r.hdr)
+	}
+	a.ok("GET", "/api/icons/testcase?path=specs/boot", "", 304, "If-None-Match", r.hdr.Get("ETag"))
+	// a folder replaces it for itself and below
+	if r := a.ok("GET", "/api/icons/testcase?path=lab/deep", "", 200); string(r.raw) != lab {
+		t.Fatalf("lab icon: %q", r.raw)
+	}
+	if r := a.ok("GET", "/api/config?scope=lab&path=icons/testcase.svg", "", 200); r.hdr.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("config read of an icon: %v", r.hdr)
+	}
+	a.ok("GET", "/api/icons/nope?path=lab", "", 404)
+	a.ok("GET", "/api/icons/a.b?path=lab", "", 400)
+
+	// a type naming an icon that does not exist is reported, not refused
+	cw := a.ok("PUT", "/api/config?scope=lab&path=entries/types.json", `{"types":[{"id":"probe","presentation":{"icon":"ghost"}}]}`, 200)
+	if !strings.Contains(string(cw.raw), `uses icon \"ghost\", which is not defined`) {
+		t.Fatalf("warnings: %s", cw.raw)
+	}
+}

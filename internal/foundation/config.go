@@ -33,7 +33,7 @@ func configPath(scope, rel string) (string, string, error) {
 		}
 	}
 	if _, ok := model.ClassifyConfig(rel); !ok {
-		return "", "", model.Invalid("%q is not a configuration file: expected <kind>/types.json, <kind>/[<type>-]fields.json, <kind>/enums/<name>-enum.json or <kind>/workflows/<name>-workflow.json, with kind entries, documents, links or comments", rel)
+		return "", "", model.Invalid("%q is not a configuration file: expected <kind>/types.json, <kind>/[<type>-]fields.json, <kind>/enums/<name>-enum.json, <kind>/workflows/<name>-workflow.json, with kind entries, documents, links or comments, or icons/<name>.svg", rel)
 	}
 	return scope, model.ConfigPath(scope, rel), nil
 }
@@ -65,12 +65,16 @@ func (f *Foundation) PutConfig(ctx context.Context, scope, rel string, body []by
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := model.ParseConfigFile(rel, body); err != nil {
+	name, _, err := model.ParseConfigFile(rel, body)
+	if err != nil {
 		return nil, err
 	}
-	obj, err := ojson.ParseObject(body)
-	if err != nil {
-		return nil, model.Invalid("%v", err)
+	// Icons are stored as sent; JSON files keep the repository's formatting.
+	var obj *ojson.Object
+	if name.Role != model.RoleIcon {
+		if obj, err = ojson.ParseObject(body); err != nil {
+			return nil, model.Invalid("%v", err)
+		}
 	}
 	var etag string
 	_, err = f.write(ctx, false, func(t *txn) (*changeset, error) {
@@ -86,7 +90,10 @@ func (f *Foundation) PutConfig(ctx context.Context, scope, rel string, body []by
 		if err := checkETag(ifMatch, sha); err != nil {
 			return nil, err
 		}
-		content := encode(obj, style)
+		content := body
+		if obj != nil {
+			content = encode(obj, style)
+		}
 		etag = gitx.BlobSHA(content)
 		if bytes.Equal(content, old) {
 			return &changeset{}, nil
@@ -153,6 +160,27 @@ func (f *Foundation) DeleteConfig(ctx context.Context, scope, rel, ifMatch strin
 		return nil, err
 	}
 	return f.configWarnings(ctx, scope)
+}
+
+// Icon reads icon name as seen from folder: the nearest folder whose
+// configuration defines icons/<name>.svg. It returns the content and its ETag.
+func (f *Foundation) Icon(ctx context.Context, name, folder string) ([]byte, string, error) {
+	if !model.ValidIconName(name) {
+		return nil, "", model.Invalid("%q is not an icon name", name)
+	}
+	folder, err := model.CleanFolder(folder)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	scope, ok := cfg.IconScope(name, folder)
+	if !ok {
+		return nil, "", fmt.Errorf("%w: icon %q in %s", model.ErrNotFound, name, folderName(folder))
+	}
+	return f.ConfigFile(ctx, scope, "icons/"+name+".svg")
 }
 
 // ValidateAttachmentName checks a file name inside a GUID directory.

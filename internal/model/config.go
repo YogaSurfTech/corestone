@@ -1,9 +1,14 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -16,6 +21,7 @@ import (
 //	<kind>/<type_id>-fields.json               fields of one type
 //	<kind>/enums/[<type_id>-]<id>-enum.json    enumerations
 //	<kind>/workflows/[<type_id>-]<id>-workflow.json
+//	icons/<name>.svg                           icons, shared by all kinds
 //
 // File names are constructed from identifiers and never split: a lookup of
 // enumeration "priority" for type "task" tries "task-priority" before
@@ -39,14 +45,15 @@ const (
 	RoleFields   ConfigRole = "fields"
 	RoleEnum     ConfigRole = "enum"
 	RoleWorkflow ConfigRole = "workflow"
+	RoleIcon     ConfigRole = "icon"
 )
 
 // ConfigName is what a configuration file's path says about it.
 type ConfigName struct {
 	Kind Kind
 	Role ConfigRole
-	// Name is the type id of a fields file ("" = shared), or the file name of
-	// an enumeration or workflow without its suffix.
+	// Name is the type id of a fields file ("" = shared), the file name of
+	// an enumeration or workflow without its suffix, or an icon's name.
 	Name string
 }
 
@@ -56,9 +63,16 @@ func ConfigPath(scope, rel string) string {
 }
 
 // ClassifyConfig interprets a path relative to a config directory, such as
-// "entries/enums/task-priority-enum.json".
+// "entries/enums/task-priority-enum.json" or "icons/testcase.svg".
 func ClassifyConfig(rel string) (ConfigName, bool) {
 	parts := strings.Split(rel, "/")
+	if len(parts) == 2 && parts[0] == "icons" {
+		name := strings.TrimSuffix(parts[1], ".svg")
+		if name != parts[1] && ValidIconName(name) {
+			return ConfigName{Role: RoleIcon, Name: name}, true
+		}
+		return ConfigName{}, false
+	}
 	var kind Kind
 	for _, k := range ConfigKinds {
 		if k.Dir == parts[0] {
@@ -186,6 +200,11 @@ func ParseTypesFile(data []byte, kind Kind) (*TypesFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("type %q: %w", id, err)
 		}
+		if icon, ok := s.Presentation["icon"]; ok {
+			if name, _ := icon.(string); !ValidIconName(name) {
+				return nil, Invalid("type %q: presentation icon must be an icon name of letters, digits, \"_\" and \"-\"", id)
+			}
+		}
 		tf.Types = append(tf.Types, &TypeDef{Schema: s, Fields: refs})
 	}
 	return tf, nil
@@ -193,6 +212,61 @@ func ParseTypesFile(data []byte, kind Kind) (*TypesFile, error) {
 
 func validFieldID(id string) bool {
 	return id != "" && len(id) <= 64 && !strings.ContainsAny(id, " \t\n/.")
+}
+
+var iconNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,255}$`)
+
+// ValidIconName reports whether name can name an icon (icons/<name>.svg).
+func ValidIconName(name string) bool { return iconNameRe.MatchString(name) }
+
+// MaxIconSize bounds an icon file.
+const MaxIconSize = 64 << 10
+
+// ParseIcon validates an icon file: a well-formed SVG document without
+// scripts, event handlers, embedded HTML or references to other files.
+// Icons are only ever displayed as images, where none of this would run;
+// the check keeps the files harmless when opened directly as well.
+func ParseIcon(data []byte) error {
+	if len(data) == 0 || len(data) > MaxIconSize {
+		return Invalid("icon must be an SVG file of at most %d KiB", MaxIconSize>>10)
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	root := true
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return Invalid("icon is not well-formed SVG: %v", err)
+		}
+		switch t := tok.(type) {
+		case xml.Directive:
+			return Invalid("icon must not contain a DOCTYPE or other directives")
+		case xml.StartElement:
+			name := strings.ToLower(t.Name.Local)
+			if root && name != "svg" {
+				return Invalid("icon must be an SVG document, found <%s>", t.Name.Local)
+			}
+			root = false
+			if name == "script" || name == "foreignobject" {
+				return Invalid("icon must not contain <%s>", t.Name.Local)
+			}
+			for _, a := range t.Attr {
+				an := strings.ToLower(a.Name.Local)
+				if strings.HasPrefix(an, "on") {
+					return Invalid("icon must not contain event handler %q", a.Name.Local)
+				}
+				if an == "href" && !strings.HasPrefix(strings.TrimSpace(a.Value), "#") {
+					return Invalid("icon must not reference other files (%s=%q)", a.Name.Local, a.Value)
+				}
+			}
+		}
+	}
+	if root {
+		return Invalid("icon must be an SVG document")
+	}
+	return nil
 }
 
 // ParseFieldsFile decodes and validates a fields.json or <type>-fields.json.
@@ -280,7 +354,7 @@ func ParseWorkflowFile(data []byte, name string) (*Workflow, error) {
 func ParseConfigFile(rel string, data []byte) (ConfigName, any, error) {
 	n, ok := ClassifyConfig(rel)
 	if !ok {
-		return n, nil, Invalid("not a configuration file: expected <kind>/types.json, <kind>/[<type>-]fields.json, <kind>/enums/<name>-enum.json or <kind>/workflows/<name>-workflow.json")
+		return n, nil, Invalid("not a configuration file: expected <kind>/types.json, <kind>/[<type>-]fields.json, <kind>/enums/<name>-enum.json, <kind>/workflows/<name>-workflow.json or icons/<name>.svg")
 	}
 	var v any
 	var err error
@@ -293,6 +367,8 @@ func ParseConfigFile(rel string, data []byte) (ConfigName, any, error) {
 		v, err = ParseEnum(data)
 	case RoleWorkflow:
 		v, err = ParseWorkflowFile(data, n.Name)
+	case RoleIcon:
+		err = ParseIcon(data)
 	}
 	return n, v, err
 }
@@ -332,14 +408,23 @@ func newKindConfig() *kindConfig {
 // folder from the configuration files of a repository.
 type ConfigIndex struct {
 	scopes map[string]map[Kind]*kindConfig
+	icons  map[string]map[string]bool // scope -> icon names defined there
 }
 
 // NewConfigIndex builds an index; files that do not parse are left out and
-// returned as problems.
+// returned as problems. Icons are indexed by name only: their content is
+// validated when written and when projected, and is read from Git on use.
 func NewConfigIndex(files []ConfigFile) (*ConfigIndex, []ConfigProblem) {
-	idx := &ConfigIndex{scopes: map[string]map[Kind]*kindConfig{}}
+	idx := &ConfigIndex{scopes: map[string]map[Kind]*kindConfig{}, icons: map[string]map[string]bool{}}
 	var problems []ConfigProblem
 	for _, f := range files {
+		if n, ok := ClassifyConfig(f.Path); ok && n.Role == RoleIcon {
+			if idx.icons[f.Scope] == nil {
+				idx.icons[f.Scope] = map[string]bool{}
+			}
+			idx.icons[f.Scope][n.Name] = true
+			continue
+		}
 		n, v, err := ParseConfigFile(f.Path, f.Data)
 		if err != nil {
 			problems = append(problems, ConfigProblem{ConfigPath(f.Scope, f.Path), err.Error()})
@@ -402,6 +487,18 @@ func (idx *ConfigIndex) chain(kind Kind, folder string) []scoped {
 		}
 	}
 	return out
+}
+
+// IconScope finds the folder whose configuration defines icon name for
+// folder, nearest first. Icons are always inherited: "inheritance": "off"
+// in a types.json does not apply to them.
+func (idx *ConfigIndex) IconScope(name, folder string) (string, bool) {
+	for _, scope := range Ancestors(folder) {
+		if idx.icons[scope][name] {
+			return scope, true
+		}
+	}
+	return "", false
 }
 
 // kindOf finds the kind defining typ at folder, in ConfigKinds order.
@@ -653,6 +750,13 @@ func (idx *ConfigIndex) Problems() []ConfigProblem {
 				_, msgs := idx.compose(typ, k.Kind, ch)
 				for _, m := range msgs {
 					report(ConfigProblem{file, m})
+				}
+				if td := local.typeByID[typ]; td != nil {
+					if icon, _ := td.Schema.Presentation["icon"].(string); icon != "" {
+						if _, ok := idx.IconScope(icon, scope); !ok {
+							report(ConfigProblem{file, fmt.Sprintf("type %q uses icon %q, which is not defined", typ, icon)})
+						}
+					}
 				}
 			}
 		}

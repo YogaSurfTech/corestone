@@ -30,6 +30,8 @@ Goals:
   documents/   (same structure)
   links/       (same structure)
   comments/    (same structure)
+  icons/
+    <name>.svg                          an icon, usable by the types of every kind
 ```
 
 - The `config/` directory separates type definitions from the artifacts stored in
@@ -40,7 +42,7 @@ Goals:
   with it, it belongs to that type. Type-specific and shared definitions sit side by side, so a
   directory listing groups them by type.
 - Sharing stops at the kind directory: an enumeration needed by entry and document types exists
-  once in each.
+  once in each. Icons are the exception: `icons/` is shared by all kinds.
 
 ## 2. Files
 
@@ -84,6 +86,13 @@ is a property of the field, so one enumeration can back both:
 
 **`<id>-workflow.json`** — a state machine, in today's workflow format.
 
+**`icons/<name>.svg`** — a 16×16 icon (`viewBox="0 0 16 16"`) that a type shows in lists, links,
+dialogs and its detail view. A type selects it with `"presentation": { "icon": "<name>" }`; types
+without an icon show their kind's letter (E, D, L, C). Names use letters, digits, `_` and `-`.
+An icon must be a well-formed SVG document of at most 64 KiB without scripts, event handlers,
+embedded HTML or references to other files; it is stored byte for byte. The client loads icons from
+`GET /api/icons/<name>?path=<folder>`. `examples/icons/` holds a predefined set.
+
 ## 3. Identifiers and file names
 
 - Identifiers may contain letters, digits, `_`, `-` and `.` (as today). File names are
@@ -115,6 +124,10 @@ All lookups walk the folder lineage of the artifact, **nearest folder first**, t
   `<type_id>-fields.json` wins over `fields.json`.
 - **Enumerations and workflows** referenced by id: in each folder, `<type_id>-<id>` first, then
   the shared `<id>`; the first folder on the lineage that has either wins.
+- **Icons** resolve by name from the artifact's folder, nearest folder first, so any folder can add
+  icons or replace one for itself and everything below. Icons are always inherited:
+  `"inheritance": "off"` does not cut them off. A type naming an icon that is not defined where the
+  type is defined is reported like any other dangling reference.
 - **Invalid files** (not valid JSON, unknown field type, dangling reference) are ignored and
   reported: the repository status lists them and the client shows them in a banner. Because
   resolution depends on location, a reference can be valid in one folder and dangling in another;

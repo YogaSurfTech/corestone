@@ -69,6 +69,31 @@ test("create an entry through the + button with a schema-generated form", async 
   await expect(page).toHaveURL(/\/artifact\/[0-9a-f-]{36}/);
 });
 
+test("detail icon, HID and title stay on one row", async ({ page }) => {
+  const e = await post("/entries", { path: folder, type: "req", title: "Header layout", fields: { priority: "low" } });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  const identity = page.locator(".dh-identity");
+  await expect(identity.locator("[data-test=title]")).toHaveValue("Header layout");
+  await expect(identity.locator("[data-test=hid]")).toHaveValue(/UR/);
+  for (const width of [1400, 900, 600]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(async () => {
+      const boxes = await Promise.all([
+        identity.locator("corestone-type-icon").boundingBox(),
+        identity.locator("[data-test=hid]").boundingBox(),
+        identity.locator("[data-test=title]").boundingBox(),
+      ]);
+      for (const box of boxes) expect(box).not.toBeNull();
+      const [icon, hid, title] = boxes.map((box) => box!);
+      expect(Math.abs(icon.y + icon.height / 2 - hid.y - hid.height / 2)).toBeLessThan(1);
+      expect(Math.abs(icon.y + icon.height / 2 - title.y - title.height / 2)).toBeLessThan(1);
+      expect(icon.x + icon.width).toBeLessThanOrEqual(hid.x);
+      expect(hid.x + hid.width).toBeLessThanOrEqual(title.x);
+      expect(title.width).toBeGreaterThan(0);
+    }).toPass();
+  }
+});
+
 test("edit fields, save with optimistic concurrency, and see history", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Editable", fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);

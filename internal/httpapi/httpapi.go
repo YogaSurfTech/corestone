@@ -101,6 +101,7 @@ func (s *Server) routes() {
 
 	// configuration
 	m.HandleFunc("GET /api/config", s.getConfig)
+	m.HandleFunc("GET /api/icons/{name}", s.icon)
 	m.HandleFunc("PUT /api/config", s.putConfig)
 	m.HandleFunc("DELETE /api/config", s.deleteConfig)
 	m.HandleFunc("GET /api/schemas/effective", s.effectiveSchema)
@@ -731,6 +732,10 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 			fail(w, err)
 			return
 		}
+		if n, _ := model.ClassifyConfig(rel); n.Role == model.RoleIcon {
+			writeIcon(w, r, data, sha)
+			return
+		}
 		setETag(w, sha)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(data)
@@ -742,6 +747,31 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"files": configOut(files)})
+}
+
+// icon serves an icon as seen from a folder (?path=), nearest folder first.
+func (s *Server) icon(w http.ResponseWriter, r *http.Request) {
+	data, sha, err := s.F.Icon(r.Context(), r.PathValue("name"), r.URL.Query().Get("path"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeIcon(w, r, data, sha)
+}
+
+// writeIcon sends an SVG icon. Clients revalidate with the ETag, so a
+// replaced icon shows up at once; the sandbox keeps a directly opened file inert.
+func writeIcon(w http.ResponseWriter, r *http.Request, data []byte, sha string) {
+	setETag(w, sha)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if inm := ifNoneMatch(r); inm != "" && inm == sha {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(data)
 }
 
 func configOut(files []projection.ConfigRecord) []map[string]any {

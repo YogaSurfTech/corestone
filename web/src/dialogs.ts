@@ -4,7 +4,8 @@ import { api, ApiError } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
 import type { Kind, Schema, Summary } from "./types";
-import { collectionOf, displayName, kindIcon, kindLabel, kindPlural, label } from "./util";
+import { collectionOf, displayName, kindLabel, kindPlural, label } from "./util";
+import "./type-icon";
 import "./fields";
 import "./folder-field";
 
@@ -294,7 +295,7 @@ export class NewDialog extends LitElement {
       ${!this.loading && !this.types.length ? html`<div class="notice">No schemas are visible at <code>${this.path || "/"}</code>. Define a schema first (or enter a type below).</div>` : nothing}
       ${order.filter((k) => groups[k]?.length).map((k) => html`<div class="nav-title" style="margin-top:10px">${kindPlural[k]}</div>
         <div class="type-grid">${groups[k].map((t) => html`<button class="type-card" data-type=${t.type} @click=${() => this.choose(t)}>
-          <div class="kind">${kindIcon(t.kind)}${t.type}</div><div class="name">${displayName(t, t.type)}</div>
+          <div class="kind"><corestone-type-icon .kind=${t.kind} .type=${t.type} .folder=${this.path} .schema=${t}></corestone-type-icon>${t.type}</div><div class="name">${displayName(t, t.type)}</div>
           ${t.description ? html`<div class="desc">${t.description}</div>` : nothing}
           ${t.hid ? html`<div class="desc">HID prefix ${t.hid.prefix}</div>` : nothing}</button>`)}</div>`)}
       <div class="inline-form" style="margin-top:16px;align-items:center">
@@ -345,7 +346,7 @@ export class Picker extends LitElement {
         ${this.busy && !this.results.length ? html`<div class="empty-state">Searching…</div>` : nothing}
         ${!this.busy && !this.results.length ? html`<div class="empty-state">No matching artifacts</div>` : nothing}
         ${this.results.filter((r) => r.guid !== exclude).map((r) => html`<div class="row" data-guid=${r.guid} @click=${() => { store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(r); }}>
-          ${kindIcon(r.kind)}${r.hid ? html`<span class="hid">${r.hid}</span>` : nothing}<span class="grow">${r.title}</span><span class="muted small">${r.type} · ${r.folder || "/"}</span></div>`)}
+          <corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.hid ? html`<span class="hid">${r.hid}</span>` : nothing}<span class="grow">${r.title}</span><span class="muted small">${r.type} · ${r.folder || "/"}</span></div>`)}
       </div>
       <div class="foot"><button class="btn" @click=${() => { const c = this.dialog.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }}>Cancel</button></div>`;
   }

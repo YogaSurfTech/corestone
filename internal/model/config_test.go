@@ -284,3 +284,76 @@ func TestConfigProblems(t *testing.T) {
 		t.Fatalf("inherited problems repeated in a subfolder:\n%s", all)
 	}
 }
+
+func TestIcons(t *testing.T) {
+	for rel, want := range map[string]ConfigName{
+		"icons/testcase.svg":   {"", RoleIcon, "testcase"},
+		"icons/doc_spec-2.svg": {"", RoleIcon, "doc_spec-2"},
+	} {
+		if got, ok := ClassifyConfig(rel); !ok || got != want {
+			t.Errorf("%s: %+v %v", rel, got, ok)
+		}
+	}
+	for _, rel := range []string{"icons/.svg", "icons/a b.svg", "icons/x.png", "icons/sub/x.svg", "entries/icons/x.svg", "icons/x.svg.svg"} {
+		if n, ok := ClassifyConfig(rel); ok {
+			t.Errorf("%s classified as %+v", rel, n)
+		}
+	}
+
+	good := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><defs><path id="p" d="M0 0h4"/></defs><use href="#p"/><circle cx="8" cy="8" r="6"/></svg>`
+	if err := ParseIcon([]byte(good)); err != nil {
+		t.Fatalf("valid icon refused: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"empty":     ``,
+		"not xml":   `<svg><circle></svg>`,
+		"not svg":   `<html><body/></html>`,
+		"script":    `<svg><script>alert(1)</script></svg>`,
+		"handler":   `<svg><circle onload="alert(1)"/></svg>`,
+		"html":      `<svg><foreignObject><div/></foreignObject></svg>`,
+		"external":  `<svg><image href="https://example.com/x.png"/></svg>`,
+		"xlink":     `<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="other.svg#a"/></svg>`,
+		"doctype":   `<!DOCTYPE svg [<!ENTITY x "y">]><svg/>`,
+		"too large": `<svg>` + strings.Repeat(" ", MaxIconSize) + `</svg>`,
+	} {
+		if err := ParseIcon([]byte(bad)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	// Icons are inherited, nearest folder first, also across "inheritance": "off".
+	idx, problems := NewConfigIndex(files(map[string]string{
+		"|icons/testcase.svg":         good,
+		"|icons/task.svg":             good,
+		"|entries/types.json":         `{"types":[{"id":"task","presentation":{"icon":"task"}},{"id":"testcase","presentation":{"icon":"missing"}}]}`,
+		"lab|icons/task.svg":          good,
+		"lab/deep|entries/types.json": `{"inheritance":"off","types":[{"id":"probe","presentation":{"icon":"testcase"}}]}`,
+	}))
+	if len(problems) != 0 {
+		t.Fatalf("file problems %+v", problems)
+	}
+	for _, c := range []struct{ name, folder, scope string }{
+		{"testcase", "lab/deep", ""}, {"task", "lab/deep/x", "lab"}, {"task", "other", ""},
+	} {
+		if scope, ok := idx.IconScope(c.name, c.folder); !ok || scope != c.scope {
+			t.Errorf("icon %s at %s: %q %v, want %q", c.name, c.folder, scope, ok, c.scope)
+		}
+	}
+	if _, ok := idx.IconScope("nope", "lab"); ok {
+		t.Error("undefined icon resolved")
+	}
+	var msgs []string
+	for _, p := range idx.Problems() {
+		msgs = append(msgs, p.Path+": "+p.Message)
+	}
+	if want := `.corestone/config/entries/types.json: type "testcase" uses icon "missing", which is not defined`; len(msgs) != 1 || msgs[0] != want {
+		t.Errorf("problems %q, want %q", msgs, want)
+	}
+
+	if _, err := ParseTypesFile([]byte(`{"types":[{"id":"t","presentation":{"icon":"../x"}}]}`), KindEntry); err == nil {
+		t.Error("invalid icon name accepted")
+	}
+	if _, err := ParseTypesFile([]byte(`{"types":[{"id":"t","presentation":{"icon":3}}]}`), KindEntry); err == nil {
+		t.Error("non-string icon accepted")
+	}
+}

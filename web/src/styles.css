@@ -122,6 +122,8 @@ th[aria-sort="descending"] .th-sort::after { content: " ▼"; font-size: 9px; co
 .hid { font-family: var(--mono); font-size: 12px; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
 .pill { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); }
 .pill.state { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+corestone-type-icon { display: inline-flex; align-items: center; vertical-align: middle; flex: none; }
+img.type-icon { display: block; width: 16px; height: 16px; margin: 0 7px 0 1px; }
 .kind-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; font-size: 10px; font-weight: 700; margin-right: 6px; background: var(--accent-soft); color: var(--accent); }
 .kind-icon.document { background: var(--warn-soft); color: var(--warn); }
 .social { color: var(--muted); font-size: 12px; }
@@ -169,15 +171,15 @@ corestone-detail { display: flex; flex-direction: column; min-height: 0; min-wid
 .dh-actions .menu { left: auto; right: 0; min-width: 160px; }
 .menu .item.danger { color: var(--danger, #d14343); }
 .dh-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dh-title h2 { font-size: 17px; flex: 1; min-width: 200px; margin: 0; }
+.dh-identity { display: flex; align-items: center; gap: 8px; flex: 1; min-width: min(200px, 100%); }
+.dh-title h2 { font-size: 17px; flex: 1; min-width: 0; margin: 0; }
 .dh-title input { font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; }
 .dh-title input:hover { border-color: var(--border); }
 .dh-title input:focus { border-color: var(--accent); background: var(--bg); outline: none; }
 .dh-title .title-input { width: 100%; font-weight: 600; }
-.dh-title .hid-input { font-family: var(--mono); font-size: 13px; color: var(--accent); background: var(--accent-soft); }
+.dh-title .hid-input { width: auto; max-width: 40%; flex: none; font-family: var(--mono); font-size: 13px; color: var(--accent); background: var(--accent-soft); }
 .dh-title .hid-input.empty { background: transparent; opacity: 0.55; }
 .dh-title .dash { color: var(--muted); }
-.dh-title .type-icon { font-size: 18px; line-height: 1; cursor: default; }
 .dh-title .badge { cursor: pointer; }
 .dh-crumbs { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); padding-left: 6px; }
 .dh-crumbs a { color: var(--muted); }

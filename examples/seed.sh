@@ -10,6 +10,9 @@
 #    cut off from the root (only tasks there) while links and comments are
 #    still inherited.
 #
+# The predefined icons of examples/icons are stored in the root configuration,
+# so every folder can use them; every type selects one.
+#
 #   ./examples/seed.sh [http://127.0.0.1:8080]
 set -euo pipefail
 API=${1:-http://127.0.0.1:8080}/api
@@ -17,9 +20,13 @@ API=${1:-http://127.0.0.1:8080}/api
 post() { curl -sfS -X POST "$API/$1" -H 'Content-Type: application/json' -d "$2"; }
 # cfg <folder> <path below .corestone/config> <file content>
 cfg()  { curl -sfS -X PUT "$API/config?scope=$1&path=$2" -H 'Content-Type: application/json' -d "$3" >/dev/null; }
+# icon <folder> <file.svg>: stores an icon as .corestone/config/icons/<file.svg>
+icon() { curl -sfS -X PUT "$API/config?scope=$1&path=icons/$(basename "$2")" -H 'Content-Type: image/svg+xml' --data-binary @"$2" >/dev/null; }
 guid() { python3 -c 'import json,sys; print(json.load(sys.stdin)["meta"]["guid"])'; }
 
 # ---- root configuration ------------------------------------------------------
+
+for f in "$(dirname "$0")"/icons/*.svg; do icon "" "$f"; done
 
 DEV='{"name":"Development","initial":"open",
   "states":[{"id":"open","name":"Open"},{"id":"review","name":"In review","color":"#b7791f"},{"id":"done","name":"Done","color":"#1f9d55"}],
@@ -53,20 +60,20 @@ cfg "" entries/types.json '{"types":[
   {"id":"requirement","displayName":"Requirement","description":"A single verifiable statement of need",
    "hid":{"prefix":"REQ"},"workflows":["dev","publish"],
    "fields":[{"id":"priority","required":true},"rationale","effort","due","tags","spec"],
-   "presentation":{"columns":["priority","effort","due"],"icon":"list-check"}},
-  {"id":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"workflows":["dev"]},
-  {"id":"component","displayName":"Component","hid":{"prefix":"CMP"}}]}'
+   "presentation":{"columns":["priority","effort","due"],"icon":"requirement"}},
+  {"id":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"workflows":["dev"],"presentation":{"icon":"testcase"}},
+  {"id":"component","displayName":"Component","hid":{"prefix":"CMP"},"presentation":{"icon":"component"}}]}'
 
 cfg "" documents/spec-fields.json '{"fields":[{"id":"audience","name":"Audience","type":"enum","options":[{"value":"internal"},{"value":"customer"}]}]}'
-cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification","hid":{"prefix":"SPEC"},"workflows":["publish"]}]}'
+cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification","hid":{"prefix":"SPEC"},"workflows":["publish"],"presentation":{"icon":"doc-spec"}}]}'
 
 cfg "" links/verifies-fields.json '{"fields":[{"id":"coverage","name":"Coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}'
 cfg "" links/types.json '{"types":[
-  {"id":"verifies","displayName":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"},
-  {"id":"implements","displayName":"implements","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many"},
-  {"id":"related","displayName":"related to"}]}'
+  {"id":"verifies","displayName":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"test-passed"}},
+  {"id":"implements","displayName":"implements","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"software"}},
+  {"id":"related","displayName":"related to","presentation":{"icon":"interface"}}]}'
 
-cfg "" comments/types.json '{"types":[{"id":"comment","displayName":"Comment"}]}'
+cfg "" comments/types.json '{"types":[{"id":"comment","displayName":"Comment","presentation":{"icon":"note"}}]}'
 
 # A subtree that refines the requirement type with an extra field.
 cfg specs/safety entries/enums/asil-enum.json '{"name":"ASIL","options":[{"value":"A"},{"value":"B"},{"value":"C"},{"value":"D"}]}'
@@ -99,7 +106,7 @@ cfg $T entries/fields.json '{"fields":[
 cfg $T entries/types.json '{"inheritance":"off","types":[
   {"id":"task","displayName":"Task","hid":{"prefix":"TSK"},"workflows":["task"],
    "fields":[{"id":"priority","required":true},"effort","description","tags"],
-   "presentation":{"columns":["priority","effort"]}}]}'
+   "presentation":{"columns":["priority","effort"],"icon":"task"}}]}'
 
 # ---- requirements domain content ---------------------------------------------
 
