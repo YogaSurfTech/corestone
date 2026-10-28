@@ -434,7 +434,7 @@ export class Detail extends LitElement {
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
     return this.section("fields", () => html`
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
-      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""}
+      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
         .overlay=${ov} @focusin=${this.touched}
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}

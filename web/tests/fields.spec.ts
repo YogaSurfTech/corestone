@@ -24,6 +24,7 @@ test.beforeAll(async () => {
       { id: "one", name: "One of", type: "enum", options: [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }] },
       { id: "many", name: "Many of", type: "enum", multiple: true, options: [{ value: "x" }, { value: "y" }, { value: "z" }] },
       { id: "free", name: "Free enum", type: "enum", extendable: true, options: [{ value: "known" }] },
+      { id: "freeMany", name: "Free multiselect", type: "enum", multiple: true, extendable: true, options: [{ value: "known" }] },
       { id: "url", name: "URL", type: "hyperlink" },
       { id: "ref", name: "Reference", type: "reference", targetTypes: ["req"] },
       { id: "refs", name: "References", type: "references" },
@@ -33,6 +34,72 @@ test.beforeAll(async () => {
     ] });
   const r = await post("/entries", { path: folder, type: "req", title: `Ref target ${id}`, fields: { priority: "low" } });
   target = { guid: r.meta.guid, title: `Ref target ${id}` };
+});
+test("extendable suggestions stay local until two characters are typed", async ({ page }) => {
+  await page.route("**/api/repository/values?*", async (route) => {
+    const path = new URL(route.request().url()).searchParams.get("path") || "";
+    await route.fulfill({ json: { values: (path ? ["local", "nested"] : ["local", "remote", "unrelated"]).map((value) => ({ value, count: 1 })) } });
+  });
+  const entry = await post("/entries", { path: folder, type: "all", title: "Suggestions", fields: { freeMany: ["selected-elsewhere"] } });
+  await page.goto(`/artifact/${entry.meta.guid}?folder=elsewhere`);
+  for (const id of ["freeMany", "free"]) {
+    const field = page.locator(`[data-field=${id}]`);
+    const input = field.locator("input[type=text]");
+    await expect(field.locator('datalist option[value="known"]')).toHaveCount(1);
+    await expect(field.locator('datalist option[value="nested"]')).toHaveCount(1);
+    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
+    await input.fill("r");
+    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
+    await input.fill("RE");
+    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(1);
+    await expect(field.locator('datalist option[value="unrelated"]')).toHaveCount(1);
+    await expect(field.locator('datalist option[value="local"]')).toHaveCount(1);
+    await input.fill("rem");
+    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(1);
+    await expect(field.locator('datalist option[value="unrelated"]')).toHaveCount(0);
+    await input.fill("");
+    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
+    await expect(field.locator('datalist option[value="nested"]')).toHaveCount(1);
+  }
+  await expect(page.locator('[data-field=freeMany]').getByRole("checkbox", { name: "selected-elsewhere" })).toBeChecked();
+});
+
+
+test("custom multiselect values commit on blur, Add and Enter and survive saving", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Custom multiselect", fields: { freeMany: ["known"] } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const field = page.locator("[data-field=freeMany]");
+  const input = field.locator("input[type=text]");
+  await input.fill("  blurred  ");
+  await input.blur();
+  await expect(page.locator("[data-test=save]")).toBeVisible();
+  await expect(field.getByRole("checkbox", { name: "blurred", exact: true })).toBeChecked();
+  await input.fill("clicked");
+  await field.getByRole("button", { name: "Add value", exact: true }).click();
+  await expect(field.getByRole("checkbox", { name: "clicked", exact: true })).toBeChecked();
+  await input.fill("entered");
+  await input.press("Enter");
+  await expect(field.getByRole("checkbox", { name: "entered", exact: true })).toBeChecked();
+  await input.fill("blurred");
+  await input.press("Enter");
+  await input.fill("   ");
+  await input.blur();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".savebar")).toHaveCount(0);
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
+  expect(stored.data.fields.freeMany).toEqual(["known", "blurred", "clicked", "entered"]);
+  await page.reload();
+  await expect(field.getByRole("checkbox", { name: "clicked", exact: true })).toBeChecked();
+  await field.getByRole("checkbox", { name: "clicked", exact: true }).uncheck();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".savebar")).toHaveCount(0);
+  const after = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
+  expect(after.data.fields.freeMany).toEqual(["known", "blurred", "entered"]);
+  await input.fill("known");
+  await input.press("Enter");
+  await input.fill(" ");
+  await input.blur();
+  await expect(page.locator(".savebar")).toHaveCount(0);
 });
 
 test("all field types round-trip through the generated form", async ({ page }) => {

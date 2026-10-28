@@ -409,7 +409,7 @@ export class DocumentView extends LitElement {
         return html`<h4>Document properties</h4>
           <dl class="kv"><dt>Type</dt><dd>${v.meta.type}</dd><dt>Folder</dt><dd>${v.meta.folder || "/"}</dd><dt>GUID</dt><dd class="mono small">${v.meta.guid}</dd><dt>Modified</dt><dd>${relTime(v.meta.modifiedAt)}</dd>
             ${Object.entries(v.meta.workflows ?? {}).map(([w, st]) => html`<dt>${w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
-          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type}
+          ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type} .folder=${v.meta.folder}
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; }}></corestone-field>`)}
           ${Object.keys(this.fields).filter((k) => !this.schema?.fields?.some((f) => f.id === k)).map((k) => html`<corestone-field .field=${undeclaredField(k, this.fields[k])} .value=${this.fields[k]} undeclared
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; }}></corestone-field>`)}

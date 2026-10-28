@@ -269,7 +269,7 @@ export class NewDialog extends LitElement {
             <button type="button" class="btn sm" @click=${() => this.pickArtifact("target")}>${this.target ? "Change…" : "Select…"}</button></div></div>
           <div class="field"><label for="new-text">Text<span class="req">*</span></label><div class="value">
             <textarea id="new-text" required .value=${this.text} @input=${(e: Event) => (this.text = (e.target as HTMLTextAreaElement).value)}></textarea></div></div>` : nothing}
-        ${(s.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.values[f.id]}
+        ${(s.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.values[f.id]} .typeId=${s.type} .folder=${this.path}
           @field-change=${(e: CustomEvent) => { this.values = { ...this.values, [e.detail.id]: e.detail.value }; }}></corestone-field>`)}
         ${s.workflows?.length ? html`<div class="help" style="margin-top:8px">Workflows ${s.workflows.join(", ")} start in their initial state.</div>` : nothing}
         <div class="foot">
