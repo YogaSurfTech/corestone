@@ -78,7 +78,7 @@ export class Overview extends LitElement {
     this.error = "";
     try {
       const params: Record<string, string | number | boolean | undefined> = {
-        q: r.q, path: r.folder, subtree: r.subtree || !!r.q || !!r.type, type: r.type,
+        q: r.q, path: r.folder, subtree: r.subtree, type: r.type,
         kind: r.kind || "entry,document", limit: LIMIT, sort: r.q ? "" : "path",
       };
       const direct = !params.subtree;
@@ -240,7 +240,7 @@ export class Overview extends LitElement {
           ${this.menu ? this.newMenu() : nothing}
         </div>
         <span class="title">${this.context()}</span>
-        <span class="hint">${this.loading ? "loading…" : html`${this.total} artifact${this.total === 1 ? "" : "s"}${r.subtree || r.q || r.type ? " incl. subfolders"
+        <span class="hint">${this.loading ? "loading…" : html`${this.total} artifact${this.total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
           : this.below > this.total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}${
           this.rows.length < this.total ? html` · <span data-test="partial">showing ${this.rows.length}${sort ? ", sorted within these" : ""}</span>` : nothing}`}</span>
         <span class="grow"></span>

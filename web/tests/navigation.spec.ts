@@ -92,13 +92,27 @@ test("overview: kind chips, schema columns, subtree, sorting stability, social c
   // by-type counts in the sidebar reflect the subtree
   await expect(page.locator(".tree .row[data-type=req] .count")).toHaveText("2");
   await page.locator(".tree .row[data-type=tc]").click();
+  await expect(page.locator("[data-test=subtree]")).not.toBeChecked();
+  await expect(page).not.toHaveURL(/subtree=1/);
+  await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
+  await page.locator("[data-test=subtree]").check();
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator(".toolbar .title")).toContainText("Test case");
+  await page.locator(".tree .row[data-type=req]").click();
+  await expect(page.locator("[data-test=subtree]")).toBeChecked();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
+  await expect(page.locator("[data-test=subtree]")).toBeChecked();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
 });
 
 test("search: text, HID, results across folders, clearing", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await page.locator("[data-test=search]").fill("gamma");
+  await expect(page.locator(".toolbar .title")).toContainText("gamma");
+  await expect(page.locator("[data-test=subtree]")).not.toBeChecked();
+  await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
+  await page.locator("[data-test=subtree]").check();
   await expect(page.locator(".toolbar .title")).toContainText("gamma");
   await expect(page.locator("table.grid tbody tr")).toHaveCount(1);
   const hid = (await (await fetch(`${api}/entries/${guids.b}`)).json()).meta.hid as string;

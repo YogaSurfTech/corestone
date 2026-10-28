@@ -14,11 +14,11 @@ export type FieldValue = unknown;
 // Values in use per type and field, for extendable enumerations: their
 // extra values live only in the artifacts. Shared briefly by all editors.
 const usedValues = new Map<string, { at: number; values: Promise<string[]> }>();
-function valuesInUse(type: string, field: string): Promise<string[]> {
-  const key = type + "\n" + field;
+function valuesInUse(type: string, field: string, folder: string): Promise<string[]> {
+  const key = JSON.stringify([type, field, folder]);
   const hit = usedValues.get(key);
   if (hit && Date.now() - hit.at < 30_000) return hit.values;
-  const values = api.values(type, field).then((r) => r.values.map((v) => v.value)).catch(() => []);
+  const values = api.values(type, field, folder).then((r) => r.values.map((v) => v.value)).catch((error) => { usedValues.delete(key); throw error; });
   usedValues.set(key, { at: Date.now(), values });
   return values;
 }
@@ -35,9 +35,12 @@ export class FieldEditor extends LitElement {
   @property({ type: Boolean }) readonly = false;
   /** The artifact type, so extendable enumerations can suggest the values in use. */
   @property({ attribute: false }) typeId = "";
+  @property({ attribute: false }) folder = "";
+  @state() private suggestionQuery = "";
   /** The field is stored but the type does not define it: shown read-only, may be removed. */
   @property({ type: Boolean }) undeclared = false;
   @state() private used: string[] = [];
+  @state() private globalUsed: string[] = [];
   private usedKey = "";
   private refCache = new Map<string, Summary | null>();
 
@@ -68,11 +71,20 @@ export class FieldEditor extends LitElement {
 
   override willUpdate() {
     const f = this.field;
-    const key = f.type === "enum" && f.extendable && this.typeId ? this.typeId + "\n" + f.id : "";
+    const global = this.suggestionQuery.trim().length >= 2;
+    const key = f.type === "enum" && f.extendable && this.typeId ? JSON.stringify([this.typeId, f.id, this.folder, global]) : "";
     if (key !== this.usedKey) {
       this.usedKey = key;
       this.used = [];
-      if (key) valuesInUse(this.typeId, f.id).then((v) => { if (this.usedKey === key) this.used = v; });
+      this.globalUsed = [];
+      if (key) void Promise.all([
+        valuesInUse(this.typeId, f.id, this.folder),
+        global ? valuesInUse(this.typeId, f.id, "") : Promise.resolve([]),
+      ]).then(([local, all]) => {
+        if (this.usedKey === key) { this.used = local; this.globalUsed = all; }
+      }).catch((error: Error) => {
+        if (this.usedKey === key) store.toast("Could not load suggestions: " + error.message, "error");
+      });
     }
   }
 
@@ -81,7 +93,9 @@ export class FieldEditor extends LitElement {
     const opts = this.field.options ?? [];
     const known = new Set(opts.map((o) => o.value));
     return html`<datalist id=${"dl-" + this.field.id}>${opts.map((o) => html`<option value=${o.value}>${o.label || o.value}</option>`)}
-      ${this.used.filter((v) => !known.has(v)).map((v) => html`<option value=${v}></option>`)}</datalist>`;
+      ${[...new Set([...this.used, ...this.globalUsed.filter((v) =>
+        this.suggestionQuery.trim().length >= 2 && v.toLowerCase().includes(this.suggestionQuery.trim().toLowerCase()),
+      )])].filter((v) => !known.has(v)).map((v) => html`<option value=${v}></option>`)}</datalist>`;
   }
 
   override render() {
@@ -169,22 +183,36 @@ export class FieldEditor extends LitElement {
     if (f.multiple) {
       const cur = Array.isArray(this.value) ? (this.value as string[]) : [];
       const toggle = (v: string, on: boolean) => {
-        const next = on ? [...new Set([...cur, v])] : cur.filter((x) => x !== v);
+        const current: string[] = Array.isArray(this.value) ? this.value : [];
+        const next = on ? [...new Set([...current, v])] : current.filter((x) => x !== v);
         this.emit(next.length ? next : null);
+      };
+      const add = (input: HTMLInputElement) => {
+        const value = input.value.trim();
+        input.value = "";
+        this.suggestionQuery = "";
+        if (!value) return;
+        const current: string[] = Array.isArray(this.value) ? this.value : [];
+        if (!current.includes(value)) toggle(value, true);
       };
       return html`<div class="multi">${opts.map((o) => html`<label><input type="checkbox" .checked=${cur.includes(o.value)} ?disabled=${this.disabled}
         @change=${(e: Event) => toggle(o.value, (e.target as HTMLInputElement).checked)} />${o.label || o.value}</label>`)}
         ${cur.filter((v) => !opts.some((o) => o.value === v)).map((v) => html`<label><input type="checkbox" checked ?disabled=${this.disabled}
           @change=${(e: Event) => toggle(v, (e.target as HTMLInputElement).checked)} />${v}</label>`)}
-        ${f.extendable && !this.disabled ? html`<input type="text" placeholder="add value…" style="width:140px" list=${"dl-" + f.id} @keydown=${(e: KeyboardEvent) => {
-          if (e.key === "Enter") { e.preventDefault(); const t = e.target as HTMLInputElement; if (t.value.trim()) { toggle(t.value.trim(), true); t.value = ""; } }
-        }} />${this.suggestions()}` : nothing}</div>`;
+        ${f.extendable && !this.disabled ? html`<input id=${"f-" + f.id} type="text" placeholder="add value…" style="width:140px" list=${"dl-" + f.id}
+          @input=${(e: Event) => { this.suggestionQuery = (e.target as HTMLInputElement).value; }}
+          @blur=${(e: FocusEvent) => add(e.target as HTMLInputElement)}
+          @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); add(e.target as HTMLInputElement); } }} />
+          <button type="button" class="btn sm" aria-label="Add value" title="Add value" @click=${() => {
+            const input = this.querySelector<HTMLInputElement>(".multi > input[type=text]");
+            if (input) add(input);
+          }}>+</button>${this.suggestions()}` : nothing}</div>`;
     }
     const v = this.value == null ? "" : String(this.value);
     const known = opts.some((o) => o.value === v);
     if (f.extendable) {
       return html`<input id=${"f-" + f.id} type="text" list=${"dl-" + f.id} .value=${v} ?disabled=${this.disabled}
-        @input=${(e: Event) => this.emit((e.target as HTMLInputElement).value || null)} />${this.suggestions()}`;
+        @input=${(e: Event) => { this.suggestionQuery = (e.target as HTMLInputElement).value; this.emit(this.suggestionQuery || null); }} />${this.suggestions()}`;
     }
     return html`<select id=${"f-" + f.id} ?disabled=${this.disabled} @change=${(e: Event) => this.emit((e.target as HTMLSelectElement).value || null)}>
       <option value="" ?selected=${v === ""}>— select —</option>
