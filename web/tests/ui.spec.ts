@@ -50,14 +50,15 @@ test("create an entry through the + button with a schema-generated form", async 
   await expect(page.locator("#new-title")).toBeFocused();
   await expect(page.locator("#new-path")).toHaveValue(folder);
   const dlg = page.locator(".dialog");
-  await expect(dlg.locator("[data-field=priority] select")).toBeVisible();
+  await expect(dlg.locator("[data-field=priority] .enum-trigger")).toBeVisible();
   await expect(dlg.locator("[data-field=rationale] textarea")).toBeVisible();
   await expect(dlg.locator("[data-field=effort] input[type=number]")).toBeVisible();
   // validation comes from the Foundation: required field missing → error shown, dialog stays
   await page.locator("#new-title").fill("Boot fast");
   await page.locator("[data-test=create]").click();
   await expect(dlg.locator(".notice.error")).toContainText("required");
-  await dlg.locator("[data-field=priority] select").selectOption("high");
+  await dlg.locator("[data-field=priority] .enum-trigger").click();
+  await dlg.locator('[data-field=priority] .enum-option[data-value="high"]').click();
   await dlg.locator("[data-field=effort] input").fill("5");
   await dlg.locator("[data-field=rationale] textarea").fill("Latency sells.");
   await page.locator("[data-test=create]").click();
@@ -175,7 +176,8 @@ test("overlays: create a variant and see inherited fields", async ({ page }) => 
   await expect(page.locator(".dialog h2")).toContainText("New Requirement");
   await expect(page.locator(".dialog .ref-chip")).toContainText("Base requirement");
   await page.locator("#new-title").fill("Variant A");
-  await page.locator(".dialog [data-field=priority] select").selectOption("low");
+  await page.locator(".dialog [data-field=priority] .enum-trigger").click();
+  await page.locator('.dialog [data-field=priority] .enum-option[data-value="low"]').click();
   await page.locator("[data-test=create]").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Variant A");
   await expect(page.locator("#sec-overlay .chain .node")).toHaveCount(2);

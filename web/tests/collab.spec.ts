@@ -46,7 +46,8 @@ test("live updates: creations, transitions and deletions show up in the other se
   await b.locator("[data-test=new-entry]").click();
   await b.locator(".type-card[data-type=req]").click();
   await b.locator("#new-title").fill(`Live ${id}`);
-  await b.locator(".dialog [data-field=priority] select").selectOption("high");
+  await b.locator(".dialog [data-field=priority] .enum-trigger").click();
+  await b.locator('.dialog [data-field=priority] .enum-option[data-value="high"]').click();
   await b.locator("[data-test=create]").click();
   await expect(a.locator("table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(1);
   // b transitions; a's table shows the new state

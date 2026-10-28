@@ -7,6 +7,7 @@ import type { Kind, Schema, Summary, Workflow } from "./types";
 import { compare, fieldSortValue, fieldValue, workflowKey, workflowSortValue, type SortValue } from "./sorting";
 import { relTime } from "./util";
 import "./type-icon";
+import "./enum-control";
 import { overviewDefinitions, schemaKey } from "./overview-definitions";
 
 // Artifact overview (design guide §7.4): every artifact matching the
@@ -117,7 +118,12 @@ export class Overview extends LitElement {
         render: (row) => html`${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
       ...this.fieldColumns().map((c): Column => ({ ...c,
         value: (row) => fieldSortValue(row, c.id, this.rowSchemas[schemaKey(row)], (id) => this.workflows[workflowKey(row, id)]),
-        render: (row) => String(fieldValue(row, c.id) ?? "") })),
+        render: (row) => {
+          const field = this.rowSchemas[schemaKey(row)]?.fields?.find((f) => f.id === c.id);
+          const value = fieldValue(row, c.id);
+          return field?.type === "enum" ? html`<corestone-enum .options=${field.options ?? []} .value=${row.fields?.[c.id]}
+            .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
+        } })),
       { id: "$folder", name: "Folder", cls: "muted", value: (row) => row.folder, render: (row) => row.folder || "/" },
       { id: "$social", name: "Social", cls: "social", value: (row) => row.links, title: () => "links · comments",
         render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },

@@ -110,8 +110,12 @@ Use `presentation` on each type, enum option and workflow state. Its optional
 `color` is the foreground color: enum select text and workflow diagram state
 borders retain their existing coloring; type foreground rendering is not yet
 defined. The old top-level `color` is no longer used. Metadata is preserved in
-effective schemas and workflow definitions. Enum and workflow icon/background
-rendering is deferred; native select and autocomplete menus remain text-only.
+effective schemas and workflow definitions. Custom enum controls render icons, foreground colors and marker backgrounds in
+both editors and read-only overview cells. Multiselects show removable chips above
+a searchable vertical list; long lists scroll and the control fits its layout cell.
+Inherited overlay fields are read-only until explicitly overridden. Extendable
+enums keep local suggestions, expanding to repository-wide matches after two
+characters. Workflow icon and background rendering remains deferred.
 
 ## 3. Identifiers and file names
 

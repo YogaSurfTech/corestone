@@ -45,7 +45,8 @@ test("the folder field marks new segments, catches typos and browses the tree", 
 
   await input.fill(`${folder}/specs/boot`);
   await page.locator("#new-title").fill(`Booted ${id}`);
-  await page.locator(".dialog select").first().selectOption("high");
+  await page.locator(".dialog [data-field=priority] .enum-trigger").click();
+  await page.locator('.dialog [data-field=priority] .enum-option[data-value="high"]').click();
   await page.locator(".dialog button[type=submit]").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Booted ${id}`);
   const tree = await get<{ folders: { name: string }[] }>(`/repository/tree?path=${folder}/specs`);
@@ -65,7 +66,8 @@ test("New folder plans a destination that becomes real with its first artifact",
   await expect(page.locator("#new-path")).toHaveValue(`${folder}/plans`);
   await expect(page.locator("[data-test=folder-status] .folder-path .new")).toHaveText(["plans"]);
   await page.locator("#new-title").fill(`Planned ${id}`);
-  await page.locator(".dialog select").first().selectOption("high");
+  await page.locator(".dialog [data-field=priority] .enum-trigger").click();
+  await page.locator('.dialog [data-field=priority] .enum-option[data-value="high"]').click();
   await page.locator(".dialog button[type=submit]").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Planned ${id}`);
   await expect(row).not.toHaveClass(/pending/);
@@ -135,7 +137,8 @@ test("the New dialog follows the typed folder's schema scope", async ({ page }) 
   await expect(page.locator("[data-test=scope-notice]")).toHaveCount(0);
   await expect(page.locator("[data-test=create]")).toBeEnabled();
   await page.locator("#new-title").fill(`Deeper ${id}`);
-  await page.locator(".dialog select").first().selectOption("high");
+  await page.locator(".dialog [data-field=priority] .enum-trigger").click();
+  await page.locator('.dialog [data-field=priority] .enum-option[data-value="high"]').click();
   await page.locator("[data-test=create]").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Deeper ${id}`);
 });

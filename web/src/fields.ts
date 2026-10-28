@@ -1,5 +1,6 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./enum-control";
 import { api } from "./api";
 import { store } from "./store";
 import type { Attachment, Field, Summary } from "./types";
@@ -88,16 +89,6 @@ export class FieldEditor extends LitElement {
     }
   }
 
-  /** Suggestions for an extendable enumeration: the options, then the other values in use. */
-  private suggestions() {
-    const opts = this.field.options ?? [];
-    const known = new Set(opts.map((o) => o.value));
-    return html`<datalist id=${"dl-" + this.field.id}>${opts.map((o) => html`<option value=${o.value}>${o.label || o.value}</option>`)}
-      ${[...new Set([...this.used, ...this.globalUsed.filter((v) =>
-        this.suggestionQuery.trim().length >= 2 && v.toLowerCase().includes(this.suggestionQuery.trim().toLowerCase()),
-      )])].filter((v) => !known.has(v)).map((v) => html`<option value=${v}></option>`)}</datalist>`;
-  }
-
   override render() {
     const f = this.field;
     return html`<div class="field ${this.disabled ? "locked" : ""}" data-field=${f.id}>
@@ -179,46 +170,13 @@ export class FieldEditor extends LitElement {
 
   private enumInput(): TemplateResult {
     const f = this.field;
-    const opts = f.options ?? [];
-    if (f.multiple) {
-      const cur = Array.isArray(this.value) ? (this.value as string[]) : [];
-      const toggle = (v: string, on: boolean) => {
-        const current: string[] = Array.isArray(this.value) ? this.value : [];
-        const next = on ? [...new Set([...current, v])] : current.filter((x) => x !== v);
-        this.emit(next.length ? next : null);
-      };
-      const add = (input: HTMLInputElement) => {
-        const value = input.value.trim();
-        input.value = "";
-        this.suggestionQuery = "";
-        if (!value) return;
-        const current: string[] = Array.isArray(this.value) ? this.value : [];
-        if (!current.includes(value)) toggle(value, true);
-      };
-      return html`<div class="multi">${opts.map((o) => html`<label><input type="checkbox" .checked=${cur.includes(o.value)} ?disabled=${this.disabled}
-        @change=${(e: Event) => toggle(o.value, (e.target as HTMLInputElement).checked)} />${o.label || o.value}</label>`)}
-        ${cur.filter((v) => !opts.some((o) => o.value === v)).map((v) => html`<label><input type="checkbox" checked ?disabled=${this.disabled}
-          @change=${(e: Event) => toggle(v, (e.target as HTMLInputElement).checked)} />${v}</label>`)}
-        ${f.extendable && !this.disabled ? html`<input id=${"f-" + f.id} type="text" placeholder="add value…" style="width:140px" list=${"dl-" + f.id}
-          @input=${(e: Event) => { this.suggestionQuery = (e.target as HTMLInputElement).value; }}
-          @blur=${(e: FocusEvent) => add(e.target as HTMLInputElement)}
-          @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); add(e.target as HTMLInputElement); } }} />
-          <button type="button" class="btn sm" aria-label="Add value" title="Add value" @click=${() => {
-            const input = this.querySelector<HTMLInputElement>(".multi > input[type=text]");
-            if (input) add(input);
-          }}>+</button>${this.suggestions()}` : nothing}</div>`;
-    }
-    const v = this.value == null ? "" : String(this.value);
-    const known = opts.some((o) => o.value === v);
-    if (f.extendable) {
-      return html`<input id=${"f-" + f.id} type="text" list=${"dl-" + f.id} .value=${v} ?disabled=${this.disabled}
-        @input=${(e: Event) => { this.suggestionQuery = (e.target as HTMLInputElement).value; this.emit(this.suggestionQuery || null); }} />${this.suggestions()}`;
-    }
-    return html`<select id=${"f-" + f.id} ?disabled=${this.disabled} @change=${(e: Event) => this.emit((e.target as HTMLSelectElement).value || null)}>
-      <option value="" ?selected=${v === ""}>— select —</option>
-      ${opts.map((o) => html`<option value=${o.value} ?selected=${o.value === v} style=${o.presentation?.color ? `color:${o.presentation.color}` : ""}>${o.label || o.value}</option>`)}
-      ${v && !known ? html`<option value=${v} selected>${v} (not in options)</option>` : nothing}
-    </select>`;
+    const query = this.suggestionQuery.trim().toLowerCase();
+    const suggestions = [...new Set([...this.used, ...this.globalUsed.filter((v) => query.length >= 2 && v.toLowerCase().includes(query))])];
+    return html`<corestone-enum .options=${f.options ?? []} .suggestions=${suggestions} .value=${this.value}
+      .folder=${this.folder} .label=${f.name || f.id} .multiple=${!!f.multiple} .extendable=${!!f.extendable}
+      .readonly=${!!this.disabled}
+      @enum-query=${(e: CustomEvent<string>) => { this.suggestionQuery = e.detail; }}
+      @enum-change=${(e: CustomEvent<FieldValue>) => this.emit(e.detail)}></corestone-enum>`;
   }
 
   private refInput(multiple: boolean): TemplateResult {

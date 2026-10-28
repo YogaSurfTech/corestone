@@ -35,71 +35,60 @@ test.beforeAll(async () => {
   const r = await post("/entries", { path: folder, type: "req", title: `Ref target ${id}`, fields: { priority: "low" } });
   target = { guid: r.meta.guid, title: `Ref target ${id}` };
 });
-test("extendable suggestions stay local until two characters are typed", async ({ page }) => {
+test("enum suggestions use the item folder and expand after two characters", async ({ page }) => {
+  const paths: string[] = [];
   await page.route("**/api/repository/values?*", async (route) => {
     const path = new URL(route.request().url()).searchParams.get("path") || "";
+    paths.push(path);
     await route.fulfill({ json: { values: (path ? ["local", "nested"] : ["local", "remote", "unrelated"]).map((value) => ({ value, count: 1 })) } });
   });
-  const entry = await post("/entries", { path: folder, type: "all", title: "Suggestions", fields: { freeMany: ["selected-elsewhere"] } });
+  const entry = await post("/entries", { path: folder, type: "all", title: "Suggestions", fields: {} });
   await page.goto(`/artifact/${entry.meta.guid}?folder=elsewhere`);
   for (const id of ["freeMany", "free"]) {
     const field = page.locator(`[data-field=${id}]`);
-    const input = field.locator("input[type=text]");
-    await expect(field.locator('datalist option[value="known"]')).toHaveCount(1);
-    await expect(field.locator('datalist option[value="nested"]')).toHaveCount(1);
-    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
+    await field.locator(".enum-trigger").click();
+    await expect(field.locator('.enum-option[data-value="nested"]')).toBeVisible();
+    const input = field.getByRole("searchbox");
     await input.fill("r");
-    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
+    await expect(field.locator('.enum-option[data-value="remote"]')).toHaveCount(0);
     await input.fill("RE");
-    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(1);
-    await expect(field.locator('datalist option[value="unrelated"]')).toHaveCount(1);
-    await expect(field.locator('datalist option[value="local"]')).toHaveCount(1);
+    await expect(field.locator('.enum-option[data-value="remote"]')).toBeVisible();
     await input.fill("rem");
-    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(1);
-    await expect(field.locator('datalist option[value="unrelated"]')).toHaveCount(0);
+    await expect(field.locator('.enum-option[data-value="unrelated"]')).toHaveCount(0);
     await input.fill("");
-    await expect(field.locator('datalist option[value="remote"]')).toHaveCount(0);
-    await expect(field.locator('datalist option[value="nested"]')).toHaveCount(1);
+    await expect(field.locator('.enum-option[data-value="remote"]')).toHaveCount(0);
+    await expect(field.locator('.enum-option[data-value="nested"]')).toBeVisible();
+    await input.press("Escape");
   }
-  await expect(page.locator('[data-field=freeMany]').getByRole("checkbox", { name: "selected-elsewhere" })).toBeChecked();
+  expect(paths).toContain(folder);
+  expect(paths).toContain("");
+  expect(paths).not.toContain("elsewhere");
 });
 
-
-test("custom multiselect values commit on blur, Add and Enter and survive saving", async ({ page }) => {
+test("custom multiselect values save, reload, and remove", async ({ page }) => {
   const entry = await post("/entries", { path: folder, type: "all", title: "Custom multiselect", fields: { freeMany: ["known"] } });
   await page.goto(`/artifact/${entry.meta.guid}`);
   const field = page.locator("[data-field=freeMany]");
-  const input = field.locator("input[type=text]");
-  await input.fill("  blurred  ");
-  await input.blur();
-  await expect(page.locator("[data-test=save]")).toBeVisible();
-  await expect(field.getByRole("checkbox", { name: "blurred", exact: true })).toBeChecked();
-  await input.fill("clicked");
-  await field.getByRole("button", { name: "Add value", exact: true }).click();
-  await expect(field.getByRole("checkbox", { name: "clicked", exact: true })).toBeChecked();
+  await field.locator(".enum-trigger").click();
+  const input = field.locator("input[type=search]");
   await input.fill("entered");
   await input.press("Enter");
-  await expect(field.getByRole("checkbox", { name: "entered", exact: true })).toBeChecked();
+  await expect(field.locator(".enum-chip", { hasText: "entered" })).toBeVisible();
+  await input.fill("clicked");
+  await field.getByRole("button", { name: "Add value", exact: true }).click();
   await input.fill("blurred");
-  await input.press("Enter");
-  await input.fill("   ");
-  await input.blur();
+  await page.locator("[data-test=title]").click();
+  await expect(page.locator("[data-test=save]")).toBeVisible();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".savebar")).toHaveCount(0);
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
-  expect(stored.data.fields.freeMany).toEqual(["known", "blurred", "clicked", "entered"]);
+  expect(stored.data.fields.freeMany).toEqual(["known", "entered", "clicked", "blurred"]);
   await page.reload();
-  await expect(field.getByRole("checkbox", { name: "clicked", exact: true })).toBeChecked();
-  await field.getByRole("checkbox", { name: "clicked", exact: true }).uncheck();
+  await field.getByRole("button", { name: "Remove clicked", exact: true }).click();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".savebar")).toHaveCount(0);
   const after = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
-  expect(after.data.fields.freeMany).toEqual(["known", "blurred", "entered"]);
-  await input.fill("known");
-  await input.press("Enter");
-  await input.fill(" ");
-  await input.blur();
-  await expect(page.locator(".savebar")).toHaveCount(0);
+  expect(after.data.fields.freeMany).toEqual(["known", "entered", "blurred"]);
 });
 
 test("all field types round-trip through the generated form", async ({ page }) => {
@@ -122,9 +111,12 @@ test("all field types round-trip through the generated form", async ({ page }) =
   await d.locator("[data-field=line] input").fill("single line");
   await d.locator("[data-field=para] textarea").fill("first line\nsecond line");
   await d.locator("[data-field=rich] textarea").fill("rich *text*");
-  await d.locator("[data-field=one] select").selectOption("b");
-  await d.locator("[data-field=many] label", { hasText: "x" }).locator("input").check();
-  await d.locator("[data-field=many] label", { hasText: "z" }).locator("input").check();
+  await d.locator("[data-field=one] .enum-trigger").click();
+  await d.locator('[data-field=one] .enum-option[data-value="b"]').click();
+  await d.locator("[data-field=many] .enum-trigger").click();
+  await d.locator('[data-field=many] .enum-option[data-value="x"]').click();
+  await d.locator('[data-field=many] .enum-option[data-value="z"]').click();
+  await d.locator("[data-field=free] .enum-trigger").click();
   await d.locator("[data-field=free] input").fill("brand-new");
   await d.locator("[data-field=url] input").fill("https://example.org/spec");
   await d.locator("[data-field=blob] textarea").fill('{"nested": {"n": 1}, "list": [1, 2]}');
@@ -153,16 +145,17 @@ test("all field types round-trip through the generated form", async ({ page }) =
   const f = page.locator("corestone-detail");
   await expect(f.locator("[data-field=flag] input")).toBeChecked();
   await expect(f.locator("[data-field=count] input")).toHaveValue("42");
-  await expect(f.locator("[data-field=one] select")).toHaveValue("b");
-  await expect(f.locator("[data-field=many] label", { hasText: "z" }).locator("input")).toBeChecked();
-  await expect(f.locator("[data-field=free] input")).toHaveValue("brand-new");
+  await expect(f.locator("[data-field=one] .enum-selection")).toContainText("Beta");
+  await expect(f.locator("[data-field=many] .enum-chip", { hasText: "z" })).toBeVisible();
+  await expect(f.locator("[data-field=free] .enum-selection")).toContainText("brand-new");
   await expect(f.locator("[data-field=url] a")).toHaveAttribute("href", "https://example.org/spec");
   await expect(f.locator("[data-field=ref] .ref-chip")).toContainText(target.title);
   await expect(f.locator("[data-field=blob] textarea")).toHaveValue(/"nested"/);
   // editing: uncheck, clear, change enum, remove reference, invalid JSON is refused
   await f.locator("[data-field=flag] input").uncheck();
   await f.locator("[data-field=count] input").fill("");
-  await f.locator("[data-field=one] select").selectOption("");
+  await f.locator("[data-field=one] .enum-trigger").click();
+  await f.locator('[data-field=one] .enum-option[data-value=""]').click();
   await f.locator("[data-field=ref] .ref-chip button").click();
   await f.locator("[data-field=blob] textarea").fill("{not json");
   await f.locator("[data-field=blob] textarea").blur();
