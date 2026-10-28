@@ -186,7 +186,7 @@ export class Sidebar extends LitElement {
           <ul class="tree">${(["entry", "document"] as const).filter((k) => groups[k]?.length).map((k) => html`<li>
             <div class="row"><span class="caret">▾</span><span class="name muted">${kindPlural[k]}</span></div>
             <ul>${groups[k].map((t) => html`<li><div class="row ${r.type === t.type ? "selected" : ""}" data-type=${t.type}
-              @click=${() => { navigate({ type: t.type, kind: k, guid: null, subtree: true }); store.closeNavIfOverlay(); }}>
+              @click=${() => { navigate({ type: t.type, kind: k, guid: null }); store.closeNavIfOverlay(); }}>
               <span class="caret empty">·</span><span class="name">${displayName(t, t.type)}</span>
               ${this.counts[t.type] ? html`<span class="count">${this.counts[t.type]}</span>` : nothing}</div></li>`)}</ul></li>`)}</ul></div>
       </div>`;
