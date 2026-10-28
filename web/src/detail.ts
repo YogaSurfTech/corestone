@@ -476,7 +476,7 @@ export class Detail extends LitElement {
         </select>
         <button class="btn sm" @click=${() => (this.showDiagram = this.showDiagram === w.id ? null : w.id)}>? diagram</button>
         ${this.showDiagram === w.id ? html`<div class="wf-diagram" style="flex-basis:100%">
-          ${w.definition.states.map((s) => html`<span class="wf-state ${s.id === w.state ? "current" : ""}" style=${s.color ? `border-color:${s.color}` : ""}>${s.name || s.id}</span>`)}
+          ${w.definition.states.map((s) => html`<span class="wf-state ${s.id === w.state ? "current" : ""}" style=${s.presentation?.color ? `border-color:${s.presentation.color}` : ""}>${s.name || s.id}</span>`)}
           <span class="wf-edge">·</span>
           ${w.definition.transitions.map((t) => html`<span class="wf-edge">${t.from.join("|")} → ${t.to}${t.name ? ` (${t.name})` : ""}</span>`)}
           <span class="muted small">defined in ${w.definition.scope || "/"}</span></div>` : nothing}

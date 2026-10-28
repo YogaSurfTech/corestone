@@ -1,5 +1,6 @@
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { styleMap } from "lit/directives/style-map.js";
 import { api } from "./api";
 import { store } from "./store";
 import type { Kind, Schema } from "./types";
@@ -54,8 +55,12 @@ export class TypeIcon extends LitElement {
 
   override render() {
     const icon = this.resolved?.presentation?.icon;
-    if (typeof icon !== "string" || !icon || this.broken) return kindIcon(this.kind);
+    const background = this.resolved?.presentation?.backgroundColor;
+    if ((typeof icon !== "string" || !icon || this.broken) && typeof background !== "string") return kindIcon(this.kind);
     const name = this.resolved?.displayName || this.type;
-    return html`<img class="type-icon" src=${iconUrl(icon, this.folder)} width="16" height="16" alt=${name} title=${name} @error=${() => (this.broken = true)} />`;
+    const style = styleMap({ backgroundColor: typeof background === "string" ? background : undefined });
+    return typeof icon === "string" && icon && !this.broken
+      ? html`<img class="type-icon" style=${style} src=${iconUrl(icon, this.folder)} width="16" height="16" alt=${name} title=${name} @error=${() => (this.broken = true)} />`
+      : html`<span class="type-icon" style=${style} role="img" aria-label=${name} title=${name}></span>`;
   }
 }

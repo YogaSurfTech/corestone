@@ -1,9 +1,70 @@
 package model
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestWorkflowPresentation(t *testing.T) {
+	data := []byte(`{"id":"dev","initial":"open","states":[{"id":"open","presentation":{"icon":"task","color":"rebeccapurple","backgroundColor":"#abc"}},"done"],"transitions":[{"from":"open","to":"done"}]}`)
+	workflow, err := ParseWorkflow(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := workflow.States[0].Presentation
+	if p["icon"] != "task" || p["color"] != "rebeccapurple" || p["backgroundColor"] != "#abc" {
+		t.Fatalf("lost workflow presentation: %+v", p)
+	}
+	encoded, err := json.Marshal(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := ParseWorkflow(encoded)
+	if err != nil || roundTrip.States[0].Presentation["color"] != "rebeccapurple" {
+		t.Fatalf("workflow presentation did not round-trip: %s, %v", encoded, err)
+	}
+	for _, presentation := range []string{`{"color":17}`, `{"backgroundColor":""}`, `{"icon":"bad.svg"}`} {
+		_, err := ParseWorkflow([]byte(`{"id":"dev","states":[{"id":"open","presentation":` + presentation + `}]}`))
+		if err == nil {
+			t.Errorf("accepted invalid workflow presentation: %s", presentation)
+		}
+	}
+}
+
+func TestIconPresentation(t *testing.T) {
+	for _, color := range []string{"#abc", "#abcdef", "rebeccapurple", "rgb(10 20 30 / 50%)", "hsl(120 50% 50%)"} {
+		t.Run(color, func(t *testing.T) {
+			idx := mustIndex(t, map[string]string{
+				"|entries/types.json":               `{"types":[{"id":"task","fields":["priority"],"presentation":{"backgroundColor":"` + color + `"}}]}`,
+				"|entries/fields.json":              `{"fields":[{"id":"priority","type":"enum","enum":"priority"}]}`,
+				"|entries/enums/priority-enum.json": `{"options":[{"value":"high","presentation":{"color":"red","icon":"risk","backgroundColor":"` + color + `"}}]}`,
+			})
+			s := idx.Effective("task", "child")
+			if s == nil || s.Presentation["backgroundColor"] != color {
+				t.Fatalf("type background was lost: %+v", s)
+			}
+			if len(s.Fields) != 1 || len(s.Fields[0].Options) != 1 {
+				t.Fatalf("enum options were lost: %+v", s)
+			}
+			option := s.Fields[0].Options[0]
+			if option.Presentation["icon"] != "risk" || option.Presentation["backgroundColor"] != color || option.Presentation["color"] != "red" {
+				t.Fatalf("enum presentation was lost: %+v", option)
+			}
+		})
+	}
+	for _, value := range []string{`{"icon":"bad.svg"}`, `{"icon":17}`, `{"backgroundColor":17}`, `{"backgroundColor":""}`, `{"color":17}`, `{"color":""}`} {
+		if _, err := ParseTypesFile([]byte(`{"types":[{"id":"task","presentation":`+value+`}]}`), KindEntry); err == nil {
+			t.Errorf("accepted invalid type presentation %s", value)
+		}
+		if _, err := ParseEnum([]byte(`{"options":[{"value":"high","presentation":` + value + `}]}`)); err == nil {
+			t.Errorf("accepted invalid enum presentation %s", value)
+		}
+		if _, err := ParseFieldsFile([]byte(`{"fields":[{"id":"priority","type":"enum","options":[{"value":"high","presentation":` + value + `}]}]}`)); err == nil {
+			t.Errorf("accepted invalid inline option presentation %s", value)
+		}
+	}
+}
 
 // files builds config files from "scope|path" keys.
 func files(m map[string]string) []ConfigFile {

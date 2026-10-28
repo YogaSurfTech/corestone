@@ -200,14 +200,29 @@ func ParseTypesFile(data []byte, kind Kind) (*TypesFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("type %q: %w", id, err)
 		}
-		if icon, ok := s.Presentation["icon"]; ok {
-			if name, _ := icon.(string); !ValidIconName(name) {
-				return nil, Invalid("type %q: presentation icon must be an icon name of letters, digits, \"_\" and \"-\"", id)
-			}
+		if err := validateIconPresentation(s.Presentation); err != nil {
+			return nil, fmt.Errorf("type %q: %w", id, err)
 		}
 		tf.Types = append(tf.Types, &TypeDef{Schema: s, Fields: refs})
 	}
 	return tf, nil
+}
+
+func validateIconPresentation(p map[string]any) error {
+	if icon, ok := p["icon"]; ok {
+		if name, _ := icon.(string); !ValidIconName(name) {
+			return Invalid("presentation icon must be an icon name of letters, digits, \"_\" and \"-\"")
+		}
+	}
+	for _, key := range []string{"color", "backgroundColor"} {
+		if value, ok := p[key]; ok {
+			color, valid := value.(string)
+			if !valid || strings.TrimSpace(color) == "" {
+				return Invalid("presentation %s must be a non-empty CSS color string", key)
+			}
+		}
+	}
+	return nil
 }
 
 func validFieldID(id string) bool {
@@ -320,6 +335,9 @@ func ParseEnum(data []byte) (*Enum, error) {
 	for _, o := range e.Options {
 		if o.Value == "" || seen[o.Value] {
 			return nil, Invalid("enumeration has an empty or duplicate value %q", o.Value)
+		}
+		if err := validateIconPresentation(o.Presentation); err != nil {
+			return nil, fmt.Errorf("enumeration option %q: %w", o.Value, err)
 		}
 		seen[o.Value] = true
 	}
@@ -725,6 +743,27 @@ func (idx *ConfigIndex) Problems() []ConfigProblem {
 			}
 			if local == nil {
 				continue
+			}
+			for name, workflow := range local.workflows {
+				for _, state := range workflow.States {
+					if icon, _ := state.Presentation["icon"].(string); icon != "" {
+						if _, ok := idx.IconScope(icon, scope); !ok {
+							report(ConfigProblem{ConfigPath(scope, k.Dir+"/workflows/"+name+"-workflow.json"), fmt.Sprintf("workflow state %q uses icon %q, which is not defined", state.ID, icon)})
+						}
+					}
+				}
+			}
+			for name, enum := range local.enums {
+				for _, option := range enum.Options {
+					if icon, _ := option.Presentation["icon"].(string); icon != "" {
+						if _, ok := idx.IconScope(icon, scope); !ok {
+							report(ConfigProblem{
+								ConfigPath(scope, k.Dir+"/enums/"+name+"-enum.json"),
+								fmt.Sprintf("enumeration option %q uses icon %q, which is not defined", option.Value, icon),
+							})
+						}
+					}
+				}
 			}
 			// Types this folder defines or adds fields to.
 			var types []string

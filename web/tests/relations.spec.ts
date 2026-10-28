@@ -89,8 +89,8 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(page.locator("[data-field=effort] input")).toHaveValue("5");
   await expect(page.locator("[data-field=effort] input")).toBeDisabled();
   await expect(page.locator("[data-field=priority] .inherited")).toContainText(`inherited from base ${base.meta.hid}`);
-  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
-  await expect(page.locator("[data-field=priority] select")).toBeDisabled();
+  await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("high");
+  await expect(page.locator("[data-field=priority] .enum-readonly")).toBeVisible();
   await expect(ov).toContainText(`effort: 5 from ${mid.meta.hid}`);
   // override effort locally: unlock, edit, save
   await page.locator("[data-field=effort] [data-test=override]").click();
@@ -114,9 +114,10 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(page.locator("[data-test=save]")).toHaveCount(0); // nothing changed
   // an unlocked but unsaved override can be reverted before saving
   await page.locator("[data-field=priority] [data-test=override]").click();
-  await page.locator("[data-field=priority] select").selectOption("low");
+  await page.locator("[data-field=priority] .enum-trigger").click();
+  await page.locator('[data-field=priority] .enum-option[data-value="low"]').click();
   await page.locator("[data-field=priority] [data-test=revert]").click();
-  await expect(page.locator("[data-field=priority] select")).toHaveValue("high");
+  await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("high");
   await expect(page.locator("[data-test=save]")).toHaveCount(0);
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();

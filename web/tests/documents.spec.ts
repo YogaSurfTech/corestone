@@ -137,7 +137,7 @@ test("sidebars: properties with schema fields, comments, relationships, versions
   await page.goto(`/artifact/${d.meta.guid}?sb=props,rel,comments,versions`);
   const side = page.locator(".doc-side");
   await expect(side).toContainText("Document properties");
-  await expect(side.locator("[data-field=audience] select")).toBeVisible();
+  await expect(side.locator("[data-field=audience] .enum-trigger")).toBeVisible();
   await expect(side).toContainText("publish");
   await expect(side).toContainText(`Related doc target ${id}`);
   await expect(side).toContainText("created");
@@ -146,7 +146,8 @@ test("sidebars: properties with schema fields, comments, relationships, versions
   await side.locator("button", { hasText: "Post" }).click();
   await expect(side.locator(".comment .text")).toHaveText("from the sidebar");
   // a schema field edit through the properties sidebar is saved with the document
-  await side.locator("[data-field=audience] select").selectOption("customer");
+  await side.locator("[data-field=audience] .enum-trigger").click();
+  await side.locator('[data-field=audience] .enum-option[data-value="customer"]').click();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/documents/${d.meta.guid}`);
@@ -177,7 +178,8 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await expect(page.locator(".dialog")).toBeVisible();
   await page.locator(".type-card[data-type=spec]").click();
   await page.locator("#new-title").fill(`Fresh ${id}`);
-  await page.locator(".dialog [data-field=audience] select").selectOption("internal");
+  await page.locator(".dialog [data-field=audience] .enum-trigger").click();
+  await page.locator('.dialog [data-field=audience] .enum-option[data-value="internal"]').click();
   await page.locator("[data-test=create]").click();
   await expect(page.locator(".doc-page h1")).toHaveText(`Fresh ${id}`);
   await expect(page.locator(".block-wrap")).toHaveCount(1);
