@@ -88,10 +88,29 @@ is a property of the field, so one enumeration can back both:
 
 **`icons/<name>.svg`** — a 16×16 icon (`viewBox="0 0 16 16"`) that a type shows in lists, links,
 dialogs and its detail view. A type selects it with `"presentation": { "icon": "<name>" }`; types
-without an icon show their kind's letter (E, D, L, C). Names use letters, digits, `_` and `-`.
+without an icon or background color show their kind's letter (E, D, L, C). Names use letters, digits, `_` and `-`.
 An icon must be a well-formed SVG document of at most 64 KiB without scripts, event handlers,
 embedded HTML or references to other files; it is stored byte for byte. The client loads icons from
 `GET /api/icons/<name>?path=<folder>`. `examples/icons/` holds a predefined set.
+
+Types and enum options can define the same icon presentation:
+
+```json
+"presentation": { "icon": "risk", "backgroundColor": "rgb(255 200 0 / 50%)" }
+```
+
+Both properties are optional. `icon` is an inherited repository icon ID, not a URL
+or file name. `backgroundColor` is a non-empty CSS color string, interpreted by
+the browser: hex, named colors, `rgb()`, `hsl()` and other supported CSS color
+formats can be used. It colors the 16x16 icon background; without an icon, a solid
+16x16 color rectangle replaces the kind letter. With neither property, the kind
+letter remains the fallback.
+
+For enum options, place `presentation` beside `value`, `label` and the existing
+`color` (which remains the text color). The metadata is preserved in effective
+schemas, including inherited and type-specific enumerations. Enum presentation
+rendering and workflow-state icon presentation are not part of this change;
+native select and autocomplete menus remain text-only.
 
 ## 3. Identifiers and file names
 

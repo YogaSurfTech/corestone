@@ -51,9 +51,10 @@ func IsFieldType(t FieldType) bool {
 
 // EnumOption is one selectable enumeration value.
 type EnumOption struct {
-	Value string `json:"value"`
-	Label string `json:"label,omitempty"`
-	Color string `json:"color,omitempty"`
+	Value        string         `json:"value"`
+	Label        string         `json:"label,omitempty"`
+	Color        string         `json:"color,omitempty"`
+	Presentation map[string]any `json:"presentation,omitempty"`
 }
 
 // Field is a schema field definition.
@@ -96,6 +97,11 @@ func (f *Field) ValidateDefinition() error {
 	}
 	if f.Type == FieldEnum && f.Enum == "" && len(f.Options) == 0 && !f.Extendable {
 		return Invalid("enum field %q has no options", f.ID)
+	}
+	for _, option := range f.Options {
+		if err := validateIconPresentation(option.Presentation); err != nil {
+			return fmt.Errorf("field %q option %q: %w", f.ID, option.Value, err)
+		}
 	}
 	return nil
 }

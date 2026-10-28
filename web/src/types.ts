@@ -46,7 +46,8 @@ export type FieldType =
   | "text" | "multiline" | "richtext" | "enum" | "hyperlink" | "reference" | "references"
   | "attachment" | "json" | "workflow";
 
-export interface EnumOption { value: string; label?: string; color?: string }
+export interface IconPresentation { icon?: string; backgroundColor?: string }
+export interface EnumOption { value: string; label?: string; color?: string; presentation?: IconPresentation }
 
 export interface Field {
   id: string;

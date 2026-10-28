@@ -1,4 +1,27 @@
 import { addType, defineTypes, expect, get, post, putConfig, seedDomain, stamp, test } from "./fixtures";
+test("type icons support backgrounds and color-only markers", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await customElements.whenDefined("corestone-type-icon");
+    for (const [id, presentation] of Object.entries({
+      color: { backgroundColor: "rebeccapurple" },
+      image: { icon: "testcase", backgroundColor: "rgb(10, 20, 30)" },
+      fallback: {},
+    })) {
+      const element = document.createElement("corestone-type-icon");
+      Object.assign(element, { id: `marker-${id}`, kind: "entry", schema: { type: "test", displayName: "Test", presentation } });
+      document.body.append(element);
+    }
+  });
+  const color = page.locator("#marker-color .type-icon");
+  await expect(color).toHaveCSS("background-color", "rgb(102, 51, 153)");
+  await expect(color).toHaveCSS("width", "16px");
+  await expect(color).toHaveCSS("height", "16px");
+  await expect(page.locator("#marker-color .kind-icon")).toHaveCount(0);
+  await expect(page.locator("#marker-image .type-icon")).toHaveCSS("background-color", "rgb(10, 20, 30)");
+  await expect(page.locator("#marker-fallback .kind-icon")).toBeVisible();
+});
+
 
 // The client follows the configuration (docs/CONFIGURATION.md): it offers
 // only the kinds with types in a folder, shows stored fields the type no
