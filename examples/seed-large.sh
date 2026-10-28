@@ -211,7 +211,7 @@ class Client:
 
 def enumeration(values):
     colors = ["#667085", "#3b82f6", "#d97706", "#dc2626"]
-    return {"options": [dict(value=value, label=value.replace("-", " ").title(), color=colors[i % len(colors)]) for i, value in enumerate(values)]}
+    return {"options": [dict(value=value, label=value.replace("-", " ").title(), presentation={"color": colors[i % len(colors)]}) for i, value in enumerate(values)]}
 
 
 def workflow(states):

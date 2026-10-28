@@ -81,7 +81,7 @@ is a property of the field, so one enumeration can back both:
 
 ```json
 { "name": "Priority", "extendable": false,
-  "options": [ { "value": "low" }, { "value": "high", "color": "#d6455d" } ] }
+  "options": [ { "value": "low" }, { "value": "high", "presentation": { "color": "#d6455d" } } ] }
 ```
 
 **`<id>-workflow.json`** — a state machine, in today's workflow format.
@@ -99,18 +99,19 @@ Types and enum options can define the same icon presentation:
 "presentation": { "icon": "risk", "backgroundColor": "rgb(255 200 0 / 50%)" }
 ```
 
-Both properties are optional. `icon` is an inherited repository icon ID, not a URL
+All presentation properties are optional. `icon` is an inherited repository icon ID, not a URL
 or file name. `backgroundColor` is a non-empty CSS color string, interpreted by
 the browser: hex, named colors, `rgb()`, `hsl()` and other supported CSS color
 formats can be used. It colors the 16x16 icon background; without an icon, a solid
 16x16 color rectangle replaces the kind letter. With neither property, the kind
 letter remains the fallback.
 
-For enum options, place `presentation` beside `value`, `label` and the existing
-`color` (which remains the text color). The metadata is preserved in effective
-schemas, including inherited and type-specific enumerations. Enum presentation
-rendering and workflow-state icon presentation are not part of this change;
-native select and autocomplete menus remain text-only.
+Use `presentation` on each type, enum option and workflow state. Its optional
+`color` is the foreground color: enum select text and workflow diagram state
+borders retain their existing coloring; type foreground rendering is not yet
+defined. The old top-level `color` is no longer used. Metadata is preserved in
+effective schemas and workflow definitions. Enum and workflow icon/background
+rendering is deferred; native select and autocomplete menus remain text-only.
 
 ## 3. Identifiers and file names
 

@@ -46,8 +46,8 @@ export type FieldType =
   | "text" | "multiline" | "richtext" | "enum" | "hyperlink" | "reference" | "references"
   | "attachment" | "json" | "workflow";
 
-export interface IconPresentation { icon?: string; backgroundColor?: string }
-export interface EnumOption { value: string; label?: string; color?: string; presentation?: IconPresentation }
+export interface IconPresentation { icon?: string; color?: string; backgroundColor?: string }
+export interface EnumOption { value: string; label?: string; presentation?: IconPresentation }
 
 export interface Field {
   id: string;
@@ -80,7 +80,7 @@ export interface Schema {
   sources?: string[];
 }
 
-export interface WorkflowState { id: string; name?: string; color?: string; final?: boolean }
+export interface WorkflowState { id: string; name?: string; presentation?: IconPresentation; final?: boolean }
 export interface Transition { id?: string; name?: string; from: string[]; to: string }
 export interface Workflow {
   id: string;

@@ -53,7 +53,6 @@ func IsFieldType(t FieldType) bool {
 type EnumOption struct {
 	Value        string         `json:"value"`
 	Label        string         `json:"label,omitempty"`
-	Color        string         `json:"color,omitempty"`
 	Presentation map[string]any `json:"presentation,omitempty"`
 }
 

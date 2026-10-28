@@ -29,7 +29,7 @@ guid() { python3 -c 'import json,sys; print(json.load(sys.stdin)["meta"]["guid"]
 for f in "$(dirname "$0")"/icons/*.svg; do icon "" "$f"; done
 
 DEV='{"name":"Development","initial":"open",
-  "states":[{"id":"open","name":"Open"},{"id":"review","name":"In review","color":"#b7791f"},{"id":"done","name":"Done","color":"#1f9d55"}],
+  "states":[{"id":"open","name":"Open"},{"id":"review","name":"In review","presentation":{"color":"#b7791f"}},{"id":"done","name":"Done","presentation":{"color":"#1f9d55"}}],
   "transitions":[{"id":"submit","name":"Submit for review","from":"open","to":"review"},
                  {"id":"approve","name":"Approve","from":"review","to":"done"},
                  {"id":"rework","name":"Request rework","from":"review","to":"open"},
@@ -40,7 +40,7 @@ cfg "" entries/workflows/dev-workflow.json "$DEV"
 cfg "" entries/workflows/publish-workflow.json "$PUBLISH"
 cfg "" documents/workflows/publish-workflow.json "$PUBLISH"
 
-cfg "" entries/enums/priority-enum.json '{"name":"Priority","options":[{"value":"low"},{"value":"medium"},{"value":"high","color":"#d6455d"}]}'
+cfg "" entries/enums/priority-enum.json '{"name":"Priority","options":[{"value":"low"},{"value":"medium"},{"value":"high","presentation":{"color":"#d6455d"}}]}'
 cfg "" entries/enums/tags-enum.json '{"name":"Tags","extendable":true,"options":[{"value":"safety"},{"value":"performance"},{"value":"ux"}]}'
 cfg "" entries/fields.json '{"fields":[
   {"id":"priority","name":"Priority","type":"enum","enum":"priority"},
@@ -86,9 +86,9 @@ T=corestone_tasks
 cfg $T entries/workflows/task-workflow.json '{"name":"Task","initial":"open",
   "states":[
     {"id":"open","name":"Open"},
-    {"id":"implementation","name":"In implementation","color":"#b7791f"},
-    {"id":"verification","name":"In verification","color":"#3b5bdb"},
-    {"id":"done","name":"Done","color":"#1f9d55"}],
+    {"id":"implementation","name":"In implementation","presentation":{"color":"#b7791f"}},
+    {"id":"verification","name":"In verification","presentation":{"color":"#3b5bdb"}},
+    {"id":"done","name":"Done","presentation":{"color":"#1f9d55"}}],
   "transitions":[
     {"id":"start","name":"Start to implement","from":"open","to":"implementation"},
     {"id":"verify","name":"Start verification","from":"implementation","to":"verification"},
@@ -96,7 +96,7 @@ cfg $T entries/workflows/task-workflow.json '{"name":"Task","initial":"open",
     {"id":"close","name":"Close","from":"verification","to":"done"},
     {"id":"reopen","name":"Reopen","from":"done","to":"open"}]}'
 cfg $T entries/enums/priority-enum.json '{"name":"Priority","options":[{"value":"low"},{"value":"medium"},
-  {"value":"high","color":"#a6852d"},{"value":"urgent","color":"#d6455d"}]}'
+  {"value":"high","presentation":{"color":"#a6852d"}},{"value":"urgent","presentation":{"color":"#d6455d"}}]}'
 cfg $T entries/enums/tags-enum.json '{"name":"Tags","extendable":true,"options":[{"value":"server"},{"value":"client"},{"value":"docs"}]}'
 cfg $T entries/fields.json '{"fields":[
   {"id":"priority","name":"Priority","type":"enum","enum":"priority"},

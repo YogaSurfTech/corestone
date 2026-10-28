@@ -7,10 +7,10 @@ import (
 
 // State is one workflow state.
 type State struct {
-	ID    string `json:"id"`
-	Name  string `json:"name,omitempty"`
-	Color string `json:"color,omitempty"`
-	Final bool   `json:"final,omitempty"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name,omitempty"`
+	Presentation map[string]any `json:"presentation,omitempty"`
+	Final        bool           `json:"final,omitempty"`
 }
 
 // Transition moves an artifact between states.
@@ -106,6 +106,9 @@ func (w *Workflow) Validate() error {
 	for _, s := range w.States {
 		if s.ID == "" || seen[s.ID] {
 			return Invalid("workflow %q has an empty or duplicate state", w.ID)
+		}
+		if err := validateIconPresentation(s.Presentation); err != nil {
+			return fmt.Errorf("workflow %q state %q: %w", w.ID, s.ID, err)
 		}
 		seen[s.ID] = true
 	}

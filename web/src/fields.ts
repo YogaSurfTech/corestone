@@ -216,7 +216,7 @@ export class FieldEditor extends LitElement {
     }
     return html`<select id=${"f-" + f.id} ?disabled=${this.disabled} @change=${(e: Event) => this.emit((e.target as HTMLSelectElement).value || null)}>
       <option value="" ?selected=${v === ""}>— select —</option>
-      ${opts.map((o) => html`<option value=${o.value} ?selected=${o.value === v} style=${o.color ? `color:${o.color}` : ""}>${o.label || o.value}</option>`)}
+      ${opts.map((o) => html`<option value=${o.value} ?selected=${o.value === v} style=${o.presentation?.color ? `color:${o.presentation.color}` : ""}>${o.label || o.value}</option>`)}
       ${v && !known ? html`<option value=${v} selected>${v} (not in options)</option>` : nothing}
     </select>`;
   }

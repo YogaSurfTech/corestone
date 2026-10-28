@@ -214,10 +214,12 @@ func validateIconPresentation(p map[string]any) error {
 			return Invalid("presentation icon must be an icon name of letters, digits, \"_\" and \"-\"")
 		}
 	}
-	if value, ok := p["backgroundColor"]; ok {
-		color, valid := value.(string)
-		if !valid || strings.TrimSpace(color) == "" {
-			return Invalid("presentation backgroundColor must be a non-empty CSS color string")
+	for _, key := range []string{"color", "backgroundColor"} {
+		if value, ok := p[key]; ok {
+			color, valid := value.(string)
+			if !valid || strings.TrimSpace(color) == "" {
+				return Invalid("presentation %s must be a non-empty CSS color string", key)
+			}
 		}
 	}
 	return nil
@@ -741,6 +743,15 @@ func (idx *ConfigIndex) Problems() []ConfigProblem {
 			}
 			if local == nil {
 				continue
+			}
+			for name, workflow := range local.workflows {
+				for _, state := range workflow.States {
+					if icon, _ := state.Presentation["icon"].(string); icon != "" {
+						if _, ok := idx.IconScope(icon, scope); !ok {
+							report(ConfigProblem{ConfigPath(scope, k.Dir+"/workflows/"+name+"-workflow.json"), fmt.Sprintf("workflow state %q uses icon %q, which is not defined", state.ID, icon)})
+						}
+					}
+				}
 			}
 			for name, enum := range local.enums {
 				for _, option := range enum.Options {
