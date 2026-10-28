@@ -90,7 +90,7 @@ test("multi-select enums sort by their maximum defined rank, not selection order
   await expect.poll(() => order(page)).toEqual(["low", "medium", "high-first", "high-second", "urgent", "unknown", "empty"]);
   await sortBy(page, "tags");
   await expect.poll(() => order(page)).toEqual(["urgent", "high-first", "high-second", "medium", "low", "unknown", "empty"]);
-  await expect(page.locator('tr[data-guid="urgent"]')).toContainText("urgent, low");
+  await expect(page.locator('tr[data-guid="urgent"] td corestone-enum .enum-label')).toHaveText(["Label 1", "Label 4"]);
 });
 
 test("enum ranks come from each row's type definition and ties remain stable", async ({ page }) => {

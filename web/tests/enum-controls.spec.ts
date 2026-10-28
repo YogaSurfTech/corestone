@@ -74,3 +74,21 @@ test("suggestions expand after two characters and narrow again when cleared", as
   await search.fill("");
   await expect(control.getByRole("option", { name: "remote", exact: true })).toHaveCount(0);
 });
+test("switching adjacent dropdowns does not lose the opening click", async ({ page }) => {
+  const first = page.locator("#enum-test");
+  await first.evaluate((element) => {
+    const second = document.createElement("corestone-enum");
+    Object.assign(second, { id: "enum-next", label: "Next", extendable: true, options: [] });
+    element.after(second);
+  });
+  await first.locator(".enum-trigger").click();
+  await first.getByRole("option", { name: "High", exact: true }).click();
+  const second = page.locator("#enum-next");
+  await second.locator(".enum-trigger").click();
+  await expect(first.getByRole("listbox")).toHaveCount(0);
+  await second.getByRole("searchbox").fill("brand-new");
+  await second.getByRole("searchbox").press("Enter");
+  await expect(second.locator(".enum-selection")).toContainText("brand-new");
+  await second.getByRole("searchbox").press("Escape");
+  await expect(second.getByRole("listbox")).toHaveCount(0);
+});

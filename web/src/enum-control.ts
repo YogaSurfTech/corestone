@@ -26,9 +26,24 @@ export class EnumControl extends LitElement {
   @state() private query = "";
 
   override createRenderRoot() { return this; }
-  private outside = (e: PointerEvent) => { if (!e.composedPath().includes(this)) this.close(true); };
-  override connectedCallback() { super.connectedCallback(); document.addEventListener("pointerdown", this.outside); }
-  override disconnectedCallback() { document.removeEventListener("pointerdown", this.outside); super.disconnectedCallback(); }
+  private pointerActive = false;
+  private pointerDown = () => { this.pointerActive = true; };
+  private pointerUp = () => { this.pointerActive = false; };
+  private outside = (e: MouseEvent) => { if (!e.composedPath().includes(this)) this.close(true); };
+  override connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener("pointerdown", this.pointerDown);
+    document.addEventListener("pointerup", this.pointerUp);
+    document.addEventListener("pointercancel", this.pointerUp);
+    document.addEventListener("click", this.outside);
+  }
+  override disconnectedCallback() {
+    document.removeEventListener("pointerdown", this.pointerDown);
+    document.removeEventListener("pointerup", this.pointerUp);
+    document.removeEventListener("pointercancel", this.pointerUp);
+    document.removeEventListener("click", this.outside);
+    super.disconnectedCallback();
+  }
   private selected(): string[] {
     return Array.isArray(this.value) ? this.value.filter((v): v is string => typeof v === "string")
       : typeof this.value === "string" && this.value ? [this.value] : [];
@@ -87,11 +102,14 @@ export class EnumControl extends LitElement {
       .filter((v) => !this.options.some((o) => o.value === v)).map((value) => ({ value }))];
     const filtered = options.filter((o) => `${o.label || ""} ${o.value}`.toLowerCase().includes(this.query.trim().toLowerCase()));
     return html`<div class="enum-control" @keydown=${this.keydown}
-      @focusout=${(e: FocusEvent) => { if (!this.contains(e.relatedTarget as Node | null)) this.close(true); }}>
+      @focusout=${(e: FocusEvent) => { if (e.relatedTarget && !this.pointerActive && !this.contains(e.relatedTarget as Node)) this.close(true); }}>
       <div class="enum-selection">
         ${selected.map((v) => html`<span class="enum-chip">${enumLabel(this.option(v), this.folder)}
           ${this.multiple ? html`<button type="button" class="enum-remove" aria-label=${"Remove " + (this.option(v).label || v)}
-            @click=${() => this.emit(this.selected().filter((x) => x !== v))}>×</button>` : nothing}</span>`)}
+            @click=${() => {
+              this.querySelector<HTMLButtonElement>(".enum-trigger")?.focus();
+              this.emit(this.selected().filter((x) => x !== v));
+            }}>×</button>` : nothing}</span>`)}
         <button type="button" class="enum-trigger" aria-label=${this.label || "Select value"} aria-haspopup="listbox" aria-expanded=${this.open}
           @click=${() => { if (this.open) this.close(true); else this.open = true; }}>
           ${selected.length ? nothing : html`<span class="muted">Select…</span>`}<span>▾</span></button>

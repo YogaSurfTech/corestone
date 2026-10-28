@@ -81,7 +81,8 @@ test("extendable enumerations suggest the values in use", async ({ page }) => {
   await post("/entries", { path: folder, type: "note", title: `Custom topic ${id}`, fields: { topic: `custom-${id}` } });
   const other = await post("/entries", { path: folder, type: "note", title: `Other note ${id}` });
   await page.goto(`/artifact/${other.meta.guid}`);
-  const list = page.locator("#sec-fields datalist#dl-topic");
-  await expect(list.locator("option[value=known]")).toHaveCount(1);
-  await expect(list.locator(`option[value="custom-${id}"]`)).toHaveCount(1);
+  const field = page.locator("#sec-fields [data-field=topic]");
+  await field.locator(".enum-trigger").click();
+  await expect(field.locator('.enum-option[data-value="known"]')).toBeVisible();
+  await expect(field.locator(`.enum-option[data-value="custom-${id}"]`)).toBeVisible();
 });
