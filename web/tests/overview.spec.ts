@@ -220,9 +220,10 @@ for (const folder of ["", "overview-scope"]) {
     await page.getByRole("button", { name: "Links", exact: true }).click();
     await expect(page.locator("thead th .th-sort")).toHaveText(["From", "Role", "To", "Note", "Priority", "Author", "Created", "Updated"]);
     const cells = page.locator(`tr[data-guid="${link.guid}"] td`);
-    await expect(cells.nth(0)).toHaveText("CMP-1");
+    // endpoint cells start with the type icon (here the kind letter fallback); the link carries the label
+    await expect(cells.nth(0).getByRole("link")).toHaveText("CMP-1");
     await expect(cells.nth(1)).toHaveText("Verifies");
-    await expect(cells.nth(2)).toHaveText(target.guid);
+    await expect(cells.nth(2).getByRole("link")).toHaveText(target.guid);
     await expect(cells.nth(3)).toHaveText("Evidence");
     await expect(cells.nth(4)).toContainText("High");
     await expect(cells.nth(5)).toHaveText("alice");
