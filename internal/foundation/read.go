@@ -305,7 +305,7 @@ func (f *Foundation) Relationships(ctx context.Context, guid string) (*Relations
 	if err != nil {
 		return nil, err
 	}
-	src, tgt := cfg.LinkTypesFor(loc.Type, loc.Folder)
+	src, tgt := cfg.LinkTypesFor(loc.Kind, loc.Type, loc.Folder)
 	if src != nil {
 		r.AsSource = src
 	}

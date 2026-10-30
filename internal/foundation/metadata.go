@@ -61,10 +61,10 @@ func (f *Foundation) CreateLink(ctx context.Context, req *ojson.Object) (*View, 
 		if err != nil {
 			return nil, err
 		}
-		if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Type) {
+		if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Kind, srcLoc.Type) {
 			return nil, model.Invalid("link type %q does not allow %q as source", typ, srcLoc.Type)
 		}
-		if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Type) {
+		if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Kind, tgtLoc.Type) {
 			return nil, model.Invalid("link type %q does not allow %q as target", typ, tgtLoc.Type)
 		}
 		if err := t.checkCardinality(eff, typ, src, tgt); err != nil {

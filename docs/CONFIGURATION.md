@@ -63,6 +63,13 @@ Goals:
 Kind-specific properties belong here: link types carry `sourceTypes`, `targetTypes` and
 `cardinality`; comment types may add their own rules later.
 
+`sourceTypes` and `targetTypes` restrict a link type's endpoints. Each entry is a type id, `"*"`
+for any artifact, or `"<kind>/*"` for every type of one kind (`"document/*"`, `"entry/*"`; the
+directory names `"documents/*"`, `"entries/*"` work too). Entries combine, so
+`["requirement", "document/*"]` allows requirements and all documents. A missing or empty list
+allows any artifact, so a free link type needs only an id: `{ "id": "related" }`. An unknown
+kind in a pattern is rejected when the file is saved.
+
 A type's `fields` list names the shared fields it uses and sets their order and whether they are
 required for this type. Fields defined in `<type_id>-fields.json` belong to the type without being
 listed, and may set `required` directly.
