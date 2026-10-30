@@ -27,13 +27,22 @@ interface Column {
 }
 
 /** Column widths and sort order, remembered in the browser for every view. */
-interface TableLayout { widths: Record<string, number>; sort: { col: string; dir: "asc" | "desc" } | null }
+interface SortLevel { col: string; dir: "asc" | "desc" }
+interface TableLayout { widths: Record<string, number>; sort: SortLevel[] }
 
 function loadLayout(): TableLayout {
   try {
     const l = JSON.parse(localStorage.getItem("corestone.table") ?? "{}");
-    return { widths: l.widths && typeof l.widths === "object" ? l.widths : {}, sort: l.sort?.col ? l.sort : null };
-  } catch { return { widths: {}, sort: null }; }
+    const stored: unknown[] = Array.isArray(l.sort) ? l.sort : l.sort ? [l.sort] : [];
+    const sort: SortLevel[] = [];
+    for (const value of stored) {
+      if (typeof value !== "object" || value === null || !("col" in value) || !("dir" in value)) continue;
+      if (typeof value.col !== "string" || !value.col || (value.dir !== "asc" && value.dir !== "desc") || sort.some((s) => s.col === value.col)) continue;
+      sort.push({ col: value.col, dir: value.dir });
+      if (sort.length === 3) break;
+    }
+    return { widths: l.widths && typeof l.widths === "object" ? l.widths : {}, sort };
+  } catch { return { widths: {}, sort: [] }; }
 }
 
 @customElement("corestone-overview")
@@ -152,13 +161,20 @@ export class Overview extends LitElement {
 
   /** The rows in the chosen order; ties keep the server's order. */
   private sortedRows(cols: Column[]): Summary[] {
-    const sort = this.layout.sort;
-    const col = sort && cols.find((c) => c.id === sort.col);
-    if (!col) return this.rows;
-    const key = [sort.col, sort.dir, this.rowSchemas, this.workflows];
+    const levels = this.layout.sort.flatMap((sort) => {
+      const col = cols.find((c) => c.id === sort.col);
+      return col ? [{ col, dir: sort.dir === "asc" ? 1 : -1 }] : [];
+    });
+    if (!levels.length) return this.rows;
+    const key = [JSON.stringify(this.layout.sort), this.rowSchemas, this.workflows];
     if (this.sorted?.rows === this.rows && this.sorted.key.every((k, i) => k === key[i])) return this.sorted.out;
-    const dir = sort.dir === "asc" ? 1 : -1;
-    const out = this.rows.map((row) => ({ row, v: col.value(row) })).sort((a, b) => compare(a.v, b.v, dir)).map((x) => x.row);
+    const out = this.rows.map((row) => ({ row, values: levels.map((level) => level.col.value(row)) })).sort((a, b) => {
+      for (let i = 0; i < levels.length; i++) {
+        const result = compare(a.values[i], b.values[i], levels[i].dir);
+        if (result) return result;
+      }
+      return 0;
+    }).map((x) => x.row);
     this.sorted = { rows: this.rows, key, out };
     return out;
   }
@@ -168,10 +184,12 @@ export class Overview extends LitElement {
     localStorage.setItem("corestone.table", JSON.stringify(layout));
   }
 
-  /** A header click sorts ascending; clicking the sorted column again flips the direction. */
+  /** Promote a column, retaining two tie-breakers; only the primary toggles direction. */
   private toggleSort(col: string) {
-    const cur = this.layout.sort;
-    this.saveLayout({ ...this.layout, sort: { col, dir: cur?.col === col && cur.dir === "asc" ? "desc" : "asc" } });
+    const levels = this.layout.sort;
+    const previous = levels.find((level) => level.col === col);
+    const dir = levels[0]?.col === col ? (levels[0].dir === "asc" ? "desc" : "asc") : previous?.dir ?? "asc";
+    this.saveLayout({ ...this.layout, sort: [{ col, dir }, ...levels.filter((level) => level.col !== col)].slice(0, 3) });
   }
 
   private setWidth(widths: Record<string, number>, col: string, px: number, persist = true) {
@@ -234,7 +252,8 @@ export class Overview extends LitElement {
     const r = this.s.route;
     const cols = this.columns();
     const rows = this.sortedRows(cols);
-    const { widths, sort } = this.layout;
+    const { widths } = this.layout;
+    const sort = this.layout.sort.find((level) => cols.some((col) => col.id === level.col));
     // Once any visible column has a width, the layout is fixed and a filler column takes the rest.
     const fixed = cols.some((c) => widths[c.id]);
     const total = cols.reduce((sum, c) => sum + (widths[c.id] ?? DEFAULT_COL_W), 0);

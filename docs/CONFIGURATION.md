@@ -173,6 +173,9 @@ The server enforces the effective configuration at the artifact's location:
 - **Extendable enumerations:** values outside the options are stored only in the artifact; the
   enumeration file is not changed. Autocomplete offers the configured options plus the values in
   use, read from the projection's field index.
+- Header clicks retain up to three sort levels. A new column becomes primary, with previous
+  columns breaking ties. Clicking the primary reverses it; promoting a secondary preserves its
+  direction. Only the primary indicator is shown, and the sort order is remembered locally.
 - **Overview sorting:** enumeration columns use the configured option sequence, reversed for
   descending order, rather than alphabetical order. Multiple-choice fields sort by their highest
   selected option in that sequence, regardless of selection order. Unlisted values follow configured
