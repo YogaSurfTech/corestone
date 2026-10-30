@@ -36,7 +36,7 @@ const (
 )
 
 const summaryCols = `a.guid, a.kind, a.type, a.title, COALESCE(a.hid,''), a.folder, a.file_path, COALESCE(a.base,''),
-	COALESCE(a.source,''), COALESCE(a.target,''), COALESCE(a.subject,''), COALESCE(a.parent,''), CASE WHEN a.kind = 'link' THEN a.created_author ELSE a.author END, a.created,
+	COALESCE(a.source,''), COALESCE(a.target,''), COALESCE(a.subject,''), COALESCE(a.parent,''), CASE WHEN a.kind = 'link' THEN a.created_author ELSE a.author END, a.excerpt, a.created,
 	a.states, a.fields, a.blob_sha, a.created_at, a.modified_at,
 	(SELECT count(*) FROM artifacts l WHERE l.kind = 'link' AND (l.source = a.guid OR l.target = a.guid)),
 	(SELECT count(*) FROM artifacts c WHERE c.kind = 'comment' AND c.subject = a.guid)`
@@ -46,7 +46,7 @@ func scanSummary(rows interface{ Scan(...any) error }) (*model.Summary, error) {
 	var kind, states, fields string
 	var createdAt, modifiedAt sql.NullTime
 	if err := rows.Scan(&s.GUID, &kind, &s.Type, &s.Title, &s.HID, &s.Folder, &s.Path, &s.Base, &s.Source, &s.Target,
-		&s.Subject, &s.Parent, &s.Author, &s.Created, &states, &fields, &s.ETag, &createdAt, &modifiedAt, &s.Links, &s.Comments); err != nil {
+		&s.Subject, &s.Parent, &s.Author, &s.Excerpt, &s.Created, &states, &fields, &s.ETag, &createdAt, &modifiedAt, &s.Links, &s.Comments); err != nil {
 		return nil, err
 	}
 	s.Kind = model.Kind(kind)

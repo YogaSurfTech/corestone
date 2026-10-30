@@ -166,6 +166,9 @@ export class Detail extends LitElement {
       this.baseOverlay = baseOverlay;
       this.commentType = commentTypeOf(types.types);
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
+      // A deep link to a section (?tab=comments) also scrolls to it once the view is there.
+      const tab = store.state.route.tab;
+      if (!soft && this.sectionOrder().includes(tab as Section)) void this.reveal(tab as Section);
     } catch (e) {
       if (stale()) return;
       this.error = e instanceof ApiError ? e.message : String(e);

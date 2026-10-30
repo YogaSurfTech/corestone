@@ -197,6 +197,25 @@ func (a *Artifact) SetWorkflowState(id, state string) {
 	a.Workflows[id] = state
 }
 
+// MaxExcerptRunes bounds a comment excerpt in listings.
+const MaxExcerptRunes = 200
+
+// Excerpt is the first non-blank line of a text, shortened to
+// MaxExcerptRunes with an ellipsis.
+func Excerpt(text string) string {
+	for line := range strings.Lines(text) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > MaxExcerptRunes {
+			return strings.TrimRightFunc(string(r[:MaxExcerptRunes-1]), unicode.IsSpace) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 // Now returns a fixed-width timestamp whose lexical order is chronological.
 func Now() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z") }
 
@@ -215,6 +234,7 @@ type Summary struct {
 	Subject    string            `json:"subject,omitempty"`
 	Parent     string            `json:"parent,omitempty"`
 	Author     string            `json:"author,omitempty"`
+	Excerpt    string            `json:"excerpt,omitempty"` // comments: first line of the text
 	Created    string            `json:"created,omitempty"`
 	Workflows  map[string]string `json:"workflows,omitempty"`
 	Fields     map[string]any    `json:"fields,omitempty"`

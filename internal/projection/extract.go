@@ -71,6 +71,9 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 	r.Kind, r.Type, r.Title, r.HID = a.Kind, a.Type, clean(a.Title), a.HID
 	r.Base, r.Source, r.Target, r.Subject, r.Parent = a.Base, a.Source, a.Target, a.Subject, a.Parent
 	r.Author, r.Created = clean(a.Author), a.Created
+	if a.Kind == model.KindComment {
+		r.Excerpt = clean(model.Excerpt(a.Text))
+	}
 	if a.Workflows != nil {
 		r.Workflows = a.Workflows
 		if b, err := json.Marshal(a.Workflows); err == nil {

@@ -5,7 +5,7 @@ import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { Kind, Schema, Summary, Workflow } from "./types";
 import { compare, fieldSortValue, fieldValue, workflowKey, workflowSortValue, type SortValue } from "./sorting";
-import { fmtTime, relTime } from "./util";
+import { fmtTime, kindIcon, kindLabel, relTime } from "./util";
 import "./type-icon";
 import "./enum-control";
 import { overviewDefinitions, schemaKey } from "./overview-definitions";
@@ -62,6 +62,8 @@ export class Overview extends LitElement {
   @state() private layout = loadLayout();
   private sorted?: { rows: Summary[]; key: unknown[]; out: Summary[] };
   private key = "";
+  private loads = 0;
+  private rowsKind = ""; // the kind this.rows were loaded for; columns follow the route
   private lastTick = -1;
 
   override createRenderRoot() { return this; }
@@ -85,12 +87,13 @@ export class Overview extends LitElement {
 
   private async load() {
     const r = this.s.route;
+    const load = ++this.loads;
     this.loading = true;
     this.error = "";
     try {
       const params: Record<string, string | number | boolean | undefined> = {
         q: r.q, path: r.folder, subtree: r.subtree, type: r.type,
-        kind: r.kind || "entry,document", limit: LIMIT, sort: r.q ? "" : "path",
+        kind: r.kind || "entry,document", limit: LIMIT, sort: r.q ? "" : r.kind === "comment" ? "created" : "path",
       };
       const direct = !params.subtree;
       const [res, types, deep] = await Promise.all([
@@ -100,31 +103,34 @@ export class Overview extends LitElement {
       ]);
       const map: Record<string, Schema> = {};
       for (const t of types.types) map[t.type] = t;
-      const [definitions, endpoints] = await Promise.all([
+      const linkEnds = res.artifacts.filter((row) => row.kind === "link").flatMap((row) => [row.source, row.target]);
+      const subjects = res.artifacts.filter((row) => row.kind === "comment").map((row) => row.subject);
+      const [definitions, endpoints, subjectRows] = await Promise.all([
         overviewDefinitions(res.artifacts, r.folder, types.types),
-        Promise.all([...new Set(res.artifacts.filter((row) => row.kind === "link")
-          .flatMap((row) => [row.source, row.target]).filter((guid): guid is string => !!guid))]
-          .map(async (guid) => {
-            try { return (await api.get(guid)).meta; }
-            catch (error) {
-              if (!(error instanceof ApiError) || error.status !== 404) throw error;
-              store.toast(`Link endpoint ${guid} was not found`, "error");
-              return null;
-            }
-          })),
+        this.summaries(linkEnds, (guid) => store.toast(`Link endpoint ${guid} was not found`, "error")),
+        this.summaries(subjects),
       ]);
-      this.endpoints = Object.fromEntries(endpoints.filter((endpoint): endpoint is Summary => endpoint !== null).map((endpoint) => [endpoint.guid, endpoint]));
+      // Comments on links show the link as From → role → To.
+      const linkSubjects = subjectRows.filter((s) => s.kind === "link");
+      const [subjectEnds, subjectDefs] = linkSubjects.length ? await Promise.all([
+        this.summaries(linkSubjects.flatMap((s) => [s.source, s.target])),
+        overviewDefinitions(linkSubjects, r.folder, types.types),
+      ]) : [[], { schemas: {} }];
+      if (load !== this.loads) return;
+      this.rowsKind = r.kind ?? "";
+      this.endpoints = Object.fromEntries([...endpoints, ...subjectRows, ...subjectEnds].map((endpoint) => [endpoint.guid, endpoint]));
       this.rows = res.artifacts;
       this.total = res.total;
       this.below = deep ? deep.total : res.total;
       this.schemas = map;
-      this.rowSchemas = definitions.schemas;
+      this.rowSchemas = { ...subjectDefs.schemas, ...definitions.schemas };
       this.workflows = definitions.workflows;
     } catch (e) {
+      if (load !== this.loads) return;
       this.error = String((e as Error).message ?? e);
       this.rows = [];
     } finally {
-      this.loading = false;
+      if (load === this.loads) this.loading = false;
     }
   }
 
@@ -132,27 +138,81 @@ export class Overview extends LitElement {
     return guid ? this.endpoints[guid]?.hid || guid : "";
   }
 
+  /** Summaries of distinct artifacts; missing ones are left out (and reported through onMissing). */
+  private async summaries(guids: (string | undefined)[], onMissing?: (guid: string) => void): Promise<Summary[]> {
+    const found = await Promise.all([...new Set(guids.filter((guid): guid is string => !!guid))].map(async (guid) => {
+      try { return (await api.get(guid)).meta; }
+      catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error;
+        onMissing?.(guid);
+        return null;
+      }
+    }));
+    return found.filter((s): s is Summary => s !== null);
+  }
+
+  /** Opens an artifact from a cell without selecting the row. */
+  private open(e: MouseEvent, guid: string) {
+    e.stopPropagation();
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navigate({ guid, folder: this.s.route.folder, tab: "" });
+  }
+
+  /** What a comment is about: the subject's kind, or a reply to another comment. */
+  private commentKind(row: Summary): { kind: Kind | null; title: string } {
+    if (row.parent) {
+      const author = this.rows.find((r) => r.guid === row.parent)?.author;
+      return { kind: "comment", title: author ? `Reply to ${author}'s comment` : "Reply to a comment" };
+    }
+    const subject = row.subject ? this.endpoints[row.subject] : undefined;
+    if (!subject) return { kind: null, title: "Subject no longer exists" };
+    const article = subject.kind === "entry" ? "an" : "a";
+    return { kind: subject.kind, title: `Comment on ${article} ${kindLabel[subject.kind].toLowerCase()}` };
+  }
+
+  private subjectLabel(row: Summary): string {
+    const s = row.subject ? this.endpoints[row.subject] : undefined;
+    if (!s) return row.subject ?? "";
+    if (s.kind !== "link") return [s.hid, s.title].filter(Boolean).join(" ") || s.guid;
+    return `${this.endpointLabel(s.source)} → ${this.rowSchemas[schemaKey(s)]?.displayName ?? s.type} → ${this.endpointLabel(s.target)}`;
+  }
+
+  private subject(row: Summary) {
+    const s = row.subject ? this.endpoints[row.subject] : undefined;
+    if (!s) return html`<span class="muted mono" title="This artifact no longer exists">${row.subject ?? "—"}</span>`;
+    if (s.kind === "link") return html`${this.endpoint(s.source)} <a class="muted" href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>→ ${this.rowSchemas[schemaKey(s)]?.displayName ?? s.type} →</a> ${this.endpoint(s.target)}`;
+    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon><a href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}${s.title || s.guid}</a>`;
+  }
+
   private endpoint(guid?: string) {
     if (!guid) return html`<span class="muted">—</span>`;
     const s = this.endpoints[guid];
-    return html`${s ? html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>` : nothing}<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => {
-      e.stopPropagation();
-      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      navigate({ guid, folder: this.s.route.folder });
-    }}>${this.endpointLabel(guid)}</a>`;
+    return html`${s ? html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>` : nothing}<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => this.open(e, guid)}>${this.endpointLabel(guid)}</a>`;
   }
 
-  /** Link rows expose endpoints and role instead of generic artifact identity. */
+  /** Link and comment rows show what they connect instead of generic artifact identity. */
   private columns(): Column[] {
     const type = (row: Summary) => this.rowSchemas[schemaKey(row)]?.displayName ?? row.type;
     const links = this.s.route.kind === "link";
+    const comments = this.s.route.kind === "comment";
+    const kindOrder: Record<Kind, number> = { entry: 1, document: 2, link: 3, comment: 4 };
+    const created: Column = { id: "$created", name: "Created", cls: "muted", value: (row) => row.createdAt ? Date.parse(row.createdAt) || null : null,
+      title: (row) => fmtTime(row.createdAt), render: (row) => relTime(row.createdAt) };
+    const author: Column = { id: "$author", name: "Author", value: (row) => row.author || null, render: (row) => row.author || "\u2014" };
     return [
       ...(links ? [
         { id: "$source", name: "From", value: (row: Summary) => this.endpointLabel(row.source), render: (row: Summary) => this.endpoint(row.source) },
         { id: "$role", name: "Role", value: type, render: type },
         { id: "$target", name: "To", value: (row: Summary) => this.endpointLabel(row.target), render: (row: Summary) => this.endpoint(row.target) },
-      ] : [
+      ] : comments ? [
+        { id: "$kind", name: "Kind", cls: "kind-cell", value: (row) => { const k = this.commentKind(row).kind; return k ? kindOrder[k] : null; },
+          render: (row) => { const { kind, title } = this.commentKind(row); return kind ? kindIcon(kind, title) : html`<span class="muted" title=${title}>?</span>`; } },
+        { id: "$subject", name: "On", value: (row) => this.subjectLabel(row), title: (row) => this.subjectLabel(row), render: (row) => this.subject(row) },
+        { id: "$excerpt", name: "Comment", value: (row) => row.excerpt || null, title: (row) => row.excerpt ?? "", render: (row) => row.excerpt ?? "" },
+        author,
+        ...(new Set(this.rows.map((row) => row.type)).size > 1 ? [{ id: "$type", name: "Type", value: type, render: type }] : []),
+      ] satisfies Column[] : [
       { id: "$hid", name: "ID", value: (row) => row.hid || row.guid,
         render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },
       { id: "$title", name: "Title", value: (row) => row.title || row.kind, title: (row) => row.title ?? "",
@@ -170,11 +230,14 @@ export class Overview extends LitElement {
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),
       ...(links ? [
-        { id: "$author", name: "Author", value: (row) => row.author || null, render: (row) => row.author || "\u2014" },
-        { id: "$created", name: "Created", cls: "muted", value: (row) => row.createdAt ? Date.parse(row.createdAt) || null : null,
-          title: (row) => fmtTime(row.createdAt), render: (row) => relTime(row.createdAt) },
+        author,
+        created,
         { id: "$modified", name: "Updated", cls: "muted", value: (row) => row.modifiedAt ? Date.parse(row.modifiedAt) || null : null,
           title: (row) => fmtTime(row.modifiedAt), render: (row) => relTime(row.modifiedAt) },
+      ] satisfies Column[] : comments ? [
+        created,
+        { id: "$details", name: "", value: () => null, render: (row) => html`<button class="btn sm" data-test="comment-details"
+          title="Open this comment on its own" @click=${(e: MouseEvent) => this.open(e, row.guid)}>Details</button>` },
       ] satisfies Column[] : [
       { id: "$folder", name: "Folder", cls: "muted", value: (row) => row.folder, render: (row) => row.folder || "/" },
       { id: "$social", name: "Social", cls: "social", value: (row) => row.links, title: () => "links · comments",
@@ -192,7 +255,7 @@ export class Overview extends LitElement {
       const s = this.rowSchemas[schemaKey(row)];
       const pres = (s?.presentation?.columns as string[] | undefined) ?? [];
       for (const c of pres) wanted.add(c);
-      if (this.s.route.kind === "link") for (const field of s?.fields ?? []) wanted.add(field.id);
+      if (this.s.route.kind === "link" || this.s.route.kind === "comment") for (const field of s?.fields ?? []) wanted.add(field.id);
     }
     for (const id of wanted) {
       for (const s of Object.values(this.rowSchemas)) {
@@ -296,7 +359,7 @@ export class Overview extends LitElement {
     if (!this.s) return nothing;
     const r = this.s.route;
     const cols = this.columns();
-    const rows = this.sortedRows(cols);
+    const rows = this.rowsKind === (r.kind ?? "") ? this.sortedRows(cols) : [];
     const { widths } = this.layout;
     const sort = this.layout.sort.find((level) => cols.some((col) => col.id === level.col));
     // Once any visible column has a width, the layout is fixed and a filler column takes the rest.
@@ -331,7 +394,8 @@ export class Overview extends LitElement {
             <button class="th-sort" title="Sort by ${c.name}" @click=${() => this.toggleSort(c.id)}>${c.name}</button>
             <span class="col-resize" title="Drag to resize; double-click to fit" @pointerdown=${this.dragWidth} @dblclick=${this.fitWidth} @click=${(e: Event) => e.stopPropagation()}></span></th>`)}
             ${fixed ? html`<th class="filler"></th>` : nothing}</tr></thead>
-          <tbody>${rows.map((row) => html`<tr class=${row.guid === sel ? "selected" : ""} data-guid=${row.guid} @click=${() => navigate({ guid: row.guid, folder: r.folder })}>
+          <tbody>${rows.map((row) => html`<tr class=${row.guid === sel || (r.kind === "comment" && !!sel && row.subject === sel) ? "selected" : ""} data-guid=${row.guid}
+            @click=${() => row.kind === "comment" && row.subject ? navigate({ guid: row.subject, folder: r.folder, tab: "comments" }) : navigate({ guid: row.guid, folder: r.folder })}>
             ${cols.map((c) => html`<td class=${c.cls ?? ""} title=${c.title?.(row) ?? nothing}>${c.render(row)}</td>`)}${fixed ? html`<td></td>` : nothing}</tr>`)}</tbody>
         </table>`}
       </div>`;

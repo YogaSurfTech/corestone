@@ -28,6 +28,9 @@ func summarize(a *model.Artifact, folder, path, etag string) *model.Summary {
 	s := &model.Summary{GUID: a.GUID, Kind: a.Kind, Type: a.Type, Title: a.Title, HID: a.HID, Folder: folder, Path: path,
 		Base: a.Base, Source: a.Source, Target: a.Target, Subject: a.Subject, Parent: a.Parent, Author: a.Author,
 		Created: a.Created, Workflows: a.Workflows, ETag: etag}
+	if a.Kind == model.KindComment {
+		s.Excerpt = model.Excerpt(a.Text)
+	}
 	if a.Fields != nil {
 		if m, ok := ojson.ToPlain(a.Fields).(map[string]any); ok {
 			s.Fields = m

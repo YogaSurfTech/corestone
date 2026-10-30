@@ -12,9 +12,9 @@ export function label(s: Summary | undefined | null): string {
   return s.title || s.hid || s.guid.slice(0, 8);
 }
 
-export function kindIcon(kind: Kind): TemplateResult {
+export function kindIcon(kind: Kind, title: string = kindLabel[kind]): TemplateResult {
   const letter = { entry: "E", document: "D", link: "L", comment: "C" }[kind];
-  return html`<span class="kind-icon ${kind}" title=${kindLabel[kind]}>${letter}</span>`;
+  return html`<span class="kind-icon ${kind}" title=${title}>${letter}</span>`;
 }
 
 export function displayName(s: Schema | undefined, type: string): string {

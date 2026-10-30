@@ -292,6 +292,7 @@ var ddl = []string{
 	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS created_author text NOT NULL DEFAULT ''`,
 	`CREATE INDEX IF NOT EXISTS artifacts_missing_link_author ON artifacts (created_commit)
 		WHERE kind = 'link' AND created_author = ''`,
+	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS excerpt text NOT NULL DEFAULT ''`,
 	`CREATE INDEX IF NOT EXISTS artifacts_path_gist ON artifacts USING GIST (path)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_folder ON artifacts (folder)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_kind_type ON artifacts (kind, type)`,
@@ -380,6 +381,9 @@ func (p *DB) migrate(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	if err := p.fillLinkAuthors(ctx, tx); err != nil {
+		return err
+	}
+	if err := p.fillCommentExcerpts(ctx, tx); err != nil {
 		return err
 	}
 	return unavailable(tx.Commit())
