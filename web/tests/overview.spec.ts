@@ -148,3 +148,52 @@ test("workflow field and State column use the fetched states-list sequence", asy
     await expect.poll(() => order(page)).toEqual(["done", "verification", "implementation", "open"]);
   }
 });
+
+test("three sort levels break ties, promote without duplicates and persist", async ({ page }) => {
+  await mount(page, [
+    row("a", { priority: "low", effort: 2, text: "same" }),
+    row("b", { priority: "high", effort: 1, text: "same" }),
+    row("c", { priority: "low", effort: 1, text: "same" }),
+    row("d", { priority: "high", effort: 1, text: "first" }),
+  ]);
+  await sortBy(page, "priority");
+  await sortBy(page, "effort");
+  await sortBy(page, "text");
+  await expect.poll(() => order(page)).toEqual(["d", "c", "b", "a"]);
+  await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
+  await expect(page.locator('th[data-col="text"]')).toHaveAttribute("aria-sort", "ascending");
+  await sortBy(page, "effort");
+  await expect.poll(() => order(page)).toEqual(["d", "c", "b", "a"]);
+  await sortBy(page, "effort");
+  await expect.poll(() => order(page)).toEqual(["a", "d", "c", "b"]);
+  await sortBy(page, "text");
+  await expect.poll(() => order(page)).toEqual(["d", "a", "c", "b"]);
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort);
+  await expect.poll(saved).toEqual([
+    { col: "text", dir: "asc" }, { col: "effort", dir: "desc" }, { col: "priority", dir: "asc" },
+  ]);
+  await sortBy(page, "$title");
+  await expect.poll(saved).toEqual([
+    { col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" },
+  ]);
+  await page.reload();
+  await expect.poll(saved).toEqual([
+    { col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" },
+  ]);
+  await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
+  await expect(page.locator('th[data-col="$title"]')).toHaveAttribute("aria-sort", "ascending");
+});
+
+test("legacy single-column sort settings remain usable", async ({ page }) => {
+  await mount(page, [row("low", { priority: "low" }), row("high", { priority: "high" })]);
+  await page.evaluate(() => localStorage.setItem("corestone.table", JSON.stringify({
+    widths: {}, sort: { col: "priority", dir: "desc" },
+  })));
+  await page.reload();
+  await expect.poll(() => order(page)).toEqual(["high", "low"]);
+  await expect(page.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
+  await sortBy(page, "effort");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort)).toEqual([
+    { col: "effort", dir: "asc" }, { col: "priority", dir: "desc" },
+  ]);
+});
