@@ -206,12 +206,13 @@ export class Overview extends LitElement {
         { id: "$role", name: "Role", value: type, render: type },
         { id: "$target", name: "To", value: (row: Summary) => this.endpointLabel(row.target), render: (row: Summary) => this.endpoint(row.target) },
       ] : comments ? [
+        { id: "$type", name: "Type", cls: "kind-cell", value: type, title: type,
+          render: (row) => html`<corestone-type-icon .kind=${row.kind} .type=${row.type} .folder=${row.folder} .schema=${this.rowSchemas[schemaKey(row)] ?? null}></corestone-type-icon>` },
         { id: "$kind", name: "Kind", cls: "kind-cell", value: (row) => { const k = this.commentKind(row).kind; return k ? kindOrder[k] : null; },
           render: (row) => { const { kind, title } = this.commentKind(row); return kind ? kindIcon(kind, title) : html`<span class="muted" title=${title}>?</span>`; } },
         { id: "$subject", name: "On", value: (row) => this.subjectLabel(row), title: (row) => this.subjectLabel(row), render: (row) => this.subject(row) },
         { id: "$excerpt", name: "Comment", value: (row) => row.excerpt || null, title: (row) => row.excerpt ?? "", render: (row) => row.excerpt ?? "" },
         author,
-        ...(new Set(this.rows.map((row) => row.type)).size > 1 ? [{ id: "$type", name: "Type", value: type, render: type }] : []),
       ] satisfies Column[] : [
       { id: "$hid", name: "ID", value: (row) => row.hid || row.guid,
         render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },

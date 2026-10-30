@@ -188,11 +188,11 @@ The server enforces the effective configuration at the artifact's location:
   link fields. Author is the Git author of the creation commit (also for existing links),
   not the author of the latest update. Endpoint links open the corresponding
   artifact without changing the current navigation scope; other cells open the link itself. Role labels use the scoped link type display name.
-- **Comments overview:** the first column is a kind icon (E, D, L, or C for a reply) whose hover
-  text names what the comment is on. Then follow On (the subject; a link shows as
-  From → role → To), an excerpt (the first non-blank line), Author, Type (only with several comment
-  types), the comment fields, Created and a Details button that opens the comment itself. Clicking a
-  row opens the subject at its Comments section. The newest comments are loaded first.
+- **Comments overview:** the first columns are the comment type's icon (hover shows its name) and a
+  kind icon (E, D, L, or C for a reply) whose hover text names what the comment is on; both sort.
+  Then follow On (the subject; a link shows as From → role → To), an excerpt (the first non-blank
+  line), Author, the comment fields, Created and a Details button that opens the comment itself.
+  Clicking a row opens the subject at its Comments section. The newest comments are loaded first.
 - **Overview sorting:** enumeration columns use the configured option sequence, reversed for
   descending order, rather than alphabetical order. Multiple-choice fields sort by their highest
   selected option in that sequence, regardless of selection order. Unlisted values follow configured
