@@ -1,11 +1,11 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { Kind, Schema, Summary, Workflow } from "./types";
 import { compare, fieldSortValue, fieldValue, workflowKey, workflowSortValue, type SortValue } from "./sorting";
-import { relTime } from "./util";
+import { fmtTime, relTime } from "./util";
 import "./type-icon";
 import "./enum-control";
 import { overviewDefinitions, schemaKey } from "./overview-definitions";
@@ -57,6 +57,7 @@ export class Overview extends LitElement {
   @state() private schemas: Record<string, Schema> = {};
   @state() private rowSchemas: Record<string, Schema> = {};
   @state() private workflows: Record<string, Workflow> = {};
+  @state() private endpoints: Record<string, Summary> = {};
   @state() private menu = false;
   @state() private layout = loadLayout();
   private sorted?: { rows: Summary[]; key: unknown[]; out: Summary[] };
@@ -99,7 +100,20 @@ export class Overview extends LitElement {
       ]);
       const map: Record<string, Schema> = {};
       for (const t of types.types) map[t.type] = t;
-      const definitions = await overviewDefinitions(res.artifacts, r.folder, types.types);
+      const [definitions, endpoints] = await Promise.all([
+        overviewDefinitions(res.artifacts, r.folder, types.types),
+        Promise.all([...new Set(res.artifacts.filter((row) => row.kind === "link")
+          .flatMap((row) => [row.source, row.target]).filter((guid): guid is string => !!guid))]
+          .map(async (guid) => {
+            try { return (await api.get(guid)).meta; }
+            catch (error) {
+              if (!(error instanceof ApiError) || error.status !== 404) throw error;
+              store.toast(`Link endpoint ${guid} was not found`, "error");
+              return null;
+            }
+          })),
+      ]);
+      this.endpoints = Object.fromEntries(endpoints.filter((endpoint): endpoint is Summary => endpoint !== null).map((endpoint) => [endpoint.guid, endpoint]));
       this.rows = res.artifacts;
       this.total = res.total;
       this.below = deep ? deep.total : res.total;
@@ -114,10 +128,30 @@ export class Overview extends LitElement {
     }
   }
 
-  /** Columns: HID, title, type, workflow states, then schema-declared columns, then folder, social and modified. */
+  private endpointLabel(guid?: string): string {
+    return guid ? this.endpoints[guid]?.hid || guid : "";
+  }
+
+  private endpoint(guid?: string) {
+    if (!guid) return html`<span class="muted">—</span>`;
+    return html`<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => {
+      e.stopPropagation();
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      navigate({ guid, folder: this.endpoints[guid]?.folder ?? this.s.route.folder });
+    }}>${this.endpointLabel(guid)}</a>`;
+  }
+
+  /** Link rows expose endpoints and role instead of generic artifact identity. */
   private columns(): Column[] {
     const type = (row: Summary) => this.rowSchemas[schemaKey(row)]?.displayName ?? row.type;
+    const links = this.s.route.kind === "link";
     return [
+      ...(links ? [
+        { id: "$source", name: "From", value: (row: Summary) => this.endpointLabel(row.source), render: (row: Summary) => this.endpoint(row.source) },
+        { id: "$role", name: "Role", value: type, render: type },
+        { id: "$target", name: "To", value: (row: Summary) => this.endpointLabel(row.target), render: (row: Summary) => this.endpoint(row.target) },
+      ] : [
       { id: "$hid", name: "ID", value: (row) => row.hid || row.guid,
         render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },
       { id: "$title", name: "Title", value: (row) => row.title || row.kind, title: (row) => row.title ?? "",
@@ -125,6 +159,7 @@ export class Overview extends LitElement {
       { id: "$type", name: "Type", value: type, render: type },
       { id: "$state", name: "State", value: (row) => workflowSortValue(row, this.rowSchemas[schemaKey(row)], (id) => this.workflows[workflowKey(row, id)]),
         render: (row) => html`${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
+      ] satisfies Column[]),
       ...this.fieldColumns().map((c): Column => ({ ...c,
         value: (row) => fieldSortValue(row, c.id, this.rowSchemas[schemaKey(row)], (id) => this.workflows[workflowKey(row, id)]),
         render: (row) => {
@@ -133,10 +168,17 @@ export class Overview extends LitElement {
           return field?.type === "enum" ? html`<corestone-enum .options=${field.options ?? []} .value=${row.fields?.[c.id]}
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),
+      ...(links ? [
+        { id: "$created", name: "Created", cls: "muted", value: (row) => row.createdAt ? Date.parse(row.createdAt) || null : null,
+          title: (row) => fmtTime(row.createdAt), render: (row) => relTime(row.createdAt) },
+        { id: "$modified", name: "Updated", cls: "muted", value: (row) => row.modifiedAt ? Date.parse(row.modifiedAt) || null : null,
+          title: (row) => fmtTime(row.modifiedAt), render: (row) => relTime(row.modifiedAt) },
+      ] satisfies Column[] : [
       { id: "$folder", name: "Folder", cls: "muted", value: (row) => row.folder, render: (row) => row.folder || "/" },
       { id: "$social", name: "Social", cls: "social", value: (row) => row.links, title: () => "links · comments",
         render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },
       { id: "$modified", name: "Modified", cls: "muted", value: (row) => (row.modifiedAt ? Date.parse(row.modifiedAt) || null : null), render: (row) => relTime(row.modifiedAt) },
+      ] satisfies Column[]),
     ];
   }
 
@@ -148,6 +190,7 @@ export class Overview extends LitElement {
       const s = this.rowSchemas[schemaKey(row)];
       const pres = (s?.presentation?.columns as string[] | undefined) ?? [];
       for (const c of pres) wanted.add(c);
+      if (this.s.route.kind === "link") for (const field of s?.fields ?? []) wanted.add(field.id);
     }
     for (const id of wanted) {
       for (const s of Object.values(this.rowSchemas)) {
@@ -166,7 +209,7 @@ export class Overview extends LitElement {
       return col ? [{ col, dir: sort.dir === "asc" ? 1 : -1 }] : [];
     });
     if (!levels.length) return this.rows;
-    const key = [JSON.stringify(this.layout.sort), this.rowSchemas, this.workflows];
+    const key = [JSON.stringify(this.layout.sort), this.rowSchemas, this.workflows, this.endpoints];
     if (this.sorted?.rows === this.rows && this.sorted.key.every((k, i) => k === key[i])) return this.sorted.out;
     const out = this.rows.map((row) => ({ row, values: levels.map((level) => level.col.value(row)) })).sort((a, b) => {
       for (let i = 0; i < levels.length; i++) {

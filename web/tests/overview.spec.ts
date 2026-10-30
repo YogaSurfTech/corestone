@@ -29,7 +29,7 @@ function row(guid: string, fields: Summary["fields"], type = "task"): Summary {
 }
 
 /** Mounts the real overview with API responses, without needing a repository server. */
-async function mount(page: Page, rows: Summary[], schemas = [schema], workflows: Record<string, Workflow> = {}) {
+async function mount(page: Page, rows: Summary[], schemas = [schema], workflows: Record<string, Workflow> = {}, endpoints: Record<string, Summary> = {}) {
   await page.route("http://overview.test/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/") {
@@ -40,6 +40,10 @@ async function mount(page: Page, rows: Summary[], schemas = [schema], workflows:
       await route.fulfill({ json: { types: schemas } });
     } else if (path === "/api/repository/search") {
       await route.fulfill({ json: { artifacts: rows, total: rows.length } });
+    } else if (path.startsWith("/api/artifacts/")) {
+      const meta = endpoints[path.slice("/api/artifacts/".length)];
+      if (!meta) throw new Error(`Unexpected endpoint request: ${route.request().url()}`);
+      await route.fulfill({ json: { meta, data: {}, etag: "test" } });
     } else if (path.startsWith("/api/workflows/")) {
       const definition = workflows[decodeURIComponent(path.slice("/api/workflows/".length))];
       if (!definition) throw new Error(`Unexpected workflow request: ${route.request().url()}`);
@@ -196,4 +200,37 @@ test("legacy single-column sort settings remain usable", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort)).toEqual([
     { col: "effort", dir: "asc" }, { col: "priority", dir: "desc" },
   ]);
+});
+
+
+test("Links columns show From Role To and fields with independent navigation", async ({ page }) => {
+  const source = { ...row("11111111-1111-4111-8111-111111111111", {}), hid: "CMP-1", folder: "source-folder" };
+  const target = row("22222222-2222-4222-8222-222222222222", {});
+  const link = { ...row("33333333-3333-4333-8333-333333333333", { note: "Evidence", priority: "high" }, "verifies"),
+    kind: "link" as const, source: source.guid, target: target.guid,
+    createdAt: "2026-01-01T10:00:00Z", modifiedAt: "2026-01-02T10:00:00Z" };
+  const linkSchema: Schema = { type: "verifies", kind: "link", displayName: "Verifies",
+    fields: [{ id: "note", name: "Note", type: "text" }, { id: "priority", name: "Priority", type: "enum",
+      options: [{ value: "high", label: "High" }] }] };
+  await mount(page, [link], [linkSchema], {}, { [source.guid]: source, [target.guid]: target });
+  await page.getByRole("button", { name: "Links", exact: true }).click();
+  await expect(page.locator("thead th .th-sort")).toHaveText(["From", "Role", "To", "Note", "Priority", "Created", "Updated"]);
+  const cells = page.locator(`tr[data-guid="${link.guid}"] td`);
+  await expect(cells.nth(0)).toHaveText("CMP-1");
+  await expect(cells.nth(1)).toHaveText("Verifies");
+  await expect(cells.nth(2)).toHaveText(target.guid);
+  await expect(cells.nth(3)).toHaveText("Evidence");
+  await expect(cells.nth(4)).toContainText("High");
+  await expect(cells.nth(5)).not.toBeEmpty();
+  await expect(cells.nth(6)).not.toBeEmpty();
+  await expect(cells.nth(4).locator("button")).toHaveCount(0);
+  await cells.nth(0).getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${source.guid}`));
+  await cells.nth(2).getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${target.guid}`));
+  await cells.nth(3).click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${link.guid}`));
+  await cells.nth(0).getByRole("link").click();
+  await cells.nth(1).click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${link.guid}`));
 });
