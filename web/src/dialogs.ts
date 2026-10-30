@@ -325,8 +325,14 @@ export class Picker extends LitElement {
       const types = this.dialog.types as string[] | undefined;
       try {
         if (types && types.length && !types.includes("*")) {
-          const all = await Promise.all(types.map((t) => api.search({ q: this.q, type: t, kind: kinds.join(","), limit: 50 })));
-          this.results = all.flatMap((r) => r.artifacts);
+          // "<kind>/*" allows every type of a kind; other entries are type ids
+          const wild = kinds.filter((k) => types.some((t) => t === `${k}/*` || t === `${collectionOf[k]}/*`));
+          const all = await Promise.all([
+            ...(wild.length ? [api.search({ q: this.q, kind: wild.join(","), limit: 50 })] : []),
+            ...types.filter((t) => !t.endsWith("/*")).map((t) => api.search({ q: this.q, type: t, kind: kinds.join(","), limit: 50 })),
+          ]);
+          const seen = new Set<string>();
+          this.results = all.flatMap((r) => r.artifacts).filter((a) => !seen.has(a.guid) && !!seen.add(a.guid));
         } else {
           this.results = (await api.search({ q: this.q, kind: kinds.join(","), limit: 50 })).artifacts;
         }

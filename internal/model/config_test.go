@@ -256,7 +256,7 @@ func TestConfigResolution(t *testing.T) {
 	}
 
 	// Links are still inherited in the task folder.
-	if src, tgt := idx.LinkTypesFor("task", "tasks"); len(src) != 1 || len(tgt) != 1 || src[0].Type != "related" {
+	if src, tgt := idx.LinkTypesFor(KindEntry, "task", "tasks"); len(src) != 1 || len(tgt) != 1 || src[0].Type != "related" {
 		t.Fatalf("link types for task: %v %v", typeIDs(src), typeIDs(tgt))
 	}
 }

@@ -85,15 +85,16 @@ func (p *DB) insertCommitRows(ctx context.Context, rows []commitRow) error {
 	return unavailable(err)
 }
 
-// ArtifactCommits lists the commits that touched an artifact, newest first
-// (all of them when limit <= 0).
+// ArtifactCommits lists the commits that touched an artifact or one of its
+// current comments, newest first (all of them when limit <= 0).
 func (p *DB) ArtifactCommits(ctx context.Context, guid string, limit int) ([]string, error) {
 	var lim any
 	if limit > 0 {
 		lim = limit
 	}
-	rows, err := p.sql.QueryContext(ctx, `SELECT commit_sha FROM artifact_commits WHERE guid = $1
-		ORDER BY seq DESC, commit_sha LIMIT $2`, guid, lim)
+	rows, err := p.sql.QueryContext(ctx, `SELECT commit_sha FROM artifact_commits
+		WHERE guid = $1 OR guid IN (SELECT guid FROM artifacts WHERE kind = 'comment' AND subject = $1)
+		GROUP BY commit_sha ORDER BY max(seq) DESC, commit_sha LIMIT $2`, guid, lim)
 	if err != nil {
 		return nil, unavailable(err)
 	}

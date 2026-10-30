@@ -126,6 +126,7 @@ corestone-type-icon { display: inline-flex; align-items: center; vertical-align:
 .type-icon { display: block; width: 16px; height: 16px; margin: 0 7px 0 1px; }
 .kind-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; font-size: 10px; font-weight: 700; margin-right: 6px; background: var(--accent-soft); color: var(--accent); }
 .kind-icon.document { background: var(--warn-soft); color: var(--warn); }
+.kind-icon.comment { border: 0; padding: 0; margin: 0 6px 0 0; } /* not a thread .comment */
 .social { color: var(--muted); font-size: 12px; }
 .empty-state { padding: 30px; text-align: center; color: var(--muted); }
 .empty-state .big { font-size: 15px; margin-bottom: 6px; color: var(--text); }
@@ -219,6 +220,10 @@ corestone-detail { display: flex; flex-direction: column; min-height: 0; min-wid
 .comment .who { font-size: 12px; color: var(--muted); }
 .comment .text { white-space: pre-wrap; }
 .comment.reply { margin-left: 22px; }
+.comment.current { border-left-color: var(--accent); }
+.comment-on { display: flex; align-items: center; gap: 8px; }
+.comment-on > .link-row { flex: 1; min-width: 0; }
+.dh-static { font-weight: 600; }
 .inline-form { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .inline-form textarea { min-height: 44px; }
 .history-row { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }

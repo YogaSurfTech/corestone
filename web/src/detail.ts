@@ -3,7 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
-import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
+import type { CommentView, LogEntry, OverlayView, Relationships, Schema, Summary, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
 import "./type-icon";
@@ -14,7 +14,7 @@ import type { OverlayState } from "./fields";
 // section the effective schema implies, quick links to sections, and an
 // optimistic-concurrency save (ETag / If-Match).
 
-const SECTIONS = ["fields", "workflows", "relationships", "comments", "overlay", "attachments", "history", "metadata"] as const;
+const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "history", "metadata"] as const;
 type Section = (typeof SECTIONS)[number];
 const OPEN_KEY = "corestone.detail.sections";
 
@@ -31,6 +31,11 @@ export class Detail extends LitElement {
   @state() private schema: Schema | null = null;
   @state() private workflows: WorkflowEval[] = [];
   @state() private rel: Relationships | null = null;
+  /** For a link: the artifacts it connects (null when an endpoint no longer exists). */
+  @state() private endpoints: { source: Summary | null; target: Summary | null } | null = null;
+  /** For a comment: what it is on; a link subject comes with its endpoints and role name. */
+  @state() private subject: { meta: Summary; source?: Summary | null; target?: Summary | null; role?: string } | null = null;
+  /** The comment thread shown here; for a comment, the whole thread of its subject. */
   @state() private comments: CommentView[] = [];
   @state() private overlay: OverlayView | null = null;
   /** The base's effective fields: what this entry shows where it sets nothing itself. */
@@ -119,16 +124,29 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
     this.error = "";
     try {
       const view = await api.get(guid);
       if (stale()) return;
-      const [schema, wf, rel, comments, history, overlay, baseOverlay, types] = await Promise.all([
+      const isLink = view.meta.kind === "link";
+      const isComment = view.meta.kind === "comment";
+      const endpoint = (g?: string) => g ? api.get(g).then((e) => e.meta).catch(() => null) : Promise.resolve(null);
+      const subjectOf = async (g?: string) => {
+        const meta = await endpoint(g);
+        if (!meta || meta.kind !== "link") return meta ? { meta } : null;
+        const [source, target, role] = await Promise.all([endpoint(meta.source), endpoint(meta.target),
+          api.schemaOf(meta.guid).then((s) => s.schema?.displayName).catch(() => undefined)]);
+        return { meta, source, target, role };
+      };
+      const [schema, wf, rel, endpoints, subject, comments, history, overlay, baseOverlay, types] = await Promise.all([
         api.schemaOf(guid).catch(() => ({ schema: null })),
         api.workflows(guid).catch(() => ({ workflows: [] })),
-        api.relationships(guid).catch(() => null),
-        api.comments(guid).catch(() => ({ comments: [] })),
+        isLink || isComment ? Promise.resolve(null) : api.relationships(guid).catch(() => null),
+        isLink ? Promise.all([endpoint(view.meta.source), endpoint(view.meta.target)]) : Promise.resolve(null),
+        isComment ? subjectOf(view.meta.subject) : Promise.resolve(null),
+        // Replies share the root subject, so a comment shows the thread it belongs to.
+        api.comments(isComment ? view.meta.subject ?? guid : guid).catch(() => ({ comments: [] })),
         // History is only fetched while its section is open.
         this.isOpen("history") ? api.history(guid).catch(() => ({ history: [] })) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
@@ -153,6 +171,8 @@ export class Detail extends LitElement {
       this.schema = schema.schema;
       this.workflows = wf.workflows;
       this.rel = rel;
+      this.endpoints = endpoints ? { source: endpoints[0], target: endpoints[1] } : null;
+      this.subject = subject;
       this.comments = comments.comments;
       this.history = history?.history ?? [];
       this.historyLoaded = !!history;
@@ -160,6 +180,9 @@ export class Detail extends LitElement {
       this.baseOverlay = baseOverlay;
       this.commentType = commentTypeOf(types.types);
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
+      // A deep link to a section (?tab=comments) also scrolls to it once the view is there.
+      const tab = store.state.route.tab;
+      if (!soft && this.sectionOrder().includes(tab as Section)) void this.reveal(tab as Section);
     } catch (e) {
       if (stale()) return;
       this.error = e instanceof ApiError ? e.message : String(e);
@@ -235,8 +258,12 @@ export class Detail extends LitElement {
 
   private async addComment() {
     if (!this.commentText.trim()) return;
+    // A comment's subject is always the root artifact; here, replying defaults to the comment shown.
+    const onComment = this.view?.meta.kind === "comment";
+    const subject = onComment ? this.view?.meta.subject ?? this.guid : this.guid;
+    const parent = this.replyTo ?? (onComment ? this.guid : undefined);
     try {
-      await api.create("comments", { subject: this.guid, parent: this.replyTo ?? undefined, type: this.commentType, text: this.commentText, author: this.s.user });
+      await api.create("comments", { subject, parent, type: this.commentType, text: this.commentText, author: this.s.user });
       this.commentText = "";
       this.replyTo = null;
       this.reload(true);
@@ -290,23 +317,27 @@ export class Detail extends LitElement {
     if (!this.view && (this.loading || !this.error)) return html`<div class="empty-state">Loading…</div>`;
     if (!this.view) return html`<div class="empty-state"><div class="big">Artifact not available</div>${this.error}<br><button class="btn" @click=${() => navigate({ guid: null })}>Back</button></div>`;
     if (!this.draft) return html`<div class="empty-state">Loading…</div>`;
-    const v = this.view;
     const r = this.s.route;
-    const active = r.tab || "fields";
+    const order = this.sectionOrder();
+    const active = r.tab || order[0];
+    const body: Record<Section, () => unknown> = {
+      comment: () => this.ownCommentSection(),
+      fields: () => this.fieldsSection(),
+      workflows: () => this.workflowSection(),
+      relationships: () => this.relSection(),
+      comments: () => this.commentSection(),
+      overlay: () => this.overlaySection(),
+      attachments: () => this.attachmentSection(),
+      history: () => this.historySection(),
+      metadata: () => this.metadataSection(),
+    };
     return html`
       ${this.header()}
       <div class="detail-body">
-        <nav class="quicklinks">${SECTIONS.filter((s) => this.hasSection(s)).map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.reveal(s); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
+        <nav class="quicklinks">${order.map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.reveal(s); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
         <div class="sections">
           ${this.error ? html`<div class="notice error" role="alert">${this.error} ${this.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.draft = null; this.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
-          ${this.fieldsSection()}
-          ${this.hasSection("workflows") ? this.workflowSection() : nothing}
-          ${this.relSection()}
-          ${this.commentSection()}
-          ${this.hasSection("overlay") ? this.overlaySection() : nothing}
-          ${v.meta.kind === "entry" || v.meta.kind === "document" ? this.attachmentSection() : nothing}
-          ${this.historySection()}
-          ${this.metadataSection()}
+          ${order.map((s) => body[s]())}
         </div>
       </div>
       ${this.dirty ? html`<div class="savebar"><span class="dirty">Unsaved changes</span>
@@ -344,13 +375,14 @@ export class Detail extends LitElement {
       <div class="dh-title">
         <div class="dh-identity">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema} title=${typeName}></corestone-type-icon>
+        ${v.meta.kind === "comment" ? html`<h2 class="dh-static" data-test="comment-heading">${typeName} by ${v.meta.author || "anonymous"}</h2>` : html`
         <input class="hid-input ${d.hid ? "" : "empty"}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint}
           size=${Math.max((d.hid || hidHint).length, 3)}
           title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${this.touched}
           @input=${(e: Event) => { this.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} />
         ${d.hid ? html`<span class="dash">–</span>` : nothing}
         <h2><input class="title-input" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} @focus=${this.touched}
-          @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>
+          @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>`}
         </div>
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
         ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.reveal("overlay")}>overlay of ${this.levelLabel(base.guid)}</button>` : nothing}
@@ -365,9 +397,19 @@ export class Detail extends LitElement {
     </div>`;
   }
 
+  /** A link is about the relation it expresses, so its endpoints come before its fields. Comments cannot be linked. */
+  private sectionOrder(): Section[] {
+    const order: readonly Section[] = this.view?.meta.kind === "link"
+      ? ["relationships", "fields", ...SECTIONS.filter((s) => s !== "relationships" && s !== "fields")]
+      : SECTIONS;
+    return order.filter((s) => this.hasSection(s));
+  }
+
   private hasSection(s: string): boolean {
     const k = this.view?.meta.kind;
     switch (s) {
+      case "comment": return k === "comment";
+      case "relationships": return k !== "comment";
       case "workflows": return this.workflows.length > 0;
       case "attachments": return k === "entry" || k === "document";
       case "overlay": return !!this.overlay;
@@ -377,7 +419,7 @@ export class Detail extends LitElement {
   private isEmpty(s: Section): boolean {
     switch (s) {
       case "fields": return !(this.schema?.fields ?? []).some((f) => f.type !== "workflow") && !Object.keys(this.draft?.fields ?? {}).length;
-      case "relationships": return !this.rel || !(this.rel.incoming.length + this.rel.outgoing.length);
+      case "relationships": return this.view?.meta.kind !== "link" && (!this.rel || !(this.rel.incoming.length + this.rel.outgoing.length));
       case "comments": return !this.comments.length;
       case "attachments": return !this.view?.attachments?.length;
       case "overlay": return !this.overlay || (this.overlay.chain.length <= 1 && !this.overlay.overlays.length);
@@ -414,11 +456,11 @@ export class Detail extends LitElement {
       <span class="actions">${actions}</span></h3>
       ${open ? body() : nothing}</section>`;
   }
-  private sectionName(s: string) { return { fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
+  private sectionName(s: string) { return { comment: "Comment", fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
   private sectionCount(s: string): string {
     switch (s) {
       case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
-      case "relationships": return String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
+      case "relationships": return this.view?.meta.kind === "link" ? "" : String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
       case "comments": return String(this.comments.length || "");
       case "attachments": return String(this.view?.attachments?.length || "");
       case "history": return this.historyLoaded ? String(this.history.length || "") : "";
@@ -483,7 +525,48 @@ export class Detail extends LitElement {
       </div>`)}`);
   }
 
+  /** An artifact reference: type icon, HID and title, opening it; a missing one shows its GUID. */
+  private artifactRef(guid: string | undefined, s: Summary | null | undefined) {
+    return !guid ? html`<span class="muted">—</span>`
+      : !s ? html`<span class="muted mono" title="This artifact no longer exists">${guid}</span>`
+      : html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
+        <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid, tab: "" }); }}>${label(s)}</a></span>`;
+  }
+
+  /** A link's own relation: From → role → To, each endpoint opening that artifact. */
+  private linkRelSection() {
+    const v = this.view!;
+    return this.section("relationships", () => html`<div class="links-list"><div class="link-row" data-test="link-relation">
+      ${this.artifactRef(v.meta.source, this.endpoints?.source)}
+      <span class="arrow">→</span><span class="type">${this.schema?.displayName ?? v.meta.type}</span><span class="arrow">→</span>
+      ${this.artifactRef(v.meta.target, this.endpoints?.target)}</div></div>`);
+  }
+
+  /** A comment itself: what it is on (and whom it answers), then its author, time and text. */
+  private ownCommentSection() {
+    const v = this.view!;
+    const sub = this.subject;
+    const parent = String(v.data.parent ?? "");
+    const answered = parent ? this.comments.find((c) => c.meta.guid === parent) : undefined;
+    const on = !sub ? this.artifactRef(v.meta.subject, null)
+      : sub.meta.kind !== "link" ? this.artifactRef(sub.meta.guid, sub.meta)
+      : html`${this.artifactRef(sub.meta.source, sub.source)}
+        <a class="muted" href=${"/artifact/" + sub.meta.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: sub.meta.guid, tab: "" }); }}>→ ${sub.role ?? sub.meta.type} →</a>
+        ${this.artifactRef(sub.meta.target, sub.target)}`;
+    return this.section("comment", () => html`
+      <div class="comment-on" data-test="comment-subject">
+        <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema}></corestone-type-icon>
+        <span class="muted">on</span><div class="link-row">${on}</div></div>
+      ${parent ? html`<div class="small muted" data-test="comment-parent" style="margin-top:6px">Reply to
+        <a href=${"/artifact/" + parent} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: parent, tab: "" }); }}>${answered ? `${answered.meta.author || "anonymous"}'s comment` : "a comment"}</a></div>` : nothing}
+      <div class="comment" data-test="comment-own">
+        <div class="who"><b>${v.meta.author || "anonymous"}</b> · ${fmtTime(v.meta.created)}</div>
+        <div class="text">${String(v.data.text ?? "")}</div>
+      </div>`);
+  }
+
   private relSection() {
+    if (this.view?.meta.kind === "link") return this.linkRelSection();
     const rel = this.rel;
     const row = (lv: { link: { type: string; guid: string }; other: { guid: string; title?: string; hid?: string; kind: string; type: string; folder: string } }, dir: "in" | "out") => html`<div class="link-row">
       <span class="type">${lv.link.type}</span><span class="arrow">${dir === "in" ? "←" : "→"}</span>
@@ -509,7 +592,7 @@ export class Detail extends LitElement {
       byParent.set(p, [...(byParent.get(p) ?? []), c]);
     }
     const seen = new Set<string>();
-    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""}" data-comment=${c.meta.guid}>
+    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === this.guid ? "current" : ""}" data-comment=${c.meta.guid}>
       <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
         ${this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
       <div class="text">${String(c.data?.text ?? "")}</div>
@@ -520,7 +603,7 @@ export class Detail extends LitElement {
     return this.section("comments", () => html`
       ${!this.comments.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
       ${!this.commentType ? nothing : html`<div class="inline-form">
-        <textarea id="comment-text" data-test="comment-text" placeholder=${this.replyTo ? "Reply…" : "Write a comment…"} .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
+        <textarea id="comment-text" data-test="comment-text" placeholder=${this.replyTo || this.view?.meta.kind === "comment" ? "Reply…" : "Write a comment…"} .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
         <div style="display:flex;flex-direction:column;gap:4px">
           <button class="btn primary sm" data-test="comment-send" @click=${this.addComment}>Post</button>
           ${this.replyTo ? html`<button class="btn sm" @click=${() => (this.replyTo = null)}>cancel reply</button>` : nothing}

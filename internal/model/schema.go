@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Cardinality of a link type (design guide §4.8).
@@ -122,6 +123,12 @@ func (s *Schema) Validate() error {
 			return fmt.Errorf("workflow reference: %w", err)
 		}
 	}
+	if err := validateEndpoints("sourceTypes", s.SourceTypes); err != nil {
+		return err
+	}
+	if err := validateEndpoints("targetTypes", s.TargetTypes); err != nil {
+		return err
+	}
 	switch s.Cardinality {
 	case "", OneToOne, OneToMany, ManyToOne, ManyToMany:
 	default:
@@ -170,13 +177,52 @@ func (s *Schema) AllWorkflows() []string {
 	return out
 }
 
-// AllowsEndpoint reports whether a link schema accepts a source/target type.
-func AllowsEndpoint(allowed []string, typ string) bool {
+// EndpointKind reports the kind of a "<kind>/*" endpoint pattern. The kind
+// may be written as the kind ("document") or its config directory ("documents").
+func EndpointKind(pattern string) (Kind, bool) {
+	name, ok := strings.CutSuffix(pattern, "/*")
+	if !ok {
+		return "", false
+	}
+	for _, k := range ConfigKinds {
+		if name == string(k.Kind) || name == k.Dir {
+			return k.Kind, true
+		}
+	}
+	return "", false
+}
+
+// validateEndpoints checks sourceTypes/targetTypes entries: "*", "<kind>/*" or a type id.
+func validateEndpoints(name string, allowed []string) error {
+	for _, a := range allowed {
+		if a == "*" {
+			continue
+		}
+		if strings.HasSuffix(a, "/*") {
+			if _, ok := EndpointKind(a); !ok {
+				return Invalid("%s: unknown kind in %q", name, a)
+			}
+			continue
+		}
+		if err := ValidateTypeID(a); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// AllowsEndpoint reports whether a link schema accepts an artifact of the
+// given kind and type as source/target. No list or "*" allows anything;
+// "<kind>/*" allows every type of that kind.
+func AllowsEndpoint(allowed []string, kind Kind, typ string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
 	for _, a := range allowed {
 		if a == "*" || a == typ {
+			return true
+		}
+		if k, ok := EndpointKind(a); ok && k == kind {
 			return true
 		}
 	}

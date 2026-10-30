@@ -692,17 +692,17 @@ func (idx *ConfigIndex) TypesVisible(folder string) []*Schema {
 	return out
 }
 
-// LinkTypesFor lists link types visible from folder that allow typ as
-// source or target.
-func (idx *ConfigIndex) LinkTypesFor(typ, folder string) (asSource, asTarget []*Schema) {
+// LinkTypesFor lists link types visible from folder that allow an artifact
+// of kind and typ as source or target.
+func (idx *ConfigIndex) LinkTypesFor(kind Kind, typ, folder string) (asSource, asTarget []*Schema) {
 	for _, s := range idx.TypesVisible(folder) {
 		if s.Kind != KindLink {
 			continue
 		}
-		if AllowsEndpoint(s.SourceTypes, typ) {
+		if AllowsEndpoint(s.SourceTypes, kind, typ) {
 			asSource = append(asSource, s)
 		}
-		if AllowsEndpoint(s.TargetTypes, typ) {
+		if AllowsEndpoint(s.TargetTypes, kind, typ) {
 			asTarget = append(asTarget, s)
 		}
 	}

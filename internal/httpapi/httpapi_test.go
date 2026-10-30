@@ -460,3 +460,29 @@ func TestIcons(t *testing.T) {
 		t.Fatalf("warnings: %s", cw.raw)
 	}
 }
+
+func TestKindWildcardLinkEndpoints(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[{"id":"bogus","sourceTypes":["blob/*"]}]}`, 400)
+	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[
+		{"id":"describes","sourceTypes":["document/*"],"targetTypes":["entries/*"]},
+		{"id":"free","sourceTypes":["*"],"targetTypes":["*"]}]}`, 200)
+	d1 := meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"One"}`, 201), "guid")
+	d2 := meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Two"}`, 201), "guid")
+	e := meta(a.ok("POST", "/api/entries", `{"path":"docs","type":"testcase","title":"T"}`, 201), "guid")
+
+	a.ok("POST", "/api/links", `{"type":"describes","source":"`+d1+`","target":"`+e+`"}`, 201)
+	a.ok("POST", "/api/links", `{"type":"describes","source":"`+e+`","target":"`+d1+`"}`, 400)
+	a.ok("POST", "/api/links", `{"type":"describes","source":"`+d1+`","target":"`+d2+`"}`, 400)
+	a.ok("POST", "/api/links", `{"type":"free","source":"`+d1+`","target":"`+d2+`"}`, 201)
+
+	rel := a.ok("GET", "/api/artifacts/"+d1+"/relationships", "", 200)
+	var src []string
+	for _, s := range rel.body["allowedAsSource"].([]any) {
+		src = append(src, s.(map[string]any)["type"].(string))
+	}
+	if strings.Join(src, ",") != "describes,free" {
+		t.Fatalf("link types a document may originate: %v", src)
+	}
+}

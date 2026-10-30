@@ -17,6 +17,7 @@ export interface Summary {
   subject?: string;
   parent?: string;
   author?: string;
+  excerpt?: string;
   created?: string;
   workflows?: Record<string, string>;
   fields?: Record<string, unknown>;

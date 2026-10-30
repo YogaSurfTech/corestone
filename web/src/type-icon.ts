@@ -56,7 +56,7 @@ export class TypeIcon extends LitElement {
   override render() {
     const icon = this.resolved?.presentation?.icon;
     const background = this.resolved?.presentation?.backgroundColor;
-    if ((typeof icon !== "string" || !icon || this.broken) && typeof background !== "string") return kindIcon(this.kind);
+    if ((typeof icon !== "string" || !icon || this.broken) && typeof background !== "string") return kindIcon(this.kind, this.resolved?.displayName || this.type || undefined);
     const name = this.resolved?.displayName || this.type;
     const style = styleMap({ backgroundColor: typeof background === "string" ? background : undefined });
     return typeof icon === "string" && icon && !this.broken

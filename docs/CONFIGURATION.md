@@ -63,6 +63,13 @@ Goals:
 Kind-specific properties belong here: link types carry `sourceTypes`, `targetTypes` and
 `cardinality`; comment types may add their own rules later.
 
+`sourceTypes` and `targetTypes` restrict a link type's endpoints. Each entry is a type id, `"*"`
+for any artifact, or `"<kind>/*"` for every type of one kind (`"document/*"`, `"entry/*"`; the
+directory names `"documents/*"`, `"entries/*"` work too). Entries combine, so
+`["requirement", "document/*"]` allows requirements and all documents. A missing or empty list
+allows any artifact, so a free link type needs only an id: `{ "id": "related" }`. An unknown
+kind in a pattern is rejected when the file is saved.
+
 A type's `fields` list names the shared fields it uses and sets their order and whether they are
 required for this type. Fields defined in `<type_id>-fields.json` belong to the type without being
 listed, and may set `required` directly.
@@ -176,6 +183,16 @@ The server enforces the effective configuration at the artifact's location:
 - Header clicks retain up to three sort levels. A new column becomes primary, with previous
   columns breaking ties. Clicking the primary reverses it; promoting a secondary preserves its
   direction. Only the primary indicator is shown, and the sort order is remembered locally.
+- **Links overview:** From, Role and To precede the defined link fields. Endpoints show their
+  current HID, or their full GUID when no HID exists. Author, Created and Updated follow the
+  link fields. Author is the Git author of the creation commit (also for existing links),
+  not the author of the latest update. Endpoint links open the corresponding
+  artifact without changing the current navigation scope; other cells open the link itself. Role labels use the scoped link type display name.
+- **Comments overview:** the first columns are the comment type's icon (hover shows its name) and a
+  kind icon (E, D, L, or C for a reply) whose hover text names what the comment is on; both sort.
+  Then follow On (the subject; a link shows as From → role → To), an excerpt (the first non-blank
+  line), Author, the comment fields, Created and a Details button that opens the comment itself.
+  Clicking a row opens the subject at its Comments section. The newest comments are loaded first.
 - **Overview sorting:** enumeration columns use the configured option sequence, reversed for
   descending order, rather than alphabetical order. Multiple-choice fields sort by their highest
   selected option in that sequence, regardless of selection order. Unlisted values follow configured

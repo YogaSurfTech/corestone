@@ -247,6 +247,9 @@ func (p *DB) ProjectCommit(ctx context.Context, tx *sql.Tx, commit string, chang
 			return err
 		}
 	}
+	if err := p.fillLinkAuthors(ctx, tx); err != nil {
+		return err
+	}
 	return recordCommit(ctx, tx, commit, changes)
 }
 
@@ -305,17 +308,17 @@ func (p *DB) upsertRecord(ctx context.Context, tx *sql.Tx, r *record, commit str
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO artifacts (guid, kind, type, title, hid, folder, path, file_path, blob_sha,
 			base, source, target, subject, parent, author, created, states, fields, search_text, valid, error,
-			created_at, modified_at, created_commit, modified_commit)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::ltree,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$22,$23,$23)
+			created_at, modified_at, created_commit, modified_commit, excerpt)
+		VALUES ($1,$2,$3,$4,$5,$6,$7::ltree,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$22,$23,$23,$24)
 		ON CONFLICT (guid) DO UPDATE SET kind = EXCLUDED.kind, type = EXCLUDED.type, title = EXCLUDED.title, hid = EXCLUDED.hid,
 			folder = EXCLUDED.folder, path = EXCLUDED.path, file_path = EXCLUDED.file_path, blob_sha = EXCLUDED.blob_sha,
 			base = EXCLUDED.base, source = EXCLUDED.source, target = EXCLUDED.target, subject = EXCLUDED.subject, parent = EXCLUDED.parent,
 			author = EXCLUDED.author, created = EXCLUDED.created, states = EXCLUDED.states, fields = EXCLUDED.fields,
 			search_text = EXCLUDED.search_text, valid = EXCLUDED.valid, error = EXCLUDED.error,
-			modified_at = EXCLUDED.modified_at, modified_commit = EXCLUDED.modified_commit`,
+			modified_at = EXCLUDED.modified_at, modified_commit = EXCLUDED.modified_commit, excerpt = EXCLUDED.excerpt`,
 		r.GUID, string(r.Kind), r.Type, r.Title, hid, r.Folder, PathOf(r.Folder), r.Path, r.BlobSHA,
 		nullable(r.Base), nullable(r.Source), nullable(r.Target), nullable(r.Subject), nullable(r.Parent),
-		r.Author, r.Created, r.States, r.FieldsJ, r.Search, r.Valid, r.Error, when, commit)
+		r.Author, r.Created, r.States, r.FieldsJ, r.Search, r.Valid, r.Error, when, commit, r.Excerpt)
 	if err != nil {
 		return unavailable(err)
 	}

@@ -124,13 +124,42 @@ func fieldIDs(s *Schema) string {
 
 func TestLinkSchemas(t *testing.T) {
 	idx := mustIndex(t, map[string]string{
-		"|entries/types.json": `{"types":[{"id":"req"},{"id":"tc"}]}`,
+		"|entries/types.json":   `{"types":[{"id":"req"},{"id":"tc"}]}`,
+		"|documents/types.json": `{"types":[{"id":"spec"}]}`,
 		"|links/types.json": `{"types":[{"id":"verifies","sourceTypes":["tc"],"targetTypes":["req"],"cardinality":"many-to-one"},
-		  {"id":"related"}]}`,
+		  {"id":"related"},
+		  {"id":"describes","sourceTypes":["document/*"],"targetTypes":["entries/*"]},
+		  {"id":"free","sourceTypes":["*"],"targetTypes":["*"]}]}`,
 	})
-	src, tgt := idx.LinkTypesFor("req", "x")
-	if len(src) != 1 || src[0].Type != "related" || len(tgt) != 2 {
-		t.Fatalf("link types for req: %d %d", len(src), len(tgt))
+	src, tgt := idx.LinkTypesFor(KindEntry, "req", "x")
+	if got := typeIDs(src); got != "free,related" || len(tgt) != 4 {
+		t.Fatalf("link types for req: %v %v", got, typeIDs(tgt))
+	}
+	src, tgt = idx.LinkTypesFor(KindDocument, "spec", "x")
+	if typeIDs(src) != "describes,free,related" || typeIDs(tgt) != "free,related" {
+		t.Fatalf("link types for spec: %v %v", typeIDs(src), typeIDs(tgt))
+	}
+	for _, c := range []struct {
+		allowed []string
+		kind    Kind
+		typ     string
+		want    bool
+	}{
+		{nil, KindDocument, "spec", true},
+		{[]string{"*"}, KindComment, "note", true},
+		{[]string{"document/*"}, KindDocument, "spec", true},
+		{[]string{"documents/*"}, KindDocument, "spec", true},
+		{[]string{"document/*"}, KindEntry, "req", false},
+		{[]string{"req", "document/*"}, KindEntry, "req", true},
+	} {
+		if got := AllowsEndpoint(c.allowed, c.kind, c.typ); got != c.want {
+			t.Errorf("AllowsEndpoint(%v, %s, %s) = %v", c.allowed, c.kind, c.typ, got)
+		}
+	}
+	for _, bad := range []string{`{"type":"l","kind":"link","sourceTypes":["blob/*"]}`, `{"type":"l","kind":"link","targetTypes":["a b"]}`} {
+		if _, err := ParseSchema([]byte(bad)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
 	}
 	if _, err := ParseSchema([]byte(`{"type":"x","cardinality":"lots"}`)); err == nil {
 		t.Fatal("bad cardinality accepted")
