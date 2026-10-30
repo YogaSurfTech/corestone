@@ -138,7 +138,7 @@ export class Overview extends LitElement {
       e.stopPropagation();
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
-      navigate({ guid, folder: this.endpoints[guid]?.folder ?? this.s.route.folder });
+      navigate({ guid, folder: this.s.route.folder });
     }}>${this.endpointLabel(guid)}</a>`;
   }
 
@@ -169,6 +169,7 @@ export class Overview extends LitElement {
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),
       ...(links ? [
+        { id: "$author", name: "Author", value: (row) => row.author || null, render: (row) => row.author || "\u2014" },
         { id: "$created", name: "Created", cls: "muted", value: (row) => row.createdAt ? Date.parse(row.createdAt) || null : null,
           title: (row) => fmtTime(row.createdAt), render: (row) => relTime(row.createdAt) },
         { id: "$modified", name: "Updated", cls: "muted", value: (row) => row.modifiedAt ? Date.parse(row.modifiedAt) || null : null,

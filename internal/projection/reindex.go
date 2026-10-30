@@ -699,6 +699,9 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 			}
 		}
 	}
+	if err := p.fillLinkAuthors(ctx, tx); err != nil {
+		return err
+	}
 	return unavailable(tx.Commit())
 }
 

@@ -289,6 +289,9 @@ var ddl = []string{
 		error text NOT NULL DEFAULT '',
 		created_at timestamptz, modified_at timestamptz,
 		created_commit text, modified_commit text)`,
+	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS created_author text NOT NULL DEFAULT ''`,
+	`CREATE INDEX IF NOT EXISTS artifacts_missing_link_author ON artifacts (created_commit)
+		WHERE kind = 'link' AND created_author = ''`,
 	`CREATE INDEX IF NOT EXISTS artifacts_path_gist ON artifacts USING GIST (path)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_folder ON artifacts (folder)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_kind_type ON artifacts (kind, type)`,
@@ -371,7 +374,15 @@ func (p *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("projection schema: %w", err)
 		}
 	}
-	return nil
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		return unavailable(err)
+	}
+	defer tx.Rollback()
+	if err := p.fillLinkAuthors(ctx, tx); err != nil {
+		return err
+	}
+	return unavailable(tx.Commit())
 }
 
 // ---- hierarchy encoding ---------------------------------------------------

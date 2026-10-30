@@ -177,9 +177,10 @@ The server enforces the effective configuration at the artifact's location:
   columns breaking ties. Clicking the primary reverses it; promoting a secondary preserves its
   direction. Only the primary indicator is shown, and the sort order is remembered locally.
 - **Links overview:** From, Role and To precede the defined link fields. Endpoints show their
-  current HID, or their full GUID when no HID exists. Created and Updated follow the
-  link fields. Endpoint links open the corresponding
-  artifact; other cells open the link itself. Role labels use the scoped link type display name.
+  current HID, or their full GUID when no HID exists. Author, Created and Updated follow the
+  link fields. Author is the Git author of the creation commit (also for existing links),
+  not the author of the latest update. Endpoint links open the corresponding
+  artifact without changing the current navigation scope; other cells open the link itself. Role labels use the scoped link type display name.
 - **Overview sorting:** enumeration columns use the configured option sequence, reversed for
   descending order, rather than alphabetical order. Multiple-choice fields sort by their highest
   selected option in that sequence, regardless of selection order. Unlisted values follow configured

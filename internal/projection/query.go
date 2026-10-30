@@ -36,7 +36,7 @@ const (
 )
 
 const summaryCols = `a.guid, a.kind, a.type, a.title, COALESCE(a.hid,''), a.folder, a.file_path, COALESCE(a.base,''),
-	COALESCE(a.source,''), COALESCE(a.target,''), COALESCE(a.subject,''), COALESCE(a.parent,''), a.author, a.created,
+	COALESCE(a.source,''), COALESCE(a.target,''), COALESCE(a.subject,''), COALESCE(a.parent,''), CASE WHEN a.kind = 'link' THEN a.created_author ELSE a.author END, a.created,
 	a.states, a.fields, a.blob_sha, a.created_at, a.modified_at,
 	(SELECT count(*) FROM artifacts l WHERE l.kind = 'link' AND (l.source = a.guid OR l.target = a.guid)),
 	(SELECT count(*) FROM artifacts c WHERE c.kind = 'comment' AND c.subject = a.guid)`

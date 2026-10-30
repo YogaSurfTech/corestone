@@ -247,6 +247,9 @@ func (p *DB) ProjectCommit(ctx context.Context, tx *sql.Tx, commit string, chang
 			return err
 		}
 	}
+	if err := p.fillLinkAuthors(ctx, tx); err != nil {
+		return err
+	}
 	return recordCommit(ctx, tx, commit, changes)
 }
 
