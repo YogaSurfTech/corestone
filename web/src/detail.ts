@@ -3,7 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
-import type { CommentView, LogEntry, OverlayView, Relationships, Schema, View, WorkflowEval } from "./types";
+import type { CommentView, LogEntry, OverlayView, Relationships, Schema, Summary, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
 import "./type-icon";
@@ -31,6 +31,8 @@ export class Detail extends LitElement {
   @state() private schema: Schema | null = null;
   @state() private workflows: WorkflowEval[] = [];
   @state() private rel: Relationships | null = null;
+  /** For a link: the artifacts it connects (null when an endpoint no longer exists). */
+  @state() private endpoints: { source: Summary | null; target: Summary | null } | null = null;
   @state() private comments: CommentView[] = [];
   @state() private overlay: OverlayView | null = null;
   /** The base's effective fields: what this entry shows where it sets nothing itself. */
@@ -119,15 +121,18 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.endpoints = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
     this.error = "";
     try {
       const view = await api.get(guid);
       if (stale()) return;
-      const [schema, wf, rel, comments, history, overlay, baseOverlay, types] = await Promise.all([
+      const isLink = view.meta.kind === "link";
+      const endpoint = (g?: string) => g ? api.get(g).then((e) => e.meta).catch(() => null) : Promise.resolve(null);
+      const [schema, wf, rel, endpoints, comments, history, overlay, baseOverlay, types] = await Promise.all([
         api.schemaOf(guid).catch(() => ({ schema: null })),
         api.workflows(guid).catch(() => ({ workflows: [] })),
-        api.relationships(guid).catch(() => null),
+        isLink ? Promise.resolve(null) : api.relationships(guid).catch(() => null),
+        isLink ? Promise.all([endpoint(view.meta.source), endpoint(view.meta.target)]) : Promise.resolve(null),
         api.comments(guid).catch(() => ({ comments: [] })),
         // History is only fetched while its section is open.
         this.isOpen("history") ? api.history(guid).catch(() => ({ history: [] })) : Promise.resolve(null),
@@ -153,6 +158,7 @@ export class Detail extends LitElement {
       this.schema = schema.schema;
       this.workflows = wf.workflows;
       this.rel = rel;
+      this.endpoints = endpoints ? { source: endpoints[0], target: endpoints[1] } : null;
       this.comments = comments.comments;
       this.history = history?.history ?? [];
       this.historyLoaded = !!history;
@@ -290,23 +296,26 @@ export class Detail extends LitElement {
     if (!this.view && (this.loading || !this.error)) return html`<div class="empty-state">Loading…</div>`;
     if (!this.view) return html`<div class="empty-state"><div class="big">Artifact not available</div>${this.error}<br><button class="btn" @click=${() => navigate({ guid: null })}>Back</button></div>`;
     if (!this.draft) return html`<div class="empty-state">Loading…</div>`;
-    const v = this.view;
     const r = this.s.route;
-    const active = r.tab || "fields";
+    const order = this.sectionOrder();
+    const active = r.tab || order[0];
+    const body: Record<Section, () => unknown> = {
+      fields: () => this.fieldsSection(),
+      workflows: () => this.workflowSection(),
+      relationships: () => this.relSection(),
+      comments: () => this.commentSection(),
+      overlay: () => this.overlaySection(),
+      attachments: () => this.attachmentSection(),
+      history: () => this.historySection(),
+      metadata: () => this.metadataSection(),
+    };
     return html`
       ${this.header()}
       <div class="detail-body">
-        <nav class="quicklinks">${SECTIONS.filter((s) => this.hasSection(s)).map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.reveal(s); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
+        <nav class="quicklinks">${order.map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.reveal(s); }}>${this.sectionName(s)}<span class="n">${this.sectionCount(s)}</span></a>`)}</nav>
         <div class="sections">
           ${this.error ? html`<div class="notice error" role="alert">${this.error} ${this.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.draft = null; this.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
-          ${this.fieldsSection()}
-          ${this.hasSection("workflows") ? this.workflowSection() : nothing}
-          ${this.relSection()}
-          ${this.commentSection()}
-          ${this.hasSection("overlay") ? this.overlaySection() : nothing}
-          ${v.meta.kind === "entry" || v.meta.kind === "document" ? this.attachmentSection() : nothing}
-          ${this.historySection()}
-          ${this.metadataSection()}
+          ${order.map((s) => body[s]())}
         </div>
       </div>
       ${this.dirty ? html`<div class="savebar"><span class="dirty">Unsaved changes</span>
@@ -365,6 +374,14 @@ export class Detail extends LitElement {
     </div>`;
   }
 
+  /** A link is about the relation it expresses, so its endpoints come before its fields. */
+  private sectionOrder(): Section[] {
+    const order: readonly Section[] = this.view?.meta.kind === "link"
+      ? ["relationships", "fields", ...SECTIONS.filter((s) => s !== "relationships" && s !== "fields")]
+      : SECTIONS;
+    return order.filter((s) => this.hasSection(s));
+  }
+
   private hasSection(s: string): boolean {
     const k = this.view?.meta.kind;
     switch (s) {
@@ -377,7 +394,7 @@ export class Detail extends LitElement {
   private isEmpty(s: Section): boolean {
     switch (s) {
       case "fields": return !(this.schema?.fields ?? []).some((f) => f.type !== "workflow") && !Object.keys(this.draft?.fields ?? {}).length;
-      case "relationships": return !this.rel || !(this.rel.incoming.length + this.rel.outgoing.length);
+      case "relationships": return this.view?.meta.kind !== "link" && (!this.rel || !(this.rel.incoming.length + this.rel.outgoing.length));
       case "comments": return !this.comments.length;
       case "attachments": return !this.view?.attachments?.length;
       case "overlay": return !this.overlay || (this.overlay.chain.length <= 1 && !this.overlay.overlays.length);
@@ -418,7 +435,7 @@ export class Detail extends LitElement {
   private sectionCount(s: string): string {
     switch (s) {
       case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
-      case "relationships": return String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
+      case "relationships": return this.view?.meta.kind === "link" ? "" : String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
       case "comments": return String(this.comments.length || "");
       case "attachments": return String(this.view?.attachments?.length || "");
       case "history": return this.historyLoaded ? String(this.history.length || "") : "";
@@ -483,7 +500,21 @@ export class Detail extends LitElement {
       </div>`)}`);
   }
 
+  /** A link's own relation: From → role → To, each endpoint opening that artifact. */
+  private linkRelSection() {
+    const v = this.view!;
+    const end = (guid: string | undefined, s: Summary | null | undefined) => !guid ? html`<span class="muted">—</span>`
+      : !s ? html`<span class="muted mono" title="This artifact no longer exists">${guid}</span>`
+      : html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
+        <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid }); }}>${label(s)}</a></span>`;
+    return this.section("relationships", () => html`<div class="links-list"><div class="link-row" data-test="link-relation">
+      ${end(v.meta.source, this.endpoints?.source)}
+      <span class="arrow">→</span><span class="type">${this.schema?.displayName ?? v.meta.type}</span><span class="arrow">→</span>
+      ${end(v.meta.target, this.endpoints?.target)}</div></div>`);
+  }
+
   private relSection() {
+    if (this.view?.meta.kind === "link") return this.linkRelSection();
     const rel = this.rel;
     const row = (lv: { link: { type: string; guid: string }; other: { guid: string; title?: string; hid?: string; kind: string; type: string; folder: string } }, dir: "in" | "out") => html`<div class="link-row">
       <span class="type">${lv.link.type}</span><span class="arrow">${dir === "in" ? "←" : "→"}</span>

@@ -134,7 +134,8 @@ export class Overview extends LitElement {
 
   private endpoint(guid?: string) {
     if (!guid) return html`<span class="muted">—</span>`;
-    return html`<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => {
+    const s = this.endpoints[guid];
+    return html`${s ? html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>` : nothing}<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => {
       e.stopPropagation();
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       e.preventDefault();

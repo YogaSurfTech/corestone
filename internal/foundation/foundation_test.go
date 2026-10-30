@@ -224,6 +224,15 @@ func TestLifecycle(t *testing.T) {
 	if len(comments) != 2 || comments[0].Meta.GUID != c1.Meta.GUID || comments[1].Data.String("parent") != c1.Meta.GUID || comments[1].Data.String("text") == "" {
 		t.Fatalf("comments %+v", comments)
 	}
+	// Comments are part of their subject's history.
+	commented := map[string]bool{}
+	commitLog, _ := f.History(ctx, r1.Meta.GUID, 0)
+	for _, h := range commitLog {
+		commented[h.Trailers["Corestone-Guid"]] = true
+	}
+	if !commented[c1.Meta.GUID] || !commented[c2.Meta.GUID] {
+		t.Fatalf("comment commits missing from subject history %+v", commitLog)
+	}
 	_ = c2
 
 	// workflow evaluation and transitions

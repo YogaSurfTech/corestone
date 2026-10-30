@@ -74,6 +74,26 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   await expect(page.locator(".toast.error")).toContainText("already exists"); // duplicate of the first link
 });
 
+test("link detail leads with its relation; comments join the subject's history", async ({ page }) => {
+  const r = await post("/entries", { path: folder, type: "req", title: `Linked req ${id}`, fields: { priority: "low" } });
+  const t = await post("/entries", { path: folder, type: "tc", title: `Linked test ${id}` });
+  const l = await post("/links", { type: "verifies", source: t.meta.guid, target: r.meta.guid });
+  await page.goto(`/artifact/${l.meta.guid}`);
+  await expect(page.locator(".quicklinks a").first()).toContainText("Relationships");
+  await expect(page.locator(".sections > section").nth(0)).toHaveAttribute("id", "sec-relationships");
+  await expect(page.locator(".sections > section").nth(1)).toHaveAttribute("id", "sec-fields");
+  const relation = page.locator('#sec-relationships [data-test="link-relation"]');
+  await expect(relation).toContainText(`Linked test ${id}`);
+  await expect(relation).toContainText(`Linked req ${id}`);
+  await expect(page.locator("#sec-relationships .actions button")).toHaveCount(0);
+  await relation.getByRole("link", { name: `Linked req ${id}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${r.meta.guid}`));
+  await post("/comments", { subject: r.meta.guid, text: "history note" });
+  await page.reload();
+  await page.locator(".quicklinks a", { hasText: "History" }).click();
+  await expect(page.locator("#sec-history .history-row", { hasText: "Comment added to" })).toHaveCount(1);
+});
+
 test("overlays: three levels, per-field origin, override and revert", async ({ page }) => {
   const base = await post("/entries", { path: folder, type: "req", title: `Base ${id}`, fields: { priority: "high", rationale: "from base", effort: 8 } });
   const mid = await post("/entries", { path: folder, type: "req", title: `Mid ${id}`, base: base.meta.guid, fields: { effort: 5 } });
