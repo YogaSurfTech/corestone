@@ -71,7 +71,8 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 - `projection.go` — connection, DDL (`repo_state.processed_hash`, `artifacts` with an `ltree` path,
   `artifact_fields`, `artifact_refs`, `artifact_files`, `config_files`, `hid_history`,
-  `deleted_artifacts`), status
+  `deleted_artifacts`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
+  ICU collation `corestone_natural`), status
   and maintenance mode (also advertised through `repo_state.maintenance` for other processes), the
   §10.1 publish mutex, ltree label encoding.
 - `extract.go` — turns a blob into a row: metadata, key/value field index, outgoing references
@@ -85,6 +86,10 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 - `query.go` — locate, get, search (filters, states, fields, full text), folders, scopes, HID
   helpers, links/comments, attachments, configuration files, HID history, deleted artifacts,
   statistics.
+- `table.go` — generic tables: `QueryIDs` sorts the complete filtered set in SQL (up to three
+  levels over overview columns or field ids; enum, workflow-field and state values rank by
+  configuration, passed as one JSON parameter; empty values last in either direction) and returns
+  up to 50 000 GUIDs; `Details` fetches rows by GUID in request order.
 - `validate.go` — the repository validation service.
 
 ## internal/foundation — the service
@@ -100,12 +105,14 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.
 - `read.go` — views: artifact, effective schema, visible types, overlay analysis, workflow
   evaluation, relationship analysis, comments, documents embedding an entry, history across moves,
-  tree, search, status.
+  tree, search, table query and row details (with related endpoints and subjects), status.
 
 ## internal/httpapi — transport
 
 Routes (Go 1.22 method patterns), 4 MiB body cap, ETag/If-Match/If-None-Match per RFC 9110, error
-mapping (400/404/409/412/503), kind-checked collections. `ws.go` is the session hub: hello, commit
+mapping (400/404/409/412/503), kind-checked collections. Generic tables use `POST /api/repository/query`
+(`{filter, sort: [{col, dir}], limit}` → `{total, ids, truncated}`) and `POST /api/artifacts/details`
+(`{ids ≤ 500, columns}` → `{artifacts, related}`). `ws.go` is the session hub: hello, commit
 and status broadcasts, viewer/editor presence per artifact.
 
 ## web — the client

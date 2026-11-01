@@ -450,6 +450,81 @@ func (f *Foundation) Search(ctx context.Context, q projection.Query) ([]*model.S
 	return res, total, err
 }
 
+// TableQuery returns the sorted GUIDs of every artifact matching q
+// (generic tables, TSK-34).
+func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []projection.SortLevel, limit int) (*projection.TableResult, error) {
+	if q.Folder != "" {
+		folder, err := model.CleanFolder(q.Folder)
+		if err != nil {
+			return nil, err
+		}
+		q.Folder = folder
+	}
+	return f.DB.QueryIDs(ctx, q, sort, limit)
+}
+
+// TableRows are the rows of a generic table plus the artifacts they
+// point at (link endpoints, comment subjects and the endpoints of link
+// subjects), so a client can label them without further requests.
+type TableRows struct {
+	Artifacts []*model.Summary          `json:"artifacts"`
+	Related   map[string]*model.Summary `json:"related"`
+}
+
+// Details returns the summaries of guids in that order, unknown ones left
+// out. With columns, only the field values of those columns are included.
+func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*TableRows, error) {
+	if len(guids) > projection.MaxDetails {
+		return nil, fmt.Errorf("%w: at most %d artifacts per request", model.ErrValidation, projection.MaxDetails)
+	}
+	rows, err := f.DB.Details(ctx, guids)
+	if err != nil {
+		return nil, err
+	}
+	if columns != nil {
+		keep := map[string]bool{}
+		for _, c := range columns {
+			keep[c] = true
+		}
+		for _, s := range rows {
+			for id := range s.Fields {
+				if !keep[id] {
+					delete(s.Fields, id)
+				}
+			}
+		}
+	}
+	out := &TableRows{Artifacts: rows, Related: map[string]*model.Summary{}}
+	// Two rounds: endpoints and subjects, then the endpoints of link subjects.
+	pending := rows
+	for round := 0; round < 2 && len(pending) > 0; round++ {
+		var want []string
+		for _, s := range pending {
+			for _, g := range []string{s.Source, s.Target, s.Subject} {
+				if g != "" && out.Related[g] == nil {
+					want = append(want, g)
+				}
+			}
+		}
+		if len(want) == 0 {
+			break
+		}
+		found, err := f.DB.Details(ctx, want)
+		if err != nil {
+			return nil, err
+		}
+		pending = nil
+		for _, s := range found {
+			s.Fields = nil
+			out.Related[s.GUID] = s
+			if s.Kind == model.KindLink {
+				pending = append(pending, s)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Status is the repository status report.
 type Status struct {
 	Branch     string            `json:"branch"`

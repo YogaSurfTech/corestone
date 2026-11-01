@@ -61,6 +61,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/repository", s.status)
 	m.HandleFunc("GET /api/repository/tree", s.tree)
 	m.HandleFunc("GET /api/repository/search", s.search)
+	m.HandleFunc("POST /api/repository/query", s.tableQuery)
+	m.HandleFunc("POST /api/artifacts/details", s.details)
 	m.HandleFunc("GET /api/repository/types", s.types)
 	m.HandleFunc("GET /api/repository/values", s.values)
 	m.HandleFunc("GET /api/repository/validate", s.validate)
@@ -630,6 +632,82 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"artifacts": res, "total": total, "limit": q.Limit, "offset": q.Offset})
+}
+
+// readJSON decodes a JSON request body into v.
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large or unreadable")
+		return false
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return true
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// tableQuery returns the sorted GUIDs of a generic table (TSK-34):
+// {filter: {q, path, subtree, kind, type, hid, fields, states, valid},
+// sort: [{col, dir}], limit} -> {total, ids, truncated}.
+func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Filter struct {
+			Q       string            `json:"q"`
+			Path    string            `json:"path"`
+			Subtree *bool             `json:"subtree"`
+			Kind    []string          `json:"kind"`
+			Type    string            `json:"type"`
+			HID     string            `json:"hid"`
+			Fields  map[string]string `json:"fields"`
+			States  map[string]string `json:"states"`
+			Valid   *bool             `json:"valid"`
+		} `json:"filter"`
+		Sort  []projection.SortLevel `json:"sort"`
+		Limit int                    `json:"limit"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	f := body.Filter
+	q := projection.Query{Text: f.Q, Type: f.Type, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
+		HID: f.HID, Fields: f.Fields, States: f.States, Valid: f.Valid}
+	for _, k := range f.Kind {
+		kind, err := model.ParseKind(k)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		q.Kinds = append(q.Kinds, kind)
+	}
+	res, err := s.F.TableQuery(r.Context(), q, body.Sort, body.Limit)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// details returns table rows by GUID: {ids, columns} -> {artifacts, related}.
+// Without columns every field value is included.
+func (s *Server) details(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs     []string `json:"ids"`
+		Columns []string `json:"columns"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	res, err := s.F.Details(r.Context(), body.IDs, body.Columns)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) types(w http.ResponseWriter, r *http.Request) {

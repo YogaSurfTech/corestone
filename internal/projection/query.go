@@ -102,27 +102,21 @@ func (p *DB) Get(ctx context.Context, guid string) (*model.Summary, error) {
 	return s, nil
 }
 
-// Search runs a filtered, optionally full-text query.
-func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error) {
-	if q.Text != "" && !p.Status().Capabilities.Search {
-		return nil, 0, fmt.Errorf("%w: full-text search is being rebuilt", model.ErrUnavailable)
-	}
-	if !p.Status().Capabilities.Query {
-		return nil, 0, fmt.Errorf("%w: projection is being rebuilt", model.ErrUnavailable)
-	}
-	q.Text, q.Type, q.HID, q.Sort = clean(q.Text), clean(q.Type), clean(q.HID), clean(q.Sort)
+// normalize cleans the user-supplied strings of q.
+func (q *Query) normalize() {
+	q.Text, q.Type, q.HID, q.Sort = strings.TrimSpace(clean(q.Text)), clean(q.Type), clean(q.HID), clean(q.Sort)
 	for k, v := range q.Fields {
 		q.Fields[k] = clean(v)
 	}
 	for k, v := range q.States {
 		q.States[k] = clean(v)
 	}
+}
+
+// conditions renders the filter of q as SQL conditions on artifacts a,
+// binding values through arg.
+func (q *Query) conditions(arg func(any) string) []string {
 	var where []string
-	var args []any
-	arg := func(v any) string {
-		args = append(args, v)
-		return "$" + strconv.Itoa(len(args))
-	}
 	if len(q.Kinds) > 0 {
 		var ks []string
 		for _, k := range q.Kinds {
@@ -152,13 +146,33 @@ func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error)
 	if q.Valid != nil {
 		where = append(where, "a.valid = "+arg(*q.Valid))
 	}
-	order := "a.modified_at DESC NULLS LAST, a.file_path"
-	text := strings.TrimSpace(q.Text)
-	if text != "" {
-		t := arg(text)
-		like := arg("%" + escapeLike(text) + "%")
+	if q.Text != "" {
+		t := arg(q.Text)
+		like := arg("%" + escapeLike(q.Text) + "%")
 		where = append(where, "(a.tsv @@ plainto_tsquery('simple', "+t+") OR a.hid ILIKE "+like+" OR a.title ILIKE "+like+")")
-		order = "ts_rank(a.tsv, plainto_tsquery('simple', " + t + ")) DESC, " + order
+	}
+	return where
+}
+
+// Search runs a filtered, optionally full-text query.
+func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error) {
+	if q.Text != "" && !p.Status().Capabilities.Search {
+		return nil, 0, fmt.Errorf("%w: full-text search is being rebuilt", model.ErrUnavailable)
+	}
+	if !p.Status().Capabilities.Query {
+		return nil, 0, fmt.Errorf("%w: projection is being rebuilt", model.ErrUnavailable)
+	}
+	q.normalize()
+	var args []any
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+	where := q.conditions(arg)
+	filterArgs := len(args)
+	order := "a.modified_at DESC NULLS LAST, a.file_path"
+	if q.Text != "" {
+		order = "ts_rank(a.tsv, plainto_tsquery('simple', " + arg(q.Text) + ")) DESC, " + order
 	}
 	switch q.Sort {
 	case "title":
@@ -182,7 +196,7 @@ func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error)
 		sqlWhere = " WHERE " + strings.Join(where, " AND ")
 	}
 	var total int
-	if err := p.sql.QueryRowContext(ctx, `SELECT count(*) FROM artifacts a`+sqlWhere, args...).Scan(&total); err != nil {
+	if err := p.sql.QueryRowContext(ctx, `SELECT count(*) FROM artifacts a`+sqlWhere, args[:filterArgs]...).Scan(&total); err != nil {
 		return nil, 0, unavailable(err)
 	}
 	stmt := `SELECT ` + summaryCols + ` FROM artifacts a` + sqlWhere + ` ORDER BY ` + order +
