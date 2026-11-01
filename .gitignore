@@ -5,3 +5,14 @@ web/dist/
 web/test-results/
 web/playwright-report/
 web/shots/
+
+# distrobox home-directory artifacts
+/.ssh/
+/.bash_history
+/.bash_logout
+/.bash_profile
+/.bashrc
+/.cache/
+/.config/
+/.npm/
+/go/
