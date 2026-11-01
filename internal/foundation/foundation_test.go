@@ -37,7 +37,7 @@ func obj(t *testing.T, s string) *ojson.Object {
 
 // linkTypes is the root links/types.json of the test domain.
 const linkTypes = `{"types":[
-	{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-one","fields":["coverage"]},
+	{"id":"verifies","reverseName":"verified by","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-one","fields":["coverage"]},
 	{"id":"related"}]}`
 
 // seedCommits is the number of commits seed makes (one per file).
@@ -203,6 +203,13 @@ func TestLifecycle(t *testing.T) {
 	rel, err := f.Relationships(ctx, r1.Meta.GUID)
 	if err != nil || len(rel.Incoming) != 1 || len(rel.Outgoing) != 1 || rel.Incoming[0].Other.HID != "TC-001" {
 		t.Fatalf("relationships %+v %v", rel, err)
+	}
+	// incoming links read by their reverse name; without one the display name serves both ways
+	if rel.Incoming[0].Role != "verified by" || rel.Outgoing[0].Role != "related" {
+		t.Fatalf("roles %q %q", rel.Incoming[0].Role, rel.Outgoing[0].Role)
+	}
+	if rel2, _ := f.Relationships(ctx, r2.Meta.GUID); len(rel2.Incoming) != 1 || rel2.Incoming[0].Role != "related" {
+		t.Fatalf("reverse fallback %+v", rel2)
 	}
 	if len(rel.AsTarget) != 2 || len(rel.AsSource) != 1 { // verifies+related as target, related as source
 		t.Fatalf("allowed link types %d %d", len(rel.AsSource), len(rel.AsTarget))

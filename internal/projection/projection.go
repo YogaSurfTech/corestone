@@ -293,6 +293,24 @@ var ddl = []string{
 	`CREATE INDEX IF NOT EXISTS artifacts_missing_link_author ON artifacts (created_commit)
 		WHERE kind = 'link' AND created_author = ''`,
 	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS excerpt text NOT NULL DEFAULT ''`,
+	// Natural ID order (TSK-2 before TSK-10): PostgreSQL derives prefix and
+	// number on every write, so neither sync nor reindex has to fill them.
+	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS hid_prefix text
+		GENERATED ALWAYS AS (lower(regexp_replace(hid, '[0-9]+$', ''))) STORED`,
+	`ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS hid_num numeric
+		GENERATED ALWAYS AS ((substring(hid from '[0-9]+$'))::numeric) STORED`,
+	`CREATE INDEX IF NOT EXISTS artifacts_hid_natural ON artifacts (hid_prefix, hid_num, hid)`,
+	// Case- and accent-insensitive order that compares digit runs as numbers,
+	// like the web client's Intl.Collator; plain order without ICU.
+	`DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'corestone_natural' AND collnamespace = current_schema()::regnamespace) THEN
+			BEGIN
+				CREATE COLLATION corestone_natural (provider = icu, locale = 'und-u-kn-ks-level1', deterministic = false);
+			EXCEPTION WHEN OTHERS THEN
+				CREATE COLLATION corestone_natural FROM "default";
+			END;
+		END IF;
+	END $$`,
 	`CREATE INDEX IF NOT EXISTS artifacts_path_gist ON artifacts USING GIST (path)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_folder ON artifacts (folder)`,
 	`CREATE INDEX IF NOT EXISTS artifacts_kind_type ON artifacts (kind, type)`,

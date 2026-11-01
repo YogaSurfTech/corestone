@@ -1,5 +1,6 @@
 import type {
-  Attachment, CommentView, Issue, LogEntry, OverlayView, Relationships, RepoStatus, Schema, Summary, Tree, View, Workflow, WorkflowEval,
+  Attachment, CommentView, Issue, LogEntry, OverlayView, Relationships, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, View,
+  Workflow, WorkflowEval,
 } from "./types";
 
 export class ApiError extends Error {
@@ -19,8 +20,8 @@ function userHeader(): Record<string, string> {
   return user ? { "X-Corestone-User": encodeURIComponent(user) } : {};
 }
 
-async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-  const init: RequestInit = { method, headers: { ...userHeader(), ...headers } };
+async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
+  const init: RequestInit = { method, headers: { ...userHeader(), ...headers }, signal };
   if (body !== undefined) {
     if (typeof body === "string") {
       init.body = body;
@@ -74,6 +75,11 @@ export const api = {
   validate: () => request<{ issues: Issue[]; errors: number; warnings: number }>("GET", "/repository/validate"),
   reindex: () => request<{ started: boolean }>("POST", "/repository/reindex"),
   moveFolder: (from: string, to: string) => request<{ moved: number }>("POST", "/repository/folders/move", { from, to }),
+  /** The sorted GUIDs of every match (generic tables); rows come from details. */
+  query: (body: { filter?: TableFilter; sort?: SortLevel[]; limit?: number }, signal?: AbortSignal) =>
+    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query", body, {}, signal),
+  details: (ids: string[], columns?: string[], signal?: AbortSignal) =>
+    request<TableRows>("POST", "/artifacts/details", { ids, columns }, {}, signal),
   hid: (hid: string) => request<{ records: { guid: string; hid: string; current: boolean }[] }>("GET", "/repository/hids/" + encodeURIComponent(hid)),
 
   get: (guid: string) => request<View>("GET", "/artifacts/" + guid),

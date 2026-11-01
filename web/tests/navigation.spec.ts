@@ -1,4 +1,5 @@
 import { answerPrompt, api, expect, get, post, seedDomain, stamp, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // Navigation and shell behaviour: keyboard shortcuts, breadcrumbs,
 // history navigation, deep links, filters, kind chips, columns, sorting,
@@ -36,7 +37,7 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await expect(page.locator(".toolbar .title")).toHaveText(folder);
   // open an artifact, Escape closes it, back reopens it
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
-  await page.locator("table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
+  await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await page.locator("body").click({ position: { x: 700, y: 60 } });
   await page.keyboard.press("Escape");
@@ -70,7 +71,7 @@ test("deep links: section tab, expanded layout, folder context", async ({ page }
 
 test("overview: kind chips, schema columns, subtree, sorting stability, social counts", async ({ page }) => {
   await page.goto(`/folder/${folder}?subtree=1`);
-  const table = page.locator("table.grid");
+  const table = page.locator("corestone-overview table.grid");
   await expect(table.locator("thead")).toContainText("Priority");
   await expect(table.locator("thead")).toContainText("Effort");
   await expect(table.locator("tbody tr")).toHaveCount(4);
@@ -114,10 +115,10 @@ test("search: text, HID, results across folders, clearing", async ({ page }) => 
   await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
   await page.locator("[data-test=subtree]").check();
   await expect(page.locator(".toolbar .title")).toContainText("gamma");
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   const hid = (await (await fetch(`${api}/entries/${guids.b}`)).json()).meta.hid as string;
   await page.locator("[data-test=search]").fill(hid);
-  await expect(page.locator("table.grid tbody tr", { hasText: `Beta two ${id}` })).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Beta two ${id}` })).toHaveCount(1);
   await page.locator("[data-test=search]").fill("");
   await expect(page.locator(".toolbar .title")).toHaveText(folder);
   await expect(page).not.toHaveURL(/q=/);
@@ -137,7 +138,7 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   await expect(page.locator("corestone-sidebar")).toBeVisible(); // overlays the content on small screens
   await page.locator(".nav-scrim").click({ position: { x: 700, y: 400 } }); // tapping beside the overlay closes it
   await expect(page.locator("corestone-sidebar")).toBeHidden();
-  await page.locator("table.grid tbody tr").first().click();
+  await page.locator("corestone-overview table.grid tbody tr").first().click();
   await expect(page.locator("corestone-detail [data-test=title]")).toBeVisible();
   const overflow = await page.evaluate(() => document.querySelector(".shell")!.scrollWidth - document.querySelector(".shell")!.clientWidth);
   expect(overflow).toBe(0);
@@ -146,13 +147,13 @@ test("navigation collapse persists; responsive layout; dark mode", async ({ page
   const small = await phone.newPage();
   await small.goto(`/folder/${folder}?subtree=1`);
   await expect(small.locator("corestone-sidebar")).toBeHidden();
-  await expect(small.locator("table.grid tbody tr").first()).toBeVisible();
+  await expect(small.locator("corestone-overview table.grid tbody tr").first()).toBeVisible();
   await small.locator("header button[title='Toggle navigation']").click();
   await expect(small.locator("corestone-sidebar")).toBeVisible();
   await small.locator(`.tree .row[data-folder='${folder}/alpha']`).click();
   await expect(small.locator("corestone-sidebar")).toBeHidden();
   await expect(small).toHaveURL(new RegExp(`/folder/${folder}/alpha`));
-  await small.locator("table.grid tbody tr").first().click();
+  await small.locator("corestone-overview table.grid tbody tr").first().click();
   await expect(small.locator("corestone-detail [data-test=title]")).toBeVisible();
   await phone.close();
   // dark mode renders with dark background and readable text
@@ -234,15 +235,18 @@ test("status indicator, user name and reindex", async ({ page }) => {
   // wait for the rebuild itself to finish, not just for the header to look calm
   await expect.poll(async () => (await get<{ projection: { lastRebuild?: string } }>("/repository")).projection.lastRebuild ?? "", { timeout: 60000 }).not.toBe(before);
   await expect(page.locator("header .status")).toContainText("in sync", { timeout: 20000 });
-  await expect(page.locator("table.grid tbody tr, .empty-state").first()).toBeVisible();
+  await expect(page.locator("corestone-overview table.grid tbody tr, .empty-state").first()).toBeVisible();
   // a large folder still lists and filters quickly
   const many = Array.from({ length: 120 }, (_, i) => post("/entries", { path: `${folder}/bulk`, type: "req", title: `Bulk ${i} ${id}`, fields: { priority: "low", effort: i } }));
   await Promise.all(many);
   await page.locator(`.tree .row[data-folder="${folder}/bulk"]`).click();
   await expect(page.locator(".toolbar .hint")).toContainText("120 artifacts");
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(120);
+  // rows are loaded lazily: the table knows all of them but renders the visible ones
+  await expect(page.locator("corestone-overview table.grid")).toHaveAttribute("aria-rowcount", "120");
+  expect(await page.locator("corestone-overview table.grid tbody tr").count()).toBeLessThan(120);
   await page.locator("[data-test=search]").fill(`Bulk 7 ${id}`);
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid")).toHaveAttribute("aria-rowcount", "1");
 });
 
 test("the divider between overview and detail can be dragged, keyed, reset, and is remembered", async ({ page }) => {
@@ -304,25 +308,25 @@ test("table headers sort ascending and descending, columns resize, and both are 
   await post("/entries", { path: sub, type: "tc", title: `Mu 9 ${id}` });
   await post("/entries", { path: sub, type: "tc", title: `Zeta ${id}` });
   await page.goto(`/folder/${sub}`);
-  const header = (col: string) => page.locator(`table.grid th[data-col="${col}"]`);
+  const header = (col: string) => page.locator(`corestone-overview table.grid th[data-col="${col}"]`);
   const column = (col: string) => page.evaluate((c) => {
-    const i = document.querySelector<HTMLTableCellElement>(`table.grid th[data-col="${c}"]`)!.cellIndex;
-    return [...document.querySelectorAll<HTMLTableRowElement>("table.grid tbody tr")].map((tr) => tr.cells[i].innerText.trim());
+    const i = document.querySelector<HTMLTableCellElement>(`corestone-overview table.grid th[data-col="${c}"]`)!.cellIndex;
+    return [...document.querySelectorAll<HTMLTableRowElement>("corestone-overview table.grid tbody tr:not(.placeholder)")].map((tr) => tr.cells[i].innerText.trim());
   }, col);
   const titles = async () => (await column("$title")).map((t) => t.replace(/^[EDLC]\s*/, ""));
   const names = [`alpha ${id}`, `Mu 9 ${id}`, `Mu 10 ${id}`, `Zeta ${id}`]; // case-insensitive, natural number order
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(4);
   await header("$title").locator(".th-sort").click();
   await expect(header("$title")).toHaveAttribute("aria-sort", "ascending");
-  expect(await titles()).toEqual(names);
+  await expect.poll(titles).toEqual(names);
   await header("$title").locator(".th-sort").click();
   await expect(header("$title")).toHaveAttribute("aria-sort", "descending");
-  expect(await titles()).toEqual([...names].reverse());
+  await expect.poll(titles).toEqual([...names].reverse());
   // numbers sort by value and empty cells stay last in both directions
   await header("effort").locator(".th-sort").click();
-  expect(await column("effort")).toEqual(["9", "10", "", ""]);
+  await expect.poll(() => column("effort")).toEqual(["9", "10", "", ""]);
   await header("effort").locator(".th-sort").click();
-  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  await expect.poll(() => column("effort")).toEqual(["10", "9", "", ""]);
   await expect(header("$title")).toHaveAttribute("aria-sort", "none");
   // drag the title column's edge
   const width = async () => (await header("$title").boundingBox())!.width;
@@ -336,29 +340,49 @@ test("table headers sort ascending and descending, columns resize, and both are 
   expect(await width()).toBeCloseTo(before + 120, -1);
   const dragged = await width();
   await page.reload();
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(4);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(4);
   await expect.poll(width).toBeCloseTo(dragged, -1);
   await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
-  expect(await column("effort")).toEqual(["10", "9", "", ""]);
+  await expect.poll(() => column("effort")).toEqual(["10", "9", "", ""]);
   // double-click fits the column to its content
   await header("$title").locator(".col-resize").dblclick();
   await expect.poll(width).toBeLessThan(dragged);
   await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
 });
 
+// The repository root holds every artifact the suite created, so the
+// lazily loaded table renders a row only once it is scrolled into view.
+async function scrollToRow(page: Page, text: string) {
+  const row = page.locator("corestone-overview table.grid tbody tr:not(.placeholder)", { hasText: text });
+  const body = page.locator("corestone-overview .ctable-body");
+  await expect(page.locator("corestone-overview table.grid tbody tr").first()).toBeVisible();
+  await body.evaluate((el) => { el.scrollTop = 0; });
+  await expect.poll(async () => {
+    if (await row.count()) return true;
+    const more = await body.evaluate((el) => {
+      const before = el.scrollTop;
+      el.scrollTop = before + el.clientHeight * 0.8;
+      return el.scrollTop > before;
+    });
+    return more ? false : await row.count() > 0;
+  }, { timeout: 30000, intervals: [150] }).toBe(true);
+  await row.scrollIntoViewIfNeeded();
+  return row;
+}
+
 test("opening an artifact keeps the folder, the navigation and the table as they are", async ({ page }) => {
   await page.goto(`/?subtree=1`);
-  const row = page.locator("table.grid tbody tr", { hasText: `Beta two ${id}` });
+  const row = await scrollToRow(page, `Beta two ${id}`);
   await expect(row).toBeVisible();
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   let searches = 0;
-  page.on("request", (r) => { if (r.url().includes("/api/search")) searches++; });
+  page.on("request", (r) => { if (/\/api\/(repository\/(search|query)|search)/.test(r.url())) searches++; });
   await row.click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Beta two ${id}`);
   await expect(page).not.toHaveURL(/folder=/);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   await expect(page.locator(".toolbar .title")).toHaveText("Repository");
-  await page.locator("table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
+  await (await scrollToRow(page, `Alpha one ${id}`)).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   expect(searches).toBe(0);

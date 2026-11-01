@@ -507,3 +507,73 @@ func TestKindWildcardLinkEndpoints(t *testing.T) {
 		t.Fatalf("link types a document may originate: %v", src)
 	}
 }
+
+func TestTableQueryAndDetails(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	var reqs []string
+	for _, prio := range []string{"high", "low", "high"} {
+		r := a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"R","fields":{"priority":"`+prio+`","rationale":"why"}}`, 201)
+		reqs = append(reqs, meta(r, "guid"))
+	}
+	tc := meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"testcase","title":"T"}`, 201), "guid")
+	l := meta(a.ok("POST", "/api/links", `{"type":"verifies","source":"`+tc+`","target":"`+reqs[0]+`"}`, 201), "guid")
+	c := meta(a.ok("POST", "/api/comments", `{"type":"comment","subject":"`+l+`","text":"ok"}`, 201), "guid")
+
+	ids := func(r resp) []string {
+		var out []string
+		for _, id := range r.body["ids"].([]any) {
+			out = append(out, id.(string))
+		}
+		return out
+	}
+	// REQ-1 high, REQ-2 low, REQ-3 high: low before high, then ID descending
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"type":"requirement"},
+		"sort":[{"col":"priority"},{"col":"$hid","dir":"desc"}]}`, 200)
+	if got := ids(r); !slices.Equal(got, []string{reqs[1], reqs[2], reqs[0]}) || r.body["total"] != float64(3) || r.body["truncated"] != false {
+		t.Fatalf("query: %s", r.raw)
+	}
+	r = a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"]},"limit":1}`, 200)
+	if len(ids(r)) != 1 || r.body["total"] != float64(4) || r.body["truncated"] != true {
+		t.Fatalf("truncated query: %s", r.raw)
+	}
+	if r = a.ok("POST", "/api/repository/query", ``, 200); r.body["total"] != float64(6) {
+		t.Fatalf("unfiltered query: %s", r.raw)
+	}
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"types":["testcase","links/*"]}}`, 200); r.body["total"] != float64(2) {
+		t.Fatalf("types filter: %s", r.raw)
+	}
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"types":["*"]}}`, 200); r.body["total"] != float64(4) {
+		t.Fatalf("types wildcard: %s", r.raw)
+	}
+	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$nope"}]}`, 400)
+	a.ok("POST", "/api/repository/query", `{"filter":{"kind":["nope"]}}`, 400)
+	a.ok("POST", "/api/repository/query", `{"filter":{"path":"../x"}}`, 400)
+	a.ok("POST", "/api/repository/query", `[`, 400)
+
+	// rows in request order with only the requested fields; endpoints,
+	// subjects and the endpoints of link subjects come along
+	d := a.ok("POST", "/api/artifacts/details", `{"ids":["`+c+`","00000000-0000-4000-8000-000000000000","`+reqs[1]+`"],"columns":["$hid","priority"]}`, 200)
+	rows := d.body["artifacts"].([]any)
+	if len(rows) != 2 || rows[0].(map[string]any)["guid"] != c {
+		t.Fatalf("details: %s", d.raw)
+	}
+	if f := rows[1].(map[string]any)["fields"].(map[string]any); len(f) != 1 || f["priority"] != "low" {
+		t.Fatalf("details fields: %s", d.raw)
+	}
+	if names := d.body["typeNames"].(map[string]any)["specs"].(map[string]any); names["requirement"] != "Requirement" || names["testcase"] != "testcase" {
+		t.Fatalf("type names: %s", d.raw)
+	}
+	related := d.body["related"].(map[string]any)
+	for _, g := range []string{l, tc, reqs[0]} {
+		if related[g] == nil {
+			t.Fatalf("related %s missing: %s", g, d.raw)
+		}
+	}
+	all := a.ok("POST", "/api/artifacts/details", `{"ids":["`+reqs[1]+`"]}`, 200)
+	if f := all.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 2 {
+		t.Fatalf("details without columns: %s", all.raw)
+	}
+	many := `"` + strings.Repeat(reqs[0]+`","`, 500) + reqs[0] + `"`
+	a.ok("POST", "/api/artifacts/details", `{"ids":[`+many+`]}`, 400)
+}

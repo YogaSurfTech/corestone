@@ -9,7 +9,8 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "test": "playwright test",
-    "test:overview": "node --test tests/overview-definitions.unit.mjs"
+    "test:overview": "node --test tests/overview-definitions.unit.mjs",
+    "test:unit": "node --test tests/*.unit.mjs"
   },
   "dependencies": {
     "lit": "^3.3.0"

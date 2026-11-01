@@ -69,9 +69,9 @@ cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification
 
 cfg "" links/verifies-fields.json '{"fields":[{"id":"coverage","name":"Coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}'
 cfg "" links/types.json '{"types":[
-  {"id":"verifies","displayName":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"test-passed"}},
-  {"id":"implements","displayName":"implements","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"software"}},
-  {"id":"related","displayName":"related to","presentation":{"icon":"interface"}}]}'
+  {"id":"verifies","displayName":"verifies","reverseName":"verified by","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"test-passed"}},
+  {"id":"implements","displayName":"implements","reverseName":"implemented by","sourceTypes":["component"],"targetTypes":["requirement"],"cardinality":"many-to-many","presentation":{"icon":"software"}},
+  {"id":"related","displayName":"relates to","reverseName":"is related to","presentation":{"icon":"interface"}}]}'
 
 cfg "" comments/types.json '{"types":[{"id":"comment","displayName":"Comment","presentation":{"icon":"note"}}]}'
 

@@ -253,9 +253,10 @@ def configure(client):
     cfg(root, "documents/workflows/publication-workflow.json", workflow(["draft", "review", "released"]))
     cfg(root, "documents/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, hid=dict(prefix=p), workflows=["publication"], presentation=dict(icon=ICONS[s]))
         for s, n, p in [("architecture-note", "Architecture note", "ARCH"), ("verification-plan", "Verification plan", "VPLAN"), ("interface-contract", "Interface contract", "IFACE")]]))
-    cfg(root, "links/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, presentation=dict(icon=ICONS[s])) for s, n in [
-        ("verifies", "verifies"), ("refines", "refines"), ("implements", "implements"), ("affects", "affects"),
-        ("fixes", "fixes"), ("blocks", "blocks"), ("depends-on", "depends on"), ("exposes", "exposes API to"), ("documents", "documents")]]))
+    cfg(root, "links/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, reverseName=r, presentation=dict(icon=ICONS[s])) for s, n, r in [
+        ("verifies", "verifies", "verified by"), ("refines", "refines", "refined by"), ("implements", "implements", "implemented by"),
+        ("affects", "affects", "affected by"), ("fixes", "fixes", "fixed by"), ("blocks", "blocks", "blocked by"),
+        ("depends-on", "depends on", "required by"), ("exposes", "exposes API to", "uses API of"), ("documents", "documents", "documented by")]]))
     cfg(root, "comments/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, presentation=dict(icon=ICONS[s]))
         for s, n in [("engineering-note", "Engineering note"), ("review-question", "Review question")]]))
     for p in PROJECTS:

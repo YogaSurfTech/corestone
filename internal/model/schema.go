@@ -29,17 +29,19 @@ type HIDConfig struct {
 // relationships (with endpoint constraints and cardinality), comment types
 // describe annotations.
 type Schema struct {
-	Type         string         `json:"type"`
-	Kind         Kind           `json:"kind"`
-	Inheritance  string         `json:"inheritance,omitempty"` // "off" severs composition
-	DisplayName  string         `json:"displayName,omitempty"`
-	Description  string         `json:"description,omitempty"`
-	HID          *HIDConfig     `json:"hid,omitempty"`
-	Fields       []Field        `json:"fields,omitempty"`
-	Workflows    []string       `json:"workflows,omitempty"`
-	SourceTypes  []string       `json:"sourceTypes,omitempty"` // links: allowed source types ("*" = any)
-	TargetTypes  []string       `json:"targetTypes,omitempty"` // links: allowed target types
-	Cardinality  Cardinality    `json:"cardinality,omitempty"` // links
+	Type        string      `json:"type"`
+	Kind        Kind        `json:"kind"`
+	Inheritance string      `json:"inheritance,omitempty"` // "off" severs composition
+	DisplayName string      `json:"displayName,omitempty"`
+	Description string      `json:"description,omitempty"`
+	HID         *HIDConfig  `json:"hid,omitempty"`
+	Fields      []Field     `json:"fields,omitempty"`
+	Workflows   []string    `json:"workflows,omitempty"`
+	SourceTypes []string    `json:"sourceTypes,omitempty"` // links: allowed source types ("*" = any)
+	TargetTypes []string    `json:"targetTypes,omitempty"` // links: allowed target types
+	Cardinality Cardinality `json:"cardinality,omitempty"` // links
+	// ReverseName reads a link from its target ("verified by"); empty falls back to DisplayName.
+	ReverseName  string         `json:"reverseName,omitempty"`
 	Presentation map[string]any `json:"presentation,omitempty"`
 	Extra        map[string]any `json:"-"` // unknown top-level properties, passed through
 
@@ -50,7 +52,7 @@ type Schema struct {
 // knownSchemaKeys are consumed by the typed struct; everything else is kept in Extra.
 var knownSchemaKeys = map[string]bool{"type": true, "kind": true, "inheritance": true, "displayName": true,
 	"description": true, "hid": true, "fields": true, "workflows": true, "sourceTypes": true,
-	"targetTypes": true, "cardinality": true, "presentation": true, "sources": true}
+	"targetTypes": true, "cardinality": true, "reverseName": true, "presentation": true, "sources": true}
 
 // ParseSchema decodes and validates a schema definition file.
 func ParseSchema(data []byte) (*Schema, error) {
@@ -128,6 +130,9 @@ func (s *Schema) Validate() error {
 	}
 	if err := validateEndpoints("targetTypes", s.TargetTypes); err != nil {
 		return err
+	}
+	if s.ReverseName != "" && s.Kind != KindLink {
+		return Invalid("reverseName applies to link types only")
 	}
 	switch s.Cardinality {
 	case "", OneToOne, OneToMany, ManyToOne, ManyToMany:
@@ -301,6 +306,9 @@ func Compose(defs []ScopedSchema) *Schema {
 		}
 		if s.Cardinality != "" {
 			eff.Cardinality = s.Cardinality
+		}
+		if s.ReverseName != "" {
+			eff.ReverseName = s.ReverseName
 		}
 		if len(s.Presentation) > 0 {
 			if eff.Presentation == nil {

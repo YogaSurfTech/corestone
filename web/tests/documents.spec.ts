@@ -191,7 +191,7 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await page.locator(".doc-toolbar button[title='Back to overview']").click();
   await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
   await expect(page.locator("corestone-document")).toHaveCount(0);
-  await expect(page.locator("table.grid tbody tr", { hasText: `Fresh ${id}` }).locator(".kind-icon.document")).toBeVisible();
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Fresh ${id}` }).locator(".kind-icon.document")).toBeVisible();
 });
 
 test("table of contents: numbered, configurable depth, follows edits, navigates", async ({ page }) => {

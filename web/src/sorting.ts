@@ -1,9 +1,8 @@
-import type { Schema, Summary, Workflow } from "./types";
+import type { Summary } from "./types";
 
 interface RankedValue { value: string; rank: number }
 type ScalarValue = string | number | null | RankedValue;
 export type SortValue = ScalarValue | ScalarValue[];
-export type WorkflowLookup = (id: string) => Workflow | undefined;
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -38,42 +37,4 @@ export function fieldValue(row: Summary, id: string): string | number | null {
   if (Array.isArray(v)) return v.join(", ");
   if (typeof v === "object") return "{…}";
   return String(v);
-}
-
-function ranked(value: string, sequence: string[]): RankedValue {
-  const index = sequence.indexOf(value);
-  return { value, rank: index < 0 ? Infinity : index };
-}
-
-function workflowValue(value: string | number | null, workflow?: Workflow): ScalarValue {
-  if (value === null || value === "") return null;
-  return ranked(String(value), workflow?.states.map((s) => s.id) ?? []);
-}
-
-export function fieldSortValue(row: Summary, id: string, schema?: Schema, workflow?: WorkflowLookup): SortValue {
-  const value = fieldValue(row, id);
-  const field = schema?.fields?.find((f) => f.id === id);
-  if (field?.type === "workflow") {
-    return workflowValue(value, field.workflow ? workflow?.(field.workflow) : undefined);
-  }
-  if (field?.type !== "enum" || value === null || value === "") return value;
-  const raw = row.fields?.[id];
-  const values = Array.isArray(raw) ? raw.map(String) : [String(value)];
-  let highest: RankedValue | null = null;
-  for (const v of values) {
-    if (v === "") continue;
-    const candidate = ranked(v, field.options?.map((o) => o.value) ?? []);
-    if (highest === null || compareScalar(candidate, highest, 1) > 0) highest = candidate;
-  }
-  return highest;
-}
-
-/** Compare each workflow in the type's declared order, not the stored object's order. */
-export function workflowSortValue(row: Summary, schema: Schema | undefined, workflow: WorkflowLookup): SortValue {
-  const ids = [...new Set([...(schema?.workflows ?? []), ...Object.keys(row.workflows ?? {}).sort()])];
-  return ids.map((id) => workflowValue(row.workflows?.[id] ?? null, workflow(id)));
-}
-
-export function workflowKey(row: Pick<Summary, "folder" | "type">, id: string): string {
-  return JSON.stringify([row.folder, row.type, id]);
 }

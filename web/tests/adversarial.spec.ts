@@ -34,7 +34,7 @@ test("script-looking content is rendered as text everywhere", async ({ page }) =
   await post("/comments", { subject: e.meta!.guid, text: xss, author: xss });
   await page.goto(`/artifact/${e.meta!.guid}`);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(xss);
-  await expect(page.locator("table.grid tbody tr").first()).toContainText("<img src=x");
+  await expect(page.locator("corestone-overview table.grid tbody tr").first()).toContainText("<img src=x");
   await expect(page.locator("#sec-comments .comment .text")).toHaveText(xss);
   await expect(page.locator(".tree .row", { hasText: "<b>x<i>" })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();

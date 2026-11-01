@@ -21,7 +21,7 @@ const stored = async (guid: string) => (await get<{ meta: { title: string } }>(`
 test("an entry with unsaved changes asks before another artifact opens", async ({ page }) => {
   await page.goto(`/artifact/${guids.a}?folder=${folder}`);
   const title = page.locator("corestone-detail [data-test=title]");
-  const other = page.locator("table.grid tbody tr", { hasText: `Second ${id}` });
+  const other = page.locator("corestone-overview table.grid tbody tr", { hasText: `Second ${id}` });
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
 
   // Cancel: stay, the edit is kept
@@ -40,20 +40,20 @@ test("an entry with unsaved changes asks before another artifact opens", async (
 
   // Save: stored, then leave
   await title.fill(`Second saved ${id}`);
-  await page.locator("table.grid tbody tr", { hasText: `First ${id}` }).click();
+  await page.locator("corestone-overview table.grid tbody tr", { hasText: `First ${id}` }).click();
   await dialog.locator("[data-test=dialog-confirm]").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`First ${id}`);
   expect(await stored(guids.b)).toBe(`Second saved ${id}`);
 
   // Without changes there is no question
-  await page.locator("table.grid tbody tr", { hasText: `Second saved ${id}` }).click();
+  await page.locator("corestone-overview table.grid tbody tr", { hasText: `Second saved ${id}` }).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Second saved ${id}`);
   await expect(dialog).toHaveCount(0);
 });
 
 test("the browser's back button asks too", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
-  await page.locator("table.grid tbody tr", { hasText: `First` }).first().click();
+  await page.locator("corestone-overview table.grid tbody tr", { hasText: `First` }).first().click();
   await expect(page).toHaveURL(new RegExp(guids.a));
   await page.locator("corestone-detail [data-test=title]").fill(`Back edit ${id}`);
   await page.goBack();

@@ -274,6 +274,9 @@ func (f *Foundation) Workflows(ctx context.Context, guid string) ([]WorkflowStat
 type LinkView struct {
 	Link  *model.Summary `json:"link"`
 	Other *model.Summary `json:"other"`
+	// Role names the link as read from this artifact: the link type's display
+	// name on outgoing links, its reverse name on incoming ones.
+	Role string `json:"role"`
 }
 
 // Relationships is the relationship analysis of one artifact.
@@ -295,23 +298,30 @@ func (f *Foundation) Relationships(ctx context.Context, guid string) (*Relations
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
 	r := &Relationships{Incoming: []LinkView{}, Outgoing: []LinkView{}, AsSource: []*model.Schema{}, AsTarget: []*model.Schema{}}
-	other := func(l *model.Summary, g string) LinkView {
+	other := func(l *model.Summary, g string, incoming bool) LinkView {
 		o, err := f.DB.Get(ctx, g)
 		if err != nil {
 			o = &model.Summary{GUID: g, Title: "(missing)"}
 		}
-		return LinkView{Link: l, Other: o}
+		role := l.Type
+		if s := cfg.Effective(l.Type, l.Folder); s != nil {
+			role = s.DisplayName
+			if incoming && s.ReverseName != "" {
+				role = s.ReverseName
+			}
+		}
+		return LinkView{Link: l, Other: o, Role: role}
 	}
 	for _, l := range in {
-		r.Incoming = append(r.Incoming, other(l, l.Source))
+		r.Incoming = append(r.Incoming, other(l, l.Source, true))
 	}
 	for _, l := range out {
-		r.Outgoing = append(r.Outgoing, other(l, l.Target))
-	}
-	cfg, err := f.DB.Config(ctx)
-	if err != nil {
-		return nil, err
+		r.Outgoing = append(r.Outgoing, other(l, l.Target, false))
 	}
 	src, tgt := cfg.LinkTypesFor(loc.Kind, loc.Type, loc.Folder)
 	if src != nil {
@@ -448,6 +458,108 @@ func (f *Foundation) Search(ctx context.Context, q projection.Query) ([]*model.S
 		res = []*model.Summary{}
 	}
 	return res, total, err
+}
+
+// TableQuery returns the sorted GUIDs of every artifact matching q
+// (generic tables, TSK-34).
+func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []projection.SortLevel, limit int) (*projection.TableResult, error) {
+	if q.Folder != "" {
+		folder, err := model.CleanFolder(q.Folder)
+		if err != nil {
+			return nil, err
+		}
+		q.Folder = folder
+	}
+	return f.DB.QueryIDs(ctx, q, sort, limit)
+}
+
+// TableRows are the rows of a generic table plus the artifacts they
+// point at (link endpoints, comment subjects and the endpoints of link
+// subjects), so a client can label them without further requests.
+type TableRows struct {
+	Artifacts []*model.Summary          `json:"artifacts"`
+	Related   map[string]*model.Summary `json:"related"`
+	// TypeNames holds the display names of the types involved, by folder
+	// and type (the type id when none is configured); undefined types are
+	// left out.
+	TypeNames map[string]map[string]string `json:"typeNames"`
+}
+
+// Details returns the summaries of guids in that order, unknown ones left
+// out. With columns, only the field values of those columns are included.
+func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*TableRows, error) {
+	if len(guids) > projection.MaxDetails {
+		return nil, fmt.Errorf("%w: at most %d artifacts per request", model.ErrValidation, projection.MaxDetails)
+	}
+	rows, err := f.DB.Details(ctx, guids)
+	if err != nil {
+		return nil, err
+	}
+	if columns != nil {
+		keep := map[string]bool{}
+		for _, c := range columns {
+			keep[c] = true
+		}
+		for _, s := range rows {
+			for id := range s.Fields {
+				if !keep[id] {
+					delete(s.Fields, id)
+				}
+			}
+		}
+	}
+	out := &TableRows{Artifacts: rows, Related: map[string]*model.Summary{}, TypeNames: map[string]map[string]string{}}
+	// Two rounds: endpoints, subjects and parent comments, then the endpoints of link subjects.
+	pending := rows
+	for round := 0; round < 2 && len(pending) > 0; round++ {
+		var want []string
+		for _, s := range pending {
+			for _, g := range []string{s.Source, s.Target, s.Subject, s.Parent} {
+				if g != "" && out.Related[g] == nil {
+					want = append(want, g)
+				}
+			}
+		}
+		if len(want) == 0 {
+			break
+		}
+		found, err := f.DB.Details(ctx, want)
+		if err != nil {
+			return nil, err
+		}
+		pending = nil
+		for _, s := range found {
+			s.Fields = nil
+			out.Related[s.GUID] = s
+			if s.Kind == model.KindLink {
+				pending = append(pending, s)
+			}
+		}
+	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[[2]string]bool{}
+	name := func(s *model.Summary) {
+		if seen[[2]string{s.Folder, s.Type}] {
+			return
+		}
+		seen[[2]string{s.Folder, s.Type}] = true
+		if schema := cfg.Effective(s.Type, s.Folder); schema != nil && schema.DisplayName != "" {
+			if out.TypeNames[s.Folder] == nil {
+				out.TypeNames[s.Folder] = map[string]string{}
+			}
+			out.TypeNames[s.Folder][s.Type] = schema.DisplayName
+		}
+	}
+	for _, s := range rows {
+		name(s)
+	}
+	for _, s := range out.Related {
+		name(s)
+	}
+	return out, nil
 }
 
 // Status is the repository status report.

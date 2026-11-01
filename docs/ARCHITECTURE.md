@@ -71,7 +71,8 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 - `projection.go` — connection, DDL (`repo_state.processed_hash`, `artifacts` with an `ltree` path,
   `artifact_fields`, `artifact_refs`, `artifact_files`, `config_files`, `hid_history`,
-  `deleted_artifacts`), status
+  `deleted_artifacts`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
+  ICU collation `corestone_natural`), status
   and maintenance mode (also advertised through `repo_state.maintenance` for other processes), the
   §10.1 publish mutex, ltree label encoding.
 - `extract.go` — turns a blob into a row: metadata, key/value field index, outgoing references
@@ -85,6 +86,10 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 - `query.go` — locate, get, search (filters, states, fields, full text), folders, scopes, HID
   helpers, links/comments, attachments, configuration files, HID history, deleted artifacts,
   statistics.
+- `table.go` — generic tables: `QueryIDs` sorts the complete filtered set in SQL (up to three
+  levels over overview columns or field ids; enum, workflow-field and state values rank by
+  configuration, passed as one JSON parameter; empty values last in either direction) and returns
+  up to 50 000 GUIDs; `Details` fetches rows by GUID in request order.
 - `validate.go` — the repository validation service.
 
 ## internal/foundation — the service
@@ -99,22 +104,34 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.
 - `read.go` — views: artifact, effective schema, visible types, overlay analysis, workflow
-  evaluation, relationship analysis, comments, documents embedding an entry, history across moves,
-  tree, search, status.
+  evaluation, relationship analysis (each link with its role as read from this artifact: the
+  display name outgoing, the `reverseName` incoming), comments, documents embedding an entry, history across moves,
+  tree, search, table query and row details (with related endpoints and subjects), status.
 
 ## internal/httpapi — transport
 
 Routes (Go 1.22 method patterns), 4 MiB body cap, ETag/If-Match/If-None-Match per RFC 9110, error
-mapping (400/404/409/412/503), kind-checked collections. `ws.go` is the session hub: hello, commit
+mapping (400/404/409/412/503), kind-checked collections. Generic tables use `POST /api/repository/query`
+(`{filter, sort: [{col, dir}], limit}` → `{total, ids, truncated}`; `filter.types` restricts to type
+ids, `kind/*` or `*`) and `POST /api/artifacts/details` (`{ids ≤ 500, columns}` →
+`{artifacts, related, typeNames}`). `ws.go` is the session hub: hello, commit
 and status broadcasts, viewer/editor presence per artifact.
 
 ## web — the client
 
 `store.ts` (central state), `router.ts` (URL ⇄ state), `api.ts`, `ws.ts`; components `app`
 (shell), `sidebar`, `overview` (with the ＋ New menu), `dialogs` (type choice → generated form →
-create; picker; confirm), `fields` (one input per field type), `detail` (entry sections), `document`
+create; picker; confirm), `table` (`<corestone-table>`: server-sorted, lazily loaded rows in
+batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; with
+`items` set it sorts rows held in the browser by the columns' `value` instead; pure helpers in
+`table-model.ts`). The overview (all kinds, no row limit), the picker and the detail lists
+(relationships, documents, attachments, history) all use it; `rows-load` and `widths-change` let the
+overview resolve row schemas and persist its layout. The picker loads all fields for each fetched
+batch so selection callbacks can use the complete summary (including document entry-card fields).
+`fields` (one input per field type), `detail` (entry sections), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
-in `web/tests` drive the built client in Chromium against a live server.
+in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
+`node --test` (`npm run test:unit`).
 
 ## A request, end to end
 
