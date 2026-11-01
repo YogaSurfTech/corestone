@@ -336,7 +336,9 @@ corestone-table { display: flex; flex-direction: column; min-height: 0; }
 .ctable-body .empty-state { padding: 18px; }
 .ctable-body.local tbody tr { cursor: default; }
 .ctable-body.local tbody tr.open-row { cursor: pointer; }
-.ctable-body td .arrow, .ctable-body td .size, .ctable-body td .when { color: var(--muted); }
+.ctable-body td .size, .ctable-body td .when { color: var(--muted); }
+.ctable-body td .arrow { font-size: 18px; font-weight: 700; line-height: 1; color: var(--accent); }
+.ctable-body td .arrow.in { color: var(--text); }
 .ctable-note { position: sticky; bottom: 0; left: 0; padding: 4px 10px; font-size: 12px; color: var(--muted); background: var(--panel-2); border-top: 1px solid var(--border); }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); min-width: 260px; max-width: 420px; display: flex; gap: 10px; align-items: center; }

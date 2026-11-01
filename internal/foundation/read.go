@@ -274,6 +274,9 @@ func (f *Foundation) Workflows(ctx context.Context, guid string) ([]WorkflowStat
 type LinkView struct {
 	Link  *model.Summary `json:"link"`
 	Other *model.Summary `json:"other"`
+	// Role names the link as read from this artifact: the link type's display
+	// name on outgoing links, its reverse name on incoming ones.
+	Role string `json:"role"`
 }
 
 // Relationships is the relationship analysis of one artifact.
@@ -295,23 +298,30 @@ func (f *Foundation) Relationships(ctx context.Context, guid string) (*Relations
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
 	r := &Relationships{Incoming: []LinkView{}, Outgoing: []LinkView{}, AsSource: []*model.Schema{}, AsTarget: []*model.Schema{}}
-	other := func(l *model.Summary, g string) LinkView {
+	other := func(l *model.Summary, g string, incoming bool) LinkView {
 		o, err := f.DB.Get(ctx, g)
 		if err != nil {
 			o = &model.Summary{GUID: g, Title: "(missing)"}
 		}
-		return LinkView{Link: l, Other: o}
+		role := l.Type
+		if s := cfg.Effective(l.Type, l.Folder); s != nil {
+			role = s.DisplayName
+			if incoming && s.ReverseName != "" {
+				role = s.ReverseName
+			}
+		}
+		return LinkView{Link: l, Other: o, Role: role}
 	}
 	for _, l := range in {
-		r.Incoming = append(r.Incoming, other(l, l.Source))
+		r.Incoming = append(r.Incoming, other(l, l.Source, true))
 	}
 	for _, l := range out {
-		r.Outgoing = append(r.Outgoing, other(l, l.Target))
-	}
-	cfg, err := f.DB.Config(ctx)
-	if err != nil {
-		return nil, err
+		r.Outgoing = append(r.Outgoing, other(l, l.Target, false))
 	}
 	src, tgt := cfg.LinkTypesFor(loc.Kind, loc.Type, loc.Folder)
 	if src != nil {

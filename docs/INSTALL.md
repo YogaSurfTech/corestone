@@ -185,7 +185,7 @@ type if you want comments:
 
 ```sh
 cfg "" links/types.json '{"types": [
-  {"id": "verifies", "sourceTypes": ["testcase"], "targetTypes": ["requirement"], "cardinality": "many-to-many"},
+  {"id": "verifies", "reverseName": "verified by", "sourceTypes": ["testcase"], "targetTypes": ["requirement"], "cardinality": "many-to-many"},
   {"id": "related"}]}'
 cfg "" comments/types.json '{"types": [{"id": "comment"}]}'
 ```

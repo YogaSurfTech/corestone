@@ -60,8 +60,13 @@ Goals:
 }
 ```
 
-Kind-specific properties belong here: link types carry `sourceTypes`, `targetTypes` and
-`cardinality`; comment types may add their own rules later.
+Kind-specific properties belong here: link types carry `sourceTypes`, `targetTypes`,
+`cardinality` and `reverseName`; comment types may add their own rules later.
+
+A link type's `displayName` reads from source to target (`"verifies"`), its `reverseName` from
+target to source (`"verified by"`). The relationships of an artifact show incoming links by their
+reverse name, so both sides read naturally. Without one the display name serves both directions,
+which suits types that read the same both ways.
 
 `sourceTypes` and `targetTypes` restrict a link type's endpoints. Each entry is a type id, `"*"`
 for any artifact, or `"<kind>/*"` for every type of one kind (`"document/*"`, `"entry/*"`; the

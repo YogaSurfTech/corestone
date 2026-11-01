@@ -135,6 +135,10 @@ func TestParseConfigFiles(t *testing.T) {
 		len(td.Fields) != 2 || td.Fields[0].ID != "effort" || !*td.Fields[1].Required || td.Schema.Extra["x-app"] == nil {
 		t.Fatalf("types file %+v / %+v", tf, td.Schema)
 	}
+	lf, err := ParseTypesFile([]byte(`{"types":[{"id":"verifies","displayName":"verifies","reverseName":"verified by"}]}`), KindLink)
+	if err != nil || lf.Types[0].Schema.ReverseName != "verified by" || lf.Types[0].Schema.Extra["reverseName"] != nil {
+		t.Fatalf("link reverse name %+v %v", lf, err)
+	}
 	for _, bad := range []string{
 		`{"types":[{"id":"a"},{"id":"a"}]}`,              // duplicate type
 		`{"types":[{"id":"a","kind":"link"}]}`,           // kind comes from the directory
@@ -143,6 +147,7 @@ func TestParseConfigFiles(t *testing.T) {
 		`{"types":[{"id":"a","fields":["x","x"]}]}`,      // field listed twice
 		`{"types":[{"id":"a","fields":["a.b"]}]}`,        // invalid field id
 		`{"types":[{"id":""}]}`,                          // missing id
+		`{"types":[{"id":"a","reverseName":"a of"}]}`,    // reverse names are for link types
 		`{"inheritance":"maybe","types":[]}`,             // bad switch
 		`{"types":[{"id":"a"}`,                           // not JSON
 		`{"types":[{"id":"a","cardinality":"several"}]}`, // schema validation applies

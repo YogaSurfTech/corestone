@@ -94,9 +94,9 @@ export async function seedDomain(scope: string, prefix: string) {
   await defineTypes(scope, "documents", [{ id: "spec", displayName: "Specification", workflows: ["publish"],
     fields: [{ id: "audience", name: "Audience", type: "enum", options: [{ value: "internal" }, { value: "customer" }] }] }]);
   await defineTypes(scope, "links", [
-    { id: "verifies", displayName: "verifies", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many",
+    { id: "verifies", displayName: "verifies", reverseName: "verified by", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many",
       fields: [{ id: "coverage", name: "Coverage", type: "enum", options: [{ value: "full" }, { value: "partial" }] }] },
-    { id: "related", displayName: "related to" },
+    { id: "related", displayName: "relates to", reverseName: "is related to" },
   ]);
   await defineTypes(scope, "comments", [{ id: "comment", displayName: "Comment" }]);
 }

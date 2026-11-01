@@ -43,22 +43,24 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   const t1 = await post("/entries", { path: folder, type: "tc", title: `Test A ${id}` });
   await page.goto(`/artifact/${r1.meta.guid}`);
   const rel = page.locator("#sec-relationships");
-  // a requirement can only be the target of "verifies": the button is offered as incoming
-  await expect(rel.locator(".actions button", { hasText: "verifies" })).toContainText("←");
-  await rel.locator(".actions button", { hasText: "verifies" }).click();
+  // a requirement can only be the target of "verifies": the button is offered as incoming, by its reverse name
+  await expect(rel.locator(".actions button", { hasText: "verified by" })).toContainText("←");
+  await rel.locator(".actions button", { hasText: "verified by" }).click();
   await page.locator("corestone-picker input").fill(`Test A ${id}`);
   await page.locator(".picker-results .row", { hasText: `Test A ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(1);
   await expect(rel.locator(".link-row .arrow")).toHaveText("←");
+  await expect(rel.locator(".link-row .type")).toHaveText("verified by");
   // a "related" link through its own button
-  await rel.locator(".actions button", { hasText: "related to" }).click();
+  await rel.locator(".actions button", { hasText: "relates to" }).click();
   await page.locator("corestone-picker input").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(2);
-  await expect(rel.locator(".link-row", { hasText: "related" }).locator(".arrow")).toHaveText("→");
+  await expect(rel.locator(".link-row", { hasText: "relates to" }).locator(".arrow")).toHaveText("→");
   // the other side sees it incoming; social column counts links
   await page.goto(`/artifact/${r2.meta.guid}`);
-  await expect(page.locator("#sec-relationships .link-row", { hasText: "related" }).locator(".arrow")).toHaveText("←");
+  await expect(page.locator("#sec-relationships .link-row", { hasText: "is related to" }).locator(".arrow")).toHaveText("←");
+  await expect(page.locator("#sec-relationships .link-row .type")).toHaveText("is related to");
   await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 1");
   // removing a link
   await page.locator("#sec-relationships .link-row button").click();

@@ -357,12 +357,12 @@ export class Table extends LitElement {
   private serverRow(id: string, index: number) {
     const r = this.rows.get(id);
     if (r) return this.row(r, id, index);
-    return html`<tr class="placeholder ${index === this.active ? "active" : ""}" data-guid=${id}><td colspan=${this.columns.length + (this.filler ? 1 : 0)} class="muted">…</td></tr>`;
+    return html`<tr class="row placeholder ${index === this.active ? "active" : ""}" data-guid=${id}><td colspan=${this.columns.length + (this.filler ? 1 : 0)} class="muted">…</td></tr>`;
   }
 
   private row(r: Row, key: string, index: number) {
     const off = this.disabled?.(r);
-    const cls = [off ? "taken" : "", index === this.active ? "active" : "", this.selected?.(r) ? "selected" : "", this.rowClass?.(r) ?? ""].filter(Boolean).join(" ");
+    const cls = ["row", off ? "taken" : "", index === this.active ? "active" : "", this.selected?.(r) ? "selected" : "", this.rowClass?.(r) ?? ""].filter(Boolean).join(" ");
     return html`<tr class=${cls} data-guid=${key} aria-disabled=${off ? "true" : "false"} title=${off ?? nothing} @click=${() => this.pick(r)}>${this.columns.map((c) =>
       html`<td class=${c.cls ?? ""} title=${c.title?.(r, this.ctx) ?? nothing}>${c.render(r, this.ctx)}</td>`)}${this.filler ? html`<td></td>` : nothing}</tr>`;
   }

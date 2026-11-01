@@ -28,7 +28,7 @@ test.beforeAll(async () => {
     { id: "tc", displayName: "Test case", hid: { prefix: "UT" + stamp.slice(-3).toUpperCase() } },
   ]);
   await defineTypes(folder, "documents", [{ id: "spec", displayName: "Specification" }]);
-  await defineTypes(folder, "links", [{ id: "verifies", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many" }, { id: "related" }]);
+  await defineTypes(folder, "links", [{ id: "verifies", reverseName: "verified by", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many" }, { id: "related" }]);
   await defineTypes(folder, "comments", [{ id: "comment" }]);
 });
 
@@ -151,6 +151,7 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   await row.locator("a").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Linked requirement ${stamp}`);
   await expect(page.locator("#sec-relationships .link-row")).toContainText(`Linked test ${stamp}`);
+  await expect(page.locator("#sec-relationships .link-row .type")).toHaveText("verified by"); // read from the target
   void r;
 });
 

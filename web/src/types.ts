@@ -77,6 +77,8 @@ export interface Schema {
   sourceTypes?: string[];
   targetTypes?: string[];
   cardinality?: string;
+  /** Links: the name read from the target ("verified by"). */
+  reverseName?: string;
   presentation?: Record<string, unknown>;
   sources?: string[];
 }
@@ -95,7 +97,8 @@ export interface Workflow {
 
 export interface WorkflowEval { id: string; definition: Workflow; state: string; available: Transition[] }
 
-export interface LinkView { link: Summary; other: Summary }
+/** A link seen from one endpoint; role is the display name, or the reverse name when incoming. */
+export interface LinkView { link: Summary; other: Summary; role?: string }
 export interface Relationships {
   incoming: LinkView[];
   outgoing: LinkView[];

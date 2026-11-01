@@ -582,18 +582,18 @@ export class Detail extends LitElement {
   private relSection() {
     if (this.view?.meta.kind === "link") return this.linkRelSection();
     const rel = this.rel;
-    type Row = { link: Summary; other: Summary; dir: "in" | "out" };
+    type Row = { link: Summary; other: Summary; role?: string; dir: "in" | "out" };
     const rows: Row[] = rel ? [...rel.outgoing.map((l) => ({ ...l, dir: "out" as const })), ...rel.incoming.map((l) => ({ ...l, dir: "in" as const }))] : [];
     const columns: TableColumn<Row>[] = [
-      { id: "role", name: "Role", width: 140, value: (r) => r.link.type, render: (r) => html`<span class="type">${r.link.type}</span>` },
-      { id: "dir", name: "Dir", width: 72, value: (r) => r.dir, render: (r) => html`<span class="arrow" title=${r.dir === "in" ? "incoming" : "outgoing"}>${r.dir === "in" ? "←" : "→"}</span>` },
+      { id: "role", name: "Role", width: 160, value: (r) => r.role || r.link.type, render: (r) => html`<span class="type" title=${r.link.type}>${r.role || r.link.type}</span>` },
+      { id: "dir", name: "Dir", width: 72, value: (r) => r.dir, render: (r) => html`<span class="arrow ${r.dir}" title=${r.dir === "in" ? "incoming: the other artifact links to this one" : "outgoing: this artifact links to the other"}>${r.dir === "in" ? "←" : "→"}</span>` },
       { id: "artifact", name: "Artifact", value: (r) => r.other.hid || label(r.other), render: (r) => this.openCell(r.other) },
       { id: "folder", name: "Folder", width: 150, value: (r) => r.other.folder, render: (r) => html`<span class="muted small">${r.other.folder || "/"}</span>` },
       { id: "remove", name: "", width: 60, sortable: false, render: (r) => html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); api.remove(r.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((err) => store.toast(err.message, "error")); }}>✕</button>` },
     ];
     const actions = html`
         ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
-        ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>← ${s.displayName || s.type}</button>`)}
+        ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>＋ ${s.reverseName || s.displayName || s.type} ←</button>`)}
         ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
     return this.section("relationships", () => html`
       ${!rows.length ? html`<div class="muted small">No links yet.</div>` : html`<corestone-table class="detail-table" .items=${rows} .columns=${columns}

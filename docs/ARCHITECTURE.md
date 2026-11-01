@@ -104,7 +104,8 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.
 - `read.go` — views: artifact, effective schema, visible types, overlay analysis, workflow
-  evaluation, relationship analysis, comments, documents embedding an entry, history across moves,
+  evaluation, relationship analysis (each link with its role as read from this artifact: the
+  display name outgoing, the `reverseName` incoming), comments, documents embedding an entry, history across moves,
   tree, search, table query and row details (with related endpoints and subjects), status.
 
 ## internal/httpapi — transport
