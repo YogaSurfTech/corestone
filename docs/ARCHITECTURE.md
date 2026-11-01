@@ -126,7 +126,9 @@ batches of 50 with a virtual window; a header click promotes that column to the 
 `items` set it sorts rows held in the browser by the columns' `value` instead; pure helpers in
 `table-model.ts`). The overview (all kinds, no row limit), the picker and the detail lists
 (relationships, documents, attachments, history) all use it; `rows-load` and `widths-change` let the
-overview resolve row schemas and persist its layout. `fields` (one input per field type), `detail` (entry sections), `document`
+overview resolve row schemas and persist its layout. The picker loads all fields for each fetched
+batch so selection callbacks can use the complete summary (including document entry-card fields).
+`fields` (one input per field type), `detail` (entry sections), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
 in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
 `node --test` (`npm run test:unit`).

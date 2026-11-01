@@ -1,4 +1,5 @@
 import { answerPrompt, api, expect, get, post, seedDomain, stamp, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // Navigation and shell behaviour: keyboard shortcuts, breadcrumbs,
 // history navigation, deep links, filters, kind chips, columns, sorting,
@@ -349,9 +350,29 @@ test("table headers sort ascending and descending, columns resize, and both are 
   await expect(header("effort")).toHaveAttribute("aria-sort", "descending");
 });
 
+// The repository root holds every artifact the suite created, so the
+// lazily loaded table renders a row only once it is scrolled into view.
+async function scrollToRow(page: Page, text: string) {
+  const row = page.locator("corestone-overview table.grid tbody tr:not(.placeholder)", { hasText: text });
+  const body = page.locator("corestone-overview .ctable-body");
+  await expect(page.locator("corestone-overview table.grid tbody tr").first()).toBeVisible();
+  await body.evaluate((el) => { el.scrollTop = 0; });
+  await expect.poll(async () => {
+    if (await row.count()) return true;
+    const more = await body.evaluate((el) => {
+      const before = el.scrollTop;
+      el.scrollTop = before + el.clientHeight * 0.8;
+      return el.scrollTop > before;
+    });
+    return more ? false : await row.count() > 0;
+  }, { timeout: 30000, intervals: [150] }).toBe(true);
+  await row.scrollIntoViewIfNeeded();
+  return row;
+}
+
 test("opening an artifact keeps the folder, the navigation and the table as they are", async ({ page }) => {
   await page.goto(`/?subtree=1`);
-  const row = page.locator("corestone-overview table.grid tbody tr", { hasText: `Beta two ${id}` });
+  const row = await scrollToRow(page, `Beta two ${id}`);
   await expect(row).toBeVisible();
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   let searches = 0;
@@ -361,7 +382,7 @@ test("opening an artifact keeps the folder, the navigation and the table as they
   await expect(page).not.toHaveURL(/folder=/);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   await expect(page.locator(".toolbar .title")).toHaveText("Repository");
-  await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
+  await (await scrollToRow(page, `Alpha one ${id}`)).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   expect(searches).toBe(0);

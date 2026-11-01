@@ -211,7 +211,9 @@ test("documents: compose from entries and edit in the block editor", async ({ pa
   const again = page.locator(`.picker-results .row[data-guid="${r.meta.guid}"]`);
   await expect(again).toHaveAttribute("aria-disabled", "true");
   await expect(again).toContainText("already in this document");
-  await again.click();
+  await again.click({ force: true });
+  await expect(page.locator("corestone-picker")).toBeVisible();
+  await expect(page.locator(".entry-card")).toHaveCount(1);
   await page.locator("corestone-picker .foot button", { hasText: "Cancel" }).click();
   await expect(page.locator(".entry-card")).toHaveCount(1);
   await page.locator("[data-test=save]").click();

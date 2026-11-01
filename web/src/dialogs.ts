@@ -427,7 +427,7 @@ export class Picker extends LitElement {
     const taken = this.dialog.taken as { guids: Set<string>; note: string } | undefined;
     return html`<h2>${this.dialog.title as string}</h2>
       <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
-      <corestone-table class="picker-results" navigable .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
+      <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
