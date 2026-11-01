@@ -84,6 +84,7 @@ export const api = {
   move: (guid: string, path: string) => request<View>("POST", `/artifacts/${guid}/move`, { path }),
   schemaOf: (guid: string) => request<{ schema: Schema | null; type: string; folder: string }>("GET", `/artifacts/${guid}/schema`),
   overlay: (guid: string) => request<OverlayView>("GET", `/artifacts/${guid}/overlay`),
+  documents: (guid: string) => request<{ documents: Summary[] }>("GET", `/artifacts/${guid}/documents`),
   workflows: (guid: string) => request<{ workflows: WorkflowEval[] }>("GET", `/artifacts/${guid}/workflows`),
   transition: (guid: string, workflow: string, to: string, etag?: string) =>
     request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),

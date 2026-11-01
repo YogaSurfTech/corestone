@@ -89,6 +89,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/artifacts/{guid}", func(w http.ResponseWriter, r *http.Request) { s.delete(w, r, "") })
 	m.HandleFunc("GET /api/artifacts/{guid}/schema", s.schemaOf)
 	m.HandleFunc("GET /api/artifacts/{guid}/overlay", s.overlay)
+	m.HandleFunc("GET /api/artifacts/{guid}/documents", s.documents)
 	m.HandleFunc("GET /api/artifacts/{guid}/workflows", s.workflows)
 	m.HandleFunc("POST /api/artifacts/{guid}/transition", s.transition)
 	m.HandleFunc("GET /api/artifacts/{guid}/relationships", s.relationships)
@@ -385,6 +386,19 @@ func (s *Server) overlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ov)
+}
+
+func (s *Server) documents(w http.ResponseWriter, r *http.Request) {
+	guid, ok := guidParam(w, r)
+	if !ok {
+		return
+	}
+	docs, err := s.F.UsedInDocuments(r.Context(), guid)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"documents": docs})
 }
 
 func (s *Server) workflows(w http.ResponseWriter, r *http.Request) {

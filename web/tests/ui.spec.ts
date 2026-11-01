@@ -185,6 +185,8 @@ test("overlays: create a variant and see inherited fields", async ({ page }) => 
   await expect(page.locator("[data-field=rationale] textarea")).toHaveValue("shared");
   await expect(page.locator("[data-field=rationale] textarea")).toBeDisabled();
   await expect(page.locator("#sec-overlay")).toContainText("shared");
+  // used in no document: the section stays folded
+  await expect(page.locator("[data-test=toggle-documents]")).toHaveAttribute("aria-expanded", "false");
 });
 
 test("documents: compose from entries and edit in the block editor", async ({ page }) => {
@@ -202,6 +204,15 @@ test("documents: compose from entries and edit in the block editor", async ({ pa
   await page.locator("corestone-picker input").fill(`Referenced in doc ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Referenced in doc ${stamp}` }).click();
   await expect(page.locator(`.entry-card[data-entry="${r.meta.guid}"]`)).toContainText(`Referenced in doc ${stamp}`);
+  // an entry can be referenced only once per document
+  await page.locator("[data-test=insert-entry]").click();
+  await page.locator("corestone-picker input").fill(`Referenced in doc ${stamp}`);
+  const again = page.locator(`.picker-results .row[data-guid="${r.meta.guid}"]`);
+  await expect(again).toHaveAttribute("aria-disabled", "true");
+  await expect(again).toContainText("already in this document");
+  await again.click();
+  await page.locator("corestone-picker .foot button", { hasText: "Cancel" }).click();
+  await expect(page.locator(".entry-card")).toHaveCount(1);
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();
   await page.reload();
@@ -215,6 +226,12 @@ test("documents: compose from entries and edit in the block editor", async ({ pa
   // clicking the entry card opens the entry
   await page.locator(".entry-card").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Referenced in doc ${stamp}`);
+  // the entry lists the documents using it; each opens at the entry's block
+  await expect(page.locator("[data-test=toggle-documents]")).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#sec-documents [data-test=documents] a", { hasText: "My spec" }).click();
+  await expect(page.locator(".doc-page h1")).toHaveText("My spec");
+  await expect(page.locator(`.entry-card[data-entry="${r.meta.guid}"]`)).toBeInViewport();
+  await expect(page).not.toHaveURL(/tab=entry/);
 });
 
 test("search, filters, subtree toggle and deep links", async ({ page }) => {

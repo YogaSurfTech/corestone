@@ -425,17 +425,17 @@ func (p *DB) Overlays(ctx context.Context, guid string) ([]*model.Summary, error
 	return out, unavailable(rows.Err())
 }
 
-// Referrers lists documents and entries that reference a GUID in their
-// content or reference fields (by search of the fields index / content).
-func (p *DB) Referrers(ctx context.Context, guid string) ([]*model.Summary, error) {
-	rows, err := p.sql.QueryContext(ctx, `SELECT `+summaryCols+` FROM artifacts a WHERE a.kind IN ('entry','document') AND a.guid <> $1
-		AND (EXISTS (SELECT 1 FROM artifact_fields f WHERE f.guid = a.guid AND f.value = $1) OR a.search_text LIKE $2) ORDER BY a.file_path LIMIT 500`,
-		guid, "%"+guid+"%")
+// ReferencingDocuments lists the documents that embed the given entry in
+// their content (entry blocks), by path.
+func (p *DB) ReferencingDocuments(ctx context.Context, guid string) ([]*model.Summary, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT `+summaryCols+` FROM artifacts a
+		WHERE a.kind = 'document' AND EXISTS (SELECT 1 FROM artifact_refs r WHERE r.guid = a.guid AND r.target = $1 AND r.via = $2)
+		ORDER BY a.file_path LIMIT 500`, guid, RefContent)
 	if err != nil {
 		return nil, unavailable(err)
 	}
 	defer rows.Close()
-	var out []*model.Summary
+	out := []*model.Summary{}
 	for rows.Next() {
 		s, err := scanSummary(rows)
 		if err != nil {

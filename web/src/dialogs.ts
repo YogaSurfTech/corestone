@@ -9,6 +9,16 @@ import "./type-icon";
 import "./fields";
 import "./folder-field";
 
+const PICKER_SIZE_KEY = "corestone.pickerSize";
+
+/** The picker size the user last dragged it to, if any. */
+function pickerSize(): { w: number; h: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(PICKER_SIZE_KEY) ?? "null");
+    return v && v.w > 0 && v.h > 0 ? v : null;
+  } catch { return null; }
+}
+
 // Modal dialogs: the "+ New" flow (choose a type → empty schema-generated
 // form → create), the artifact picker, and confirmations.
 
@@ -36,6 +46,43 @@ export class Dialogs extends LitElement {
     (d?.onCancel as (() => void) | undefined)?.();
   }
 
+  /** Drags the picker's corner. The dialog is centered horizontally and
+   *  top-anchored, so its width changes twice as fast to keep the corner under the pointer. */
+  private startResize = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    const box = grip.parentElement!;
+    const r = box.getBoundingClientRect();
+    const x0 = e.clientX, y0 = e.clientY;
+    let size = { w: r.width, h: r.height };
+    grip.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => {
+      size = {
+        w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
+        h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
+      };
+      box.style.width = size.w + "px";
+      box.style.height = size.h + "px";
+    };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      try { localStorage.setItem(PICKER_SIZE_KEY, JSON.stringify(size)); } catch { /* storage unavailable */ }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  };
+
+  /** Double-clicking the grip goes back to the default size. */
+  private resetSize = (e: Event) => {
+    const box = (e.currentTarget as HTMLElement).parentElement!;
+    box.style.width = box.style.height = "";
+    try { localStorage.removeItem(PICKER_SIZE_KEY); } catch { /* storage unavailable */ }
+  };
+
   override updated() {
     // A freshly opened prompt gets the keyboard, with its suggestion selected.
     const input = this.querySelector<HTMLInputElement>(".dialog input[data-test=prompt]");
@@ -55,7 +102,9 @@ export class Dialogs extends LitElement {
     return html`${d ? html`<div class="backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.dismiss(); }}>
         <div class="dialog ${d.kind === "prompt" ? "prompt" : ""}" role="dialog" aria-modal="true">${body}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) { const c = p.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); } }}>
-        <div class="dialog" role="dialog" aria-modal="true"><corestone-picker .dialog=${p}></corestone-picker></div></div>` : nothing}`;
+        <div class="dialog picker" role="dialog" aria-modal="true" style=${((sz) => sz ? `width:${sz.w}px;height:${sz.h}px` : "")(pickerSize())}>
+          <corestone-picker .dialog=${p}></corestone-picker>
+          <div class="resize-grip" data-test="picker-resize" title="Drag to resize, double-click to reset" @pointerdown=${this.startResize} @dblclick=${this.resetSize}></div></div></div>` : nothing}`;
   }
 
   private prompt(d: Dialog) {
@@ -328,13 +377,13 @@ export class Picker extends LitElement {
           // "<kind>/*" allows every type of a kind; other entries are type ids
           const wild = kinds.filter((k) => types.some((t) => t === `${k}/*` || t === `${collectionOf[k]}/*`));
           const all = await Promise.all([
-            ...(wild.length ? [api.search({ q: this.q, kind: wild.join(","), limit: 50 })] : []),
-            ...types.filter((t) => !t.endsWith("/*")).map((t) => api.search({ q: this.q, type: t, kind: kinds.join(","), limit: 50 })),
+            ...(wild.length ? [api.search({ q: this.q, kind: wild.join(","), limit: 200 })] : []),
+            ...types.filter((t) => !t.endsWith("/*")).map((t) => api.search({ q: this.q, type: t, kind: kinds.join(","), limit: 200 })),
           ]);
           const seen = new Set<string>();
           this.results = all.flatMap((r) => r.artifacts).filter((a) => !seen.has(a.guid) && !!seen.add(a.guid));
         } else {
-          this.results = (await api.search({ q: this.q, kind: kinds.join(","), limit: 50 })).artifacts;
+          this.results = (await api.search({ q: this.q, kind: kinds.join(","), limit: 200 })).artifacts;
         }
       } catch (e) {
         store.toast(String((e as Error).message), "error");
@@ -346,13 +395,16 @@ export class Picker extends LitElement {
 
   override render() {
     const exclude = this.dialog.exclude as string | undefined;
+    // Shown but not selectable, with a reason (e.g. an entry already in the document).
+    const taken = this.dialog.taken as { guids: Set<string>; note: string } | undefined;
     return html`<h2>${this.dialog.title as string}</h2>
       <input type="search" placeholder="Search by title, HID or text…" .value=${this.q} @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; this.search(); }} />
       <div class="picker-results">
         ${this.busy && !this.results.length ? html`<div class="empty-state">Searching…</div>` : nothing}
         ${!this.busy && !this.results.length ? html`<div class="empty-state">No matching artifacts</div>` : nothing}
-        ${this.results.filter((r) => r.guid !== exclude).map((r) => html`<div class="row" data-guid=${r.guid} @click=${() => { store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(r); }}>
-          <corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.hid ? html`<span class="hid">${r.hid}</span>` : nothing}<span class="grow">${r.title}</span><span class="muted small">${r.type} · ${r.folder || "/"}</span></div>`)}
+        ${this.results.filter((r) => r.guid !== exclude).map((r) => { const off = taken?.guids.has(r.guid); return html`<div class="row ${off ? "taken" : ""}" data-guid=${r.guid} aria-disabled=${off ? "true" : "false"} title=${off ? taken!.note : ""}
+          @click=${() => { if (off) return; store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(r); }}>
+          <corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.hid ? html`<span class="hid">${r.hid}</span>` : nothing}<span class="grow">${r.title}</span><span class="muted small">${off ? taken!.note : html`${r.type} · ${r.folder || "/"}`}</span></div>`; })}
       </div>
       <div class="foot"><button class="btn" @click=${() => { const c = this.dialog.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }}>Cancel</button></div>`;
   }

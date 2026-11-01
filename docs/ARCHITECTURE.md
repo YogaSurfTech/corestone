@@ -70,10 +70,12 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 ## internal/projection — the PostgreSQL projection
 
 - `projection.go` — connection, DDL (`repo_state.processed_hash`, `artifacts` with an `ltree` path,
-  `artifact_fields`, `artifact_files`, `config_files`, `hid_history`, `deleted_artifacts`), status
+  `artifact_fields`, `artifact_refs`, `artifact_files`, `config_files`, `hid_history`,
+  `deleted_artifacts`), status
   and maintenance mode (also advertised through `repo_state.maintenance` for other processes), the
   §10.1 publish mutex, ltree label encoding.
-- `extract.go` — turns a blob into a row: metadata, key/value field index, sanitized search text;
+- `extract.go` — turns a blob into a row: metadata, key/value field index, outgoing references
+  (reference fields, document entry blocks), sanitized search text;
   malformed files become rows with `valid = false`, never failures.
 - `sync.go` — `Sync` compares `processed_hash` with HEAD and replays the first-parent chain one
   commit per transaction (`ProjectCommit` + CAS advance); anything else triggers a rebuild. Also the
@@ -97,7 +99,8 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.
 - `read.go` — views: artifact, effective schema, visible types, overlay analysis, workflow
-  evaluation, relationship analysis, comments, history across moves, tree, search, status.
+  evaluation, relationship analysis, comments, documents embedding an entry, history across moves,
+  tree, search, status.
 
 ## internal/httpapi — transport
 

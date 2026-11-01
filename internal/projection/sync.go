@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/model"
 	"github.com/thomdehoog/corestone/internal/scanner"
@@ -328,6 +330,12 @@ func (p *DB) upsertRecord(ctx context.Context, tx *sql.Tx, r *record, commit str
 	if err := insertFields(ctx, tx, r); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifact_refs WHERE guid = $1`, r.GUID); err != nil {
+		return unavailable(err)
+	}
+	if err := insertRefs(ctx, tx, r); err != nil {
+		return err
+	}
 	// A resurrected GUID is no longer deleted.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM deleted_artifacts WHERE guid = $1`, r.GUID); err != nil {
 		return unavailable(err)
@@ -362,6 +370,20 @@ func insertFields(ctx context.Context, tx *sql.Tx, r *record) error {
 		}
 	}
 	return nil
+}
+
+func insertRefs(ctx context.Context, tx *sql.Tx, r *record) error {
+	if len(r.Refs) == 0 {
+		return nil
+	}
+	targets, vias := make([]string, len(r.Refs)), make([]string, len(r.Refs))
+	for i, x := range r.Refs {
+		targets[i], vias[i] = x.Target, x.Via
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO artifact_refs (guid, target, via)
+		SELECT $1, t, v FROM unnest($2::text[], $3::text[]) AS x(t, v) ON CONFLICT DO NOTHING`,
+		r.GUID, pq.Array(targets), pq.Array(vias))
+	return unavailable(err)
 }
 
 func (p *DB) deleteByPath(ctx context.Context, tx *sql.Tx, path, guid, commit string, when time.Time) error {

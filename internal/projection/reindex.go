@@ -124,7 +124,7 @@ func (p *DB) phaseIdentity(ctx context.Context, artifacts, attachments, configs 
 	// onto half-built tables.
 	for _, stmt := range []string{
 		`UPDATE repo_state SET processed_hash = '' WHERE id = 1`,
-		`TRUNCATE artifact_fields, artifacts, artifact_files, config_files, hid_history, deleted_artifacts, file_issues, artifact_commits`,
+		`TRUNCATE artifact_fields, artifact_refs, artifacts, artifact_files, config_files, hid_history, deleted_artifacts, file_issues, artifact_commits`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return unavailable(err)
