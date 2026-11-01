@@ -540,6 +540,12 @@ func TestTableQueryAndDetails(t *testing.T) {
 	if r = a.ok("POST", "/api/repository/query", ``, 200); r.body["total"] != float64(6) {
 		t.Fatalf("unfiltered query: %s", r.raw)
 	}
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"types":["testcase","links/*"]}}`, 200); r.body["total"] != float64(2) {
+		t.Fatalf("types filter: %s", r.raw)
+	}
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"types":["*"]}}`, 200); r.body["total"] != float64(4) {
+		t.Fatalf("types wildcard: %s", r.raw)
+	}
 	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$nope"}]}`, 400)
 	a.ok("POST", "/api/repository/query", `{"filter":{"kind":["nope"]}}`, 400)
 	a.ok("POST", "/api/repository/query", `{"filter":{"path":"../x"}}`, 400)
@@ -554,6 +560,9 @@ func TestTableQueryAndDetails(t *testing.T) {
 	}
 	if f := rows[1].(map[string]any)["fields"].(map[string]any); len(f) != 1 || f["priority"] != "low" {
 		t.Fatalf("details fields: %s", d.raw)
+	}
+	if names := d.body["typeNames"].(map[string]any)["specs"].(map[string]any); names["requirement"] != "Requirement" || names["testcase"] != "testcase" {
+		t.Fatalf("type names: %s", d.raw)
 	}
 	related := d.body["related"].(map[string]any)
 	for _, g := range []string{l, tc, reqs[0]} {

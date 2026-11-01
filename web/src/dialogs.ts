@@ -3,7 +3,9 @@ import { customElement, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
-import type { Kind, Schema, Summary } from "./types";
+import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
+import type { Table, TableColumn } from "./table";
+import "./table";
 import { collectionOf, displayName, kindLabel, kindPlural, label } from "./util";
 import "./type-icon";
 import "./fields";
@@ -356,56 +358,81 @@ export class NewDialog extends LitElement {
   }
 }
 
+const PICKER_SORT_KEY = "corestone.pickerSort";
+
+function pickerSort(): SortLevel[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(PICKER_SORT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((l) => typeof l?.col === "string" && (l.dir === "asc" || l.dir === "desc")).slice(0, 3) : [];
+  } catch { return []; }
+}
+
+/** Picker columns; the last one names why a row cannot be picked. */
+function pickerColumns(taken?: { guids: Set<string>; note: string }): TableColumn[] {
+  return [
+    { id: "$hid", name: "ID", width: "minmax(72px, 110px)",
+      render: (r) => r.hid ? html`<span class="hid">${r.hid}</span>` : html`<span class="muted mono">${r.guid.slice(0, 8)}</span>` },
+    { id: "$title", name: "Title", width: "minmax(140px, 3fr)", title: (r) => r.title ?? "",
+      render: (r) => html`<corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.title || html`<span class="muted">${r.kind}</span>`}` },
+    { id: "$type", name: "Type", width: "minmax(60px, 1fr)", cls: "muted small", render: (r, ctx) => ctx.typeName(r) },
+    { id: "$folder", name: "Folder", width: "minmax(60px, 1.2fr)", cls: "muted small", title: (r) => r.folder || "/",
+      render: (r) => taken?.guids.has(r.guid) ? taken.note : r.folder || "/" },
+  ];
+}
+
 @customElement("corestone-picker")
 export class Picker extends LitElement {
   dialog!: Dialog;
   @state() private q = "";
-  @state() private results: Summary[] = [];
-  @state() private busy = false;
+  @state() private filter: TableFilter = {};
+  @state() private total = -1;
+  private sort = pickerSort();
+  private columns: TableColumn[] = [];
   private timer = 0;
   override createRenderRoot() { return this; }
-  override connectedCallback() { super.connectedCallback(); this.search(); this.updateComplete.then(() => this.querySelector<HTMLInputElement>("input")?.focus()); }
-
-  private search() {
-    window.clearTimeout(this.timer);
-    this.timer = window.setTimeout(async () => {
-      this.busy = true;
-      const kinds = (this.dialog.kinds as Kind[] | undefined) ?? ["entry", "document"];
-      const types = this.dialog.types as string[] | undefined;
-      try {
-        if (types && types.length && !types.includes("*")) {
-          // "<kind>/*" allows every type of a kind; other entries are type ids
-          const wild = kinds.filter((k) => types.some((t) => t === `${k}/*` || t === `${collectionOf[k]}/*`));
-          const all = await Promise.all([
-            ...(wild.length ? [api.search({ q: this.q, kind: wild.join(","), limit: 200 })] : []),
-            ...types.filter((t) => !t.endsWith("/*")).map((t) => api.search({ q: this.q, type: t, kind: kinds.join(","), limit: 200 })),
-          ]);
-          const seen = new Set<string>();
-          this.results = all.flatMap((r) => r.artifacts).filter((a) => !seen.has(a.guid) && !!seen.add(a.guid));
-        } else {
-          this.results = (await api.search({ q: this.q, kind: kinds.join(","), limit: 200 })).artifacts;
-        }
-      } catch (e) {
-        store.toast(String((e as Error).message), "error");
-      } finally {
-        this.busy = false;
-      }
-    }, 150);
+  override connectedCallback() {
+    super.connectedCallback();
+    this.columns = pickerColumns(this.dialog.taken as { guids: Set<string>; note: string } | undefined);
+    this.applyFilter();
+    this.updateComplete.then(() => this.querySelector<HTMLInputElement>("input")?.focus());
   }
+  override disconnectedCallback() { window.clearTimeout(this.timer); super.disconnectedCallback(); }
+
+  /** "<kind>/*" in types allows every type of a kind; other entries are type ids. */
+  private applyFilter() {
+    const kinds = (this.dialog.kinds as Kind[] | undefined) ?? ["entry", "document"];
+    const types = this.dialog.types as string[] | undefined;
+    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}) };
+  }
+
+  private onInput(e: Event) {
+    this.q = (e.target as HTMLInputElement).value;
+    window.clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => this.applyFilter(), 150);
+  }
+
+  private onKey(e: KeyboardEvent) {
+    const table = this.querySelector<Table>("corestone-table");
+    if (!table) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); table.move(e.key === "ArrowDown" ? 1 : -1); }
+    else if (e.key === "PageDown" || e.key === "PageUp") { e.preventDefault(); table.move(e.key === "PageDown" ? 10 : -10); }
+    else if (e.key === "Enter") { e.preventDefault(); table.pickActive(); }
+  }
+
+  private cancel() { const c = this.dialog.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }
 
   override render() {
     const exclude = this.dialog.exclude as string | undefined;
     // Shown but not selectable, with a reason (e.g. an entry already in the document).
     const taken = this.dialog.taken as { guids: Set<string>; note: string } | undefined;
     return html`<h2>${this.dialog.title as string}</h2>
-      <input type="search" placeholder="Search by title, HID or text…" .value=${this.q} @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; this.search(); }} />
-      <div class="picker-results">
-        ${this.busy && !this.results.length ? html`<div class="empty-state">Searching…</div>` : nothing}
-        ${!this.busy && !this.results.length ? html`<div class="empty-state">No matching artifacts</div>` : nothing}
-        ${this.results.filter((r) => r.guid !== exclude).map((r) => { const off = taken?.guids.has(r.guid); return html`<div class="row ${off ? "taken" : ""}" data-guid=${r.guid} aria-disabled=${off ? "true" : "false"} title=${off ? taken!.note : ""}
-          @click=${() => { if (off) return; store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(r); }}>
-          <corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.hid ? html`<span class="hid">${r.hid}</span>` : nothing}<span class="grow">${r.title}</span><span class="muted small">${off ? taken!.note : html`${r.type} · ${r.folder || "/"}`}</span></div>`; })}
-      </div>
-      <div class="foot"><button class="btn" @click=${() => { const c = this.dialog.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }}>Cancel</button></div>`;
+      <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
+      <corestone-table class="picker-results" .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
+        .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
+        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
+        @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
+        @row-click=${(e: CustomEvent<Summary>) => { store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(e.detail); }}></corestone-table>
+      <div class="foot"><span class="muted small grow" data-test="picker-count">${this.total < 0 ? "" : `${this.total} ${this.total === 1 ? "match" : "matches"}`}</span>
+        <button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
   }
 }

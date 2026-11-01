@@ -469,6 +469,10 @@ func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []
 type TableRows struct {
 	Artifacts []*model.Summary          `json:"artifacts"`
 	Related   map[string]*model.Summary `json:"related"`
+	// TypeNames holds the display names of the types involved, by folder
+	// and type (the type id when none is configured); undefined types are
+	// left out.
+	TypeNames map[string]map[string]string `json:"typeNames"`
 }
 
 // Details returns the summaries of guids in that order, unknown ones left
@@ -494,7 +498,7 @@ func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*Tab
 			}
 		}
 	}
-	out := &TableRows{Artifacts: rows, Related: map[string]*model.Summary{}}
+	out := &TableRows{Artifacts: rows, Related: map[string]*model.Summary{}, TypeNames: map[string]map[string]string{}}
 	// Two rounds: endpoints and subjects, then the endpoints of link subjects.
 	pending := rows
 	for round := 0; round < 2 && len(pending) > 0; round++ {
@@ -521,6 +525,29 @@ func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*Tab
 				pending = append(pending, s)
 			}
 		}
+	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[[2]string]bool{}
+	name := func(s *model.Summary) {
+		if seen[[2]string{s.Folder, s.Type}] {
+			return
+		}
+		seen[[2]string{s.Folder, s.Type}] = true
+		if schema := cfg.Effective(s.Type, s.Folder); schema != nil && schema.DisplayName != "" {
+			if out.TypeNames[s.Folder] == nil {
+				out.TypeNames[s.Folder] = map[string]string{}
+			}
+			out.TypeNames[s.Folder][s.Type] = schema.DisplayName
+		}
+	}
+	for _, s := range rows {
+		name(s)
+	}
+	for _, s := range out.Related {
+		name(s)
 	}
 	return out, nil
 }

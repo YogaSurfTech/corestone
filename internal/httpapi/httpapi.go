@@ -651,8 +651,10 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+var collections = map[string]model.Kind{"entries": model.KindEntry, "documents": model.KindDocument, "links": model.KindLink, "comments": model.KindComment}
+
 // tableQuery returns the sorted GUIDs of a generic table (TSK-34):
-// {filter: {q, path, subtree, kind, type, hid, fields, states, valid},
+// {filter: {q, path, subtree, kind, type, types, hid, fields, states, valid},
 // sort: [{col, dir}], limit} -> {total, ids, truncated}.
 func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -662,6 +664,7 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 			Subtree *bool             `json:"subtree"`
 			Kind    []string          `json:"kind"`
 			Type    string            `json:"type"`
+			Types   []string          `json:"types"`
 			HID     string            `json:"hid"`
 			Fields  map[string]string `json:"fields"`
 			States  map[string]string `json:"states"`
@@ -674,7 +677,15 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := body.Filter
-	q := projection.Query{Text: f.Q, Type: f.Type, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
+	for i, t := range f.Types {
+		// "entries/*" names the collection; the filter wants the kind.
+		if c, ok := strings.CutSuffix(t, "/*"); ok {
+			if k, ok := collections[c]; ok {
+				f.Types[i] = string(k) + "/*"
+			}
+		}
+	}
+	q := projection.Query{Text: f.Q, Type: f.Type, Types: f.Types, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
 		HID: f.HID, Fields: f.Fields, States: f.States, Valid: f.Valid}
 	for _, k := range f.Kind {
 		kind, err := model.ParseKind(k)

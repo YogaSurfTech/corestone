@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ type Query struct {
 	Text    string
 	Kinds   []model.Kind
 	Type    string
+	Types   []string // any of these types; "<kind>/*" allows every type of a kind
 	Folder  string
 	Subtree bool
 	HID     string
@@ -105,6 +107,9 @@ func (p *DB) Get(ctx context.Context, guid string) (*model.Summary, error) {
 // normalize cleans the user-supplied strings of q.
 func (q *Query) normalize() {
 	q.Text, q.Type, q.HID, q.Sort = strings.TrimSpace(clean(q.Text)), clean(q.Type), clean(q.HID), clean(q.Sort)
+	for i, t := range q.Types {
+		q.Types[i] = clean(t)
+	}
 	for k, v := range q.Fields {
 		q.Fields[k] = clean(v)
 	}
@@ -126,6 +131,17 @@ func (q *Query) conditions(arg func(any) string) []string {
 	}
 	if q.Type != "" {
 		where = append(where, "a.type = "+arg(q.Type))
+	}
+	if len(q.Types) > 0 && !slices.Contains(q.Types, "*") {
+		var alts []string
+		for _, t := range q.Types {
+			if k, ok := strings.CutSuffix(t, "/*"); ok {
+				alts = append(alts, "a.kind = "+arg(k))
+			} else {
+				alts = append(alts, "a.type = "+arg(t))
+			}
+		}
+		where = append(where, "("+strings.Join(alts, " OR ")+")")
 	}
 	if q.HID != "" {
 		where = append(where, "a.hid = "+arg(q.HID))

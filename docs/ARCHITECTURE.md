@@ -111,17 +111,21 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 Routes (Go 1.22 method patterns), 4 MiB body cap, ETag/If-Match/If-None-Match per RFC 9110, error
 mapping (400/404/409/412/503), kind-checked collections. Generic tables use `POST /api/repository/query`
-(`{filter, sort: [{col, dir}], limit}` → `{total, ids, truncated}`) and `POST /api/artifacts/details`
-(`{ids ≤ 500, columns}` → `{artifacts, related}`). `ws.go` is the session hub: hello, commit
+(`{filter, sort: [{col, dir}], limit}` → `{total, ids, truncated}`; `filter.types` restricts to type
+ids, `kind/*` or `*`) and `POST /api/artifacts/details` (`{ids ≤ 500, columns}` →
+`{artifacts, related, typeNames}`). `ws.go` is the session hub: hello, commit
 and status broadcasts, viewer/editor presence per artifact.
 
 ## web — the client
 
 `store.ts` (central state), `router.ts` (URL ⇄ state), `api.ts`, `ws.ts`; components `app`
 (shell), `sidebar`, `overview` (with the ＋ New menu), `dialogs` (type choice → generated form →
-create; picker; confirm), `fields` (one input per field type), `detail` (entry sections), `document`
+create; picker; confirm), `table` (`<corestone-table>`: server-sorted, lazily loaded rows in
+batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; pure helpers in
+`table-model.ts`), `fields` (one input per field type), `detail` (entry sections), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
-in `web/tests` drive the built client in Chromium against a live server.
+in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
+`node --test` (`npm run test:unit`).
 
 ## A request, end to end
 
