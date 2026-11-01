@@ -14,7 +14,7 @@ import type { OverlayState } from "./fields";
 // section the effective schema implies, quick links to sections, and an
 // optimistic-concurrency save (ETag / If-Match).
 
-const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "history", "metadata"] as const;
+const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "documents", "history", "metadata"] as const;
 type Section = (typeof SECTIONS)[number];
 const OPEN_KEY = "corestone.detail.sections";
 
@@ -38,6 +38,7 @@ export class Detail extends LitElement {
   /** The comment thread shown here; for a comment, the whole thread of its subject. */
   @state() private comments: CommentView[] = [];
   @state() private overlay: OverlayView | null = null;
+  @state() private documents: Summary[] = [];
   /** The base's effective fields: what this entry shows where it sets nothing itself. */
   @state() private baseOverlay: OverlayView | null = null;
   /** The comment type to post with here; null when the folder defines none (no comments then). */
@@ -124,7 +125,7 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
     this.error = "";
     try {
       const view = await api.get(guid);
@@ -139,7 +140,7 @@ export class Detail extends LitElement {
           api.schemaOf(meta.guid).then((s) => s.schema?.displayName).catch(() => undefined)]);
         return { meta, source, target, role };
       };
-      const [schema, wf, rel, endpoints, subject, comments, history, overlay, baseOverlay, types] = await Promise.all([
+      const [schema, wf, rel, endpoints, subject, comments, history, overlay, baseOverlay, documents, types] = await Promise.all([
         api.schemaOf(guid).catch(() => ({ schema: null })),
         api.workflows(guid).catch(() => ({ workflows: [] })),
         isLink || isComment ? Promise.resolve(null) : api.relationships(guid).catch(() => null),
@@ -151,6 +152,7 @@ export class Detail extends LitElement {
         this.isOpen("history") ? api.history(guid).catch(() => ({ history: [] })) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
+        view.meta.kind === "entry" ? api.documents(guid).catch(() => ({ documents: [] })) : Promise.resolve({ documents: [] }),
         api.types(view.meta.folder).catch(() => ({ types: [] })),
       ]);
       if (stale()) return;
@@ -178,6 +180,7 @@ export class Detail extends LitElement {
       this.historyLoaded = !!history;
       this.overlay = overlay;
       this.baseOverlay = baseOverlay;
+      this.documents = documents.documents;
       this.commentType = commentTypeOf(types.types);
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
       // A deep link to a section (?tab=comments) also scrolls to it once the view is there.
@@ -328,6 +331,7 @@ export class Detail extends LitElement {
       comments: () => this.commentSection(),
       overlay: () => this.overlaySection(),
       attachments: () => this.attachmentSection(),
+      documents: () => this.documentSection(),
       history: () => this.historySection(),
       metadata: () => this.metadataSection(),
     };
@@ -412,6 +416,7 @@ export class Detail extends LitElement {
       case "relationships": return k !== "comment";
       case "workflows": return this.workflows.length > 0;
       case "attachments": return k === "entry" || k === "document";
+      case "documents": return k === "entry";
       case "overlay": return !!this.overlay;
       default: return true;
     }
@@ -422,6 +427,7 @@ export class Detail extends LitElement {
       case "relationships": return this.view?.meta.kind !== "link" && (!this.rel || !(this.rel.incoming.length + this.rel.outgoing.length));
       case "comments": return !this.comments.length;
       case "attachments": return !this.view?.attachments?.length;
+      case "documents": return !this.documents.length;
       case "overlay": return !this.overlay || (this.overlay.chain.length <= 1 && !this.overlay.overlays.length);
       case "history": case "metadata": return true; // closed unless asked for
       default: return false;
@@ -456,13 +462,14 @@ export class Detail extends LitElement {
       <span class="actions">${actions}</span></h3>
       ${open ? body() : nothing}</section>`;
   }
-  private sectionName(s: string) { return { comment: "Comment", fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
+  private sectionName(s: string) { return { comment: "Comment", fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", documents: "Documents", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
   private sectionCount(s: string): string {
     switch (s) {
       case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
       case "relationships": return this.view?.meta.kind === "link" ? "" : String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
       case "comments": return String(this.comments.length || "");
       case "attachments": return String(this.view?.attachments?.length || "");
+      case "documents": return String(this.documents.length || "");
       case "history": return this.historyLoaded ? String(this.history.length || "") : "";
       case "overlay": return String(((this.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (this.overlay?.overlays.length ?? 0) || "");
       default: return "";
@@ -617,6 +624,16 @@ export class Detail extends LitElement {
       ${att.map((a) => html`<div class="attach-row"><a href=${api.fileUrl(this.guid, a.name)} target="_blank" rel="noopener">${a.name}</a><span class="size">${fmtSize(a.size)}</span>
         <button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`)}`,
       html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
+  }
+
+  /** The documents embedding this entry; each opens scrolled to the entry's block. */
+  private documentSection() {
+    return this.section("documents", () => !this.documents.length
+      ? html`<div class="muted small">This entry is not used in any document.</div>`
+      : html`<div class="links-list" data-test="documents">${this.documents.map((d) => html`<div class="link-row">
+        <corestone-type-icon .kind=${d.kind} .type=${d.type} .folder=${d.folder}></corestone-type-icon>${d.hid ? html`<span class="hid">${d.hid}</span>` : nothing}
+        <a href=${"/artifact/" + d.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: d.guid, tab: "entry:" + this.guid }); }}>${label(d)}</a>
+        <span class="grow"></span><span class="muted small">${d.folder || "/"}</span></div>`)}</div>`);
   }
 
   /** This entry with its direct neighbours: the base it overrides and the overlays overriding it. */

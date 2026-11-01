@@ -221,6 +221,14 @@ func (f *Foundation) Overlay(ctx context.Context, guid string) (*OverlayView, er
 	return &OverlayView{Overlay: ov, Overlays: overlays}, nil
 }
 
+// UsedInDocuments lists the documents embedding the entry in their content.
+func (f *Foundation) UsedInDocuments(ctx context.Context, guid string) ([]*model.Summary, error) {
+	if _, err := f.Get(ctx, guid); err != nil {
+		return nil, err
+	}
+	return f.DB.ReferencingDocuments(ctx, guid)
+}
+
 // WorkflowState is the workflow evaluation of one assigned workflow.
 type WorkflowState struct {
 	ID         string             `json:"id"`

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,26 @@ func TestRESTLifecycle(t *testing.T) {
 	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Boot spec","content":[{"type":"section","title":"Timing","children":[{"type":"paragraph","text":"See:"},{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
 	gd := meta(d, "guid")
 	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"bad ref","content":[{"type":"entry","guid":"00000000-0000-4000-8000-000000000000"}]}`, 400)
+	usedIn := func(want ...string) {
+		t.Helper()
+		r := a.ok("GET", "/api/artifacts/"+g1+"/documents", "", 200)
+		var got []string
+		for _, d := range r.body["documents"].([]any) {
+			got = append(got, d.(map[string]any)["guid"].(string))
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Fatalf("documents using the entry: got %v, want %v", got, want)
+		}
+	}
+	usedIn(gd)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"twice","content":[{"type":"entry","guid":"`+g1+`"},{"type":"section","title":"Again","children":[{"type":"entry","guid":"`+g1+`"}]}]}`, 400)
+	d2 := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Draft","content":[{"type":"list","items":[{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
+	usedIn(gd, meta(d2, "guid"))
+	a.ok("PUT", "/api/documents/"+meta(d2, "guid"), `{"content":[{"type":"paragraph","text":"no entries"}]}`, 200, "If-Match", "*")
+	usedIn(gd)
+	a.ok("GET", "/api/artifacts/00000000-0000-4000-8000-000000000000/documents", "", 404)
 	a.ok("POST", "/api/documents", `{"path":"docs","type":"requirement","title":"wrong kind","fields":{"priority":"low"}}`, 400)
 
 	// links, relationships, comments, workflows

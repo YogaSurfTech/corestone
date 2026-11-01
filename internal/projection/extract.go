@@ -25,10 +25,17 @@ type record struct {
 	Valid   bool
 	Error   string
 	Index   []fieldKV
-	Refs    []string // outgoing references (base, source, target, subject, parent, ref fields, entry blocks)
+	Refs    []ref // outgoing references held in fields and document content
 }
 
 type fieldKV struct{ Field, Value string }
+
+// ref is one outgoing reference: the target GUID and where it is held,
+// "content" for a document's entry blocks or "field:<id>" for a field.
+type ref struct{ Target, Via string }
+
+// Ref sources stored in artifact_refs.
+const RefContent = "content"
 
 // extract turns a matched artifact file into a record. It never fails: a
 // malformed file becomes a row with valid=false so the projection can
@@ -96,16 +103,17 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 			for _, s := range scalarStrings(v) {
 				r.Index = append(r.Index, fieldKV{k, trunc(s)})
 			}
-			r.Refs = append(r.Refs, guidsIn(v)...)
-		}
-	}
-	for _, g := range []string{a.Base, a.Source, a.Target, a.Subject, a.Parent} {
-		if g != "" {
-			r.Refs = append(r.Refs, g)
+			for _, g := range guidsIn(v) {
+				r.Refs = append(r.Refs, ref{g, "field:" + k})
+			}
 		}
 	}
 	if a.Kind == model.KindDocument {
-		r.Refs = append(r.Refs, model.ContentRefs(a.Content)...)
+		for _, g := range model.ContentRefs(a.Content) {
+			if model.IsGUID(g) {
+				r.Refs = append(r.Refs, ref{g, RefContent})
+			}
+		}
 	}
 	r.Search = searchText(a)
 	return r

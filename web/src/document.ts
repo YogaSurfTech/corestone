@@ -96,9 +96,25 @@ export class DocumentView extends LitElement {
       this.commentType = commentTypeOf(types.types);
       this.loadSide();
       this.resolveEntries();
+      void this.revealEntry();
     } catch (e) {
       this.error = e instanceof ApiError ? e.message : String(e);
     }
+  }
+
+  /** A deep link to an entry (?tab=entry:<guid>, from "Documents" on the entry) focuses and scrolls to its block once. */
+  private async revealEntry() {
+    const tab = store.state.route.tab;
+    if (!tab.startsWith("entry:")) return;
+    const guid = tab.slice("entry:".length);
+    navigate({ tab: "" }, true);
+    let found: Block | undefined;
+    const walk = (bs: Block[]) => { for (const b of bs) { if (found) return; if (b.type === "entry" && b.guid === guid) found = b; walk(b.children ?? []); walk(b.items ?? []); } };
+    walk(this.blocks);
+    if (!found) return;
+    if (found.id) this.focused = found.id;
+    await this.updateComplete;
+    this.querySelector(`[data-entry="${CSS.escape(guid)}"]`)?.scrollIntoView({ block: "center" });
   }
 
   private async loadSide() {
@@ -225,8 +241,18 @@ export class DocumentView extends LitElement {
     if (find(this.blocks, null, null)) this.touch();
   }
 
+  /** The GUIDs of all entries this document already references. */
+  private usedEntries(): Set<string> {
+    const out = new Set<string>();
+    const walk = (bs: Block[]) => { for (const b of bs) { if (b.type === "entry" && b.guid) out.add(b.guid); walk(b.children ?? []); walk(b.items ?? []); } };
+    walk(this.blocks);
+    return out;
+  }
+
+  /** An entry appears at most once per document, so entries already in it cannot be picked again. */
   private insertEntry(afterId: string | null) {
-    store.set({ picker: { kind: "pick", title: "Insert entry reference", kinds: ["entry"], onPick: (s: Summary) => {
+    store.set({ picker: { kind: "pick", title: "Insert entry reference", kinds: ["entry"], taken: { guids: this.usedEntries(), note: "already in this document" }, onPick: (s: Summary) => {
+      if (this.usedEntries().has(s.guid)) return;
       this.entries.set(s.guid, s);
       this.insertAfter(afterId, { id: blockId(), type: "entry", guid: s.guid });
     } } });

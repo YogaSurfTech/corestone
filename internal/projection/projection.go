@@ -309,6 +309,12 @@ var ddl = []string{
 		value text NOT NULL,
 		PRIMARY KEY (guid, field, value))`,
 	`CREATE INDEX IF NOT EXISTS artifact_fields_lookup ON artifact_fields (field, value)`,
+	`CREATE TABLE IF NOT EXISTS artifact_refs (
+		guid text NOT NULL REFERENCES artifacts (guid) ON DELETE CASCADE,
+		target text NOT NULL,
+		via text NOT NULL,
+		PRIMARY KEY (guid, target, via))`,
+	`CREATE INDEX IF NOT EXISTS artifact_refs_target ON artifact_refs (target, via)`,
 	`CREATE TABLE IF NOT EXISTS artifact_files (
 		guid text NOT NULL,
 		name text NOT NULL,
@@ -359,8 +365,9 @@ var ddl = []string{
 }
 
 func (p *DB) migrate(ctx context.Context) error {
-	var hadCommits bool
-	if err := p.sql.QueryRowContext(ctx, `SELECT to_regclass(quote_ident(current_schema()) || '.artifact_commits') IS NOT NULL`).Scan(&hadCommits); err != nil {
+	var hadTables bool
+	if err := p.sql.QueryRowContext(ctx, `SELECT to_regclass(quote_ident(current_schema()) || '.artifact_commits') IS NOT NULL
+		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL`).Scan(&hadTables); err != nil {
 		return fmt.Errorf("projection schema: %w", err)
 	}
 	for _, stmt := range ddl {
@@ -368,9 +375,10 @@ func (p *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("projection schema: %w (statement: %.60s)", err, stmt)
 		}
 	}
-	if !hadCommits {
-		// A projection built before artifact_commits existed lacks the
-		// history index: force a rebuild, which backfills it from Git.
+	if !hadTables {
+		// A projection built before artifact_commits or artifact_refs existed
+		// lacks the history or reference index: force a rebuild, which
+		// backfills them from Git.
 		if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = '' WHERE id = 1`); err != nil {
 			return fmt.Errorf("projection schema: %w", err)
 		}
