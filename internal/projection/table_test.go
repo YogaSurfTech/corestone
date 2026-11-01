@@ -100,3 +100,38 @@ func TestTableQueryOrder(t *testing.T) {
 		t.Fatalf("details: %+v, %v", rows, err)
 	}
 }
+
+// Each row ranks by the definitions effective at its own folder.
+func TestTableQueryScopedRanks(t *testing.T) {
+	p, repo := testDB(t)
+	ctx := context.Background()
+	r1, r2, s1, s2 := model.NewGUID(), model.NewGUID(), model.NewGUID(), model.NewGUID()
+	name := map[string]string{r1: "r1", r2: "r2", s1: "s1", s2: "s2"}
+	entry := func(dir, guid, prio string) gitx.Op {
+		return gitx.Op{Path: dir + "/" + guid + "/.corestone.json", Content: entryJSON(guid, "req", guid, "", `"fields":{"prio":"`+prio+`"}`)}
+	}
+	commit(t, repo, "config",
+		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","fields":["prio"]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"enum","options":[{"value":"low"},{"value":"high"}]}]}`)},
+		gitx.Op{Path: "scoped/.corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","fields":["prio"]}]}`)},
+		gitx.Op{Path: "scoped/.corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"enum","options":[{"value":"high"},{"value":"low"}]}]}`)})
+	commit(t, repo, "entries", entry("root", r1, "high"), entry("root", r2, "low"), entry("scoped", s1, "low"), entry("scoped", s2, "high"))
+	if err := p.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		folder, want string
+	}{{"root", "r2 r1"}, {"scoped", "s2 s1"}} {
+		res, err := p.QueryIDs(ctx, Query{Kinds: []model.Kind{model.KindEntry}, Folder: c.folder, Subtree: true}, []SortLevel{{Col: "prio", Dir: "asc"}}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, id := range res.IDs {
+			got = append(got, name[id])
+		}
+		if strings.Join(got, " ") != c.want {
+			t.Errorf("%s: got %v, want %s", c.folder, got, c.want)
+		}
+	}
+}

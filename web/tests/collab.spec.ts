@@ -49,18 +49,18 @@ test("live updates: creations, transitions and deletions show up in the other se
   await b.locator(".dialog [data-field=priority] .enum-trigger").click();
   await b.locator('.dialog [data-field=priority] .enum-option[data-value="high"]').click();
   await b.locator("[data-test=create]").click();
-  await expect(a.locator("table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(1);
+  await expect(a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(1);
   // b transitions; a's table shows the new state
   await b.locator(".workflow[data-workflow=dev] select").selectOption("submit");
-  await expect(a.locator("table.grid tbody tr", { hasText: `Live ${id}` }).locator(".pill.state").first()).toHaveText("review");
+  await expect(a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` }).locator(".pill.state").first()).toHaveText("review");
   // a opens it, b deletes it: a lands on "not available"
-  await a.locator("table.grid tbody tr", { hasText: `Live ${id}` }).click();
+  await a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` }).click();
   await expect(a.locator("corestone-detail [data-test=title]")).toHaveValue(`Live ${id}`);
   await b.locator("[data-test=actions]").click();
   await b.locator("[data-test=delete]").click();
   await b.locator(".dialog .btn.danger").click();
   await expect(a.locator("corestone-detail .empty-state, corestone-detail .notice.error").first()).toBeVisible();
-  await expect(a.locator("table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(0);
+  await expect(a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(0);
   await c1.close();
   await c2.close();
 });

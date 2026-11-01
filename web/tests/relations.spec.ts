@@ -59,11 +59,11 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   // the other side sees it incoming; social column counts links
   await page.goto(`/artifact/${r2.meta.guid}`);
   await expect(page.locator("#sec-relationships .link-row", { hasText: "related" }).locator(".arrow")).toHaveText("←");
-  await expect(page.locator("table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 1");
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 1");
   // removing a link
   await page.locator("#sec-relationships .link-row button").click();
   await expect(page.locator("#sec-relationships .link-row")).toHaveCount(0);
-  await expect(page.locator("table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 0");
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 0");
   // endpoint rule violation surfaces as a toast, not a silent failure
   await page.goto(`/artifact/${t1.meta.guid}`);
   await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
@@ -186,7 +186,7 @@ test("folder move from the toolbar relocates the subtree", async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`/folder/${folder}/new`));
   await expect(page.locator(".tree .row[data-folder='" + folder + "/new/deep']")).toBeVisible();
   await page.locator("[data-test=subtree]").check();
-  await expect(page.locator("table.grid tbody tr", { hasText: `Deep one ${id}` })).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Deep one ${id}` })).toHaveCount(1);
   const search = await get<{ total: number }>(`/repository/search?path=${folder}/old&subtree=1`);
   expect(search.total).toBe(0);
 });

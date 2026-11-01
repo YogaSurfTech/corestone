@@ -66,7 +66,7 @@ test("create an entry through the + button with a schema-generated form", async 
   await expect(page.locator(".dialog")).toHaveCount(0);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Boot fast");
   await expect(page.locator("corestone-detail [data-test=hid]")).toHaveValue(/UR/);
-  await expect(page.locator("table.grid tbody tr", { hasText: "Boot fast" })).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: "Boot fast" })).toHaveCount(1);
   await expect(page).toHaveURL(/\/artifact\/[0-9a-f-]{36}/);
 });
 
@@ -134,7 +134,7 @@ test("workflow transitions from the detail view", async ({ page }) => {
   await expect(wf.locator(".pill.state")).toHaveText("review");
   await wf.locator("button", { hasText: "diagram" }).click();
   await expect(wf.locator(".wf-state.current")).toHaveText("review");
-  await expect(page.locator("table.grid tbody tr", { hasText: "Workflow item" }).locator(".pill.state")).toHaveText("review");
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: "Workflow item" }).locator(".pill.state")).toHaveText("review");
 });
 
 test("relationships: link two artifacts and navigate between them", async ({ page }) => {
@@ -238,14 +238,14 @@ test("search, filters, subtree toggle and deep links", async ({ page }) => {
   await post("/entries", { path: folder + "/sub", type: "req", title: "Needle in the subfolder", fields: { priority: "high" } });
   await openFolder(page);
   // direct folder listing does not include the subfolder
-  await expect(page.locator("table.grid tbody tr", { hasText: "Needle" })).toHaveCount(0);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: "Needle" })).toHaveCount(0);
   await page.locator("[data-test=subtree]").check();
-  await expect(page.locator("table.grid tbody tr", { hasText: "Needle" })).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: "Needle" })).toHaveCount(1);
   await expect(page).toHaveURL(/subtree=1/);
   await page.locator("[data-test=search]").fill("needle");
   await page.keyboard.press("Enter");
   await expect(page.locator(".toolbar .title")).toContainText("needle");
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   // the folder tree shows the subfolder and selecting it narrows the view
   await page.locator(`.tree .row[data-folder="${folder}/sub"]`).click();
   await expect(page.locator(".toolbar .title")).toHaveText("sub");
@@ -269,7 +269,7 @@ test("delete removes the artifact and its links", async ({ page }) => {
   await expect(page.locator(".dialog")).toContainText("1 link");
   await page.locator(".dialog .btn.danger").click();
   await expect(page.locator(".toast.success")).toContainText("Deleted");
-  await expect(page.locator("table.grid tbody tr", { hasText: "Doomed" })).toHaveCount(1); // only the test case remains
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: "Doomed" })).toHaveCount(1); // only the test case remains
   const res = await fetch(`${api}/artifacts/${r.meta.guid}`);
   expect(res.status).toBe(404);
 });

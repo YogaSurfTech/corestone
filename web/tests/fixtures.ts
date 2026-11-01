@@ -115,7 +115,7 @@ export type { Page };
 
 /** Waits until the artifact overview shows the given title. */
 export async function rowWithTitle(page: Page, title: string) {
-  const row = page.locator("table.grid tbody tr", { hasText: title });
+  const row = page.locator("corestone-overview table.grid tbody tr", { hasText: title });
   await expect(row).toHaveCount(1);
   return row;
 }

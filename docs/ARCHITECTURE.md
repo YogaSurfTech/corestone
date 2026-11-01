@@ -121,8 +121,11 @@ and status broadcasts, viewer/editor presence per artifact.
 `store.ts` (central state), `router.ts` (URL ⇄ state), `api.ts`, `ws.ts`; components `app`
 (shell), `sidebar`, `overview` (with the ＋ New menu), `dialogs` (type choice → generated form →
 create; picker; confirm), `table` (`<corestone-table>`: server-sorted, lazily loaded rows in
-batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; pure helpers in
-`table-model.ts`), `fields` (one input per field type), `detail` (entry sections), `document`
+batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; with
+`items` set it sorts rows held in the browser by the columns' `value` instead; pure helpers in
+`table-model.ts`). The overview (all kinds, no row limit), the picker and the detail lists
+(relationships, documents, attachments, history) all use it; `rows-load` and `widths-change` let the
+overview resolve row schemas and persist its layout. `fields` (one input per field type), `detail` (entry sections), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
 in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
 `node --test` (`npm run test:unit`).

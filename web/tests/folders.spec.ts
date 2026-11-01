@@ -21,7 +21,7 @@ async function openNewReq(page: import("@playwright/test").Page) {
 
 test("the folder field marks new segments, catches typos and browses the tree", async ({ page }) => {
   await page.goto(`/folder/${folder}/specs`);
-  await page.locator("table.grid tbody tr").first().waitFor();
+  await page.locator("corestone-overview table.grid tbody tr").first().waitFor();
   await openNewReq(page);
   const input = page.locator("#new-path");
   await expect(input).toHaveValue(`${folder}/specs`);
@@ -120,7 +120,7 @@ test("the navigation is rooted at the current folder, with an up row and a filte
 test("the New dialog follows the typed folder's schema scope", async ({ page }) => {
   // a type that exists only below this test's folder
   await page.goto(`/folder/${folder}/specs`);
-  await page.locator("table.grid tbody tr").first().waitFor();
+  await page.locator("corestone-overview table.grid tbody tr").first().waitFor();
   await openNewReq(page);
   const input = page.locator("#new-path");
   await expect(input).toHaveValue(`${folder}/specs`);

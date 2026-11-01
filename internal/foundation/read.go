@@ -499,12 +499,12 @@ func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*Tab
 		}
 	}
 	out := &TableRows{Artifacts: rows, Related: map[string]*model.Summary{}, TypeNames: map[string]map[string]string{}}
-	// Two rounds: endpoints and subjects, then the endpoints of link subjects.
+	// Two rounds: endpoints, subjects and parent comments, then the endpoints of link subjects.
 	pending := rows
 	for round := 0; round < 2 && len(pending) > 0; round++ {
 		var want []string
 		for _, s := range pending {
-			for _, g := range []string{s.Source, s.Target, s.Subject} {
+			for _, g := range []string{s.Source, s.Target, s.Subject, s.Parent} {
 				if g != "" && out.Related[g] == nil {
 					want = append(want, g)
 				}

@@ -370,12 +370,12 @@ function pickerSort(): SortLevel[] {
 /** Picker columns; the last one names why a row cannot be picked. */
 function pickerColumns(taken?: { guids: Set<string>; note: string }): TableColumn[] {
   return [
-    { id: "$hid", name: "ID", width: "minmax(72px, 110px)",
+    { id: "$hid", name: "ID", width: 110,
       render: (r) => r.hid ? html`<span class="hid">${r.hid}</span>` : html`<span class="muted mono">${r.guid.slice(0, 8)}</span>` },
-    { id: "$title", name: "Title", width: "minmax(140px, 3fr)", title: (r) => r.title ?? "",
+    { id: "$title", name: "Title", title: (r) => r.title ?? "",
       render: (r) => html`<corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.title || html`<span class="muted">${r.kind}</span>`}` },
-    { id: "$type", name: "Type", width: "minmax(60px, 1fr)", cls: "muted small", render: (r, ctx) => ctx.typeName(r) },
-    { id: "$folder", name: "Folder", width: "minmax(60px, 1.2fr)", cls: "muted small", title: (r) => r.folder || "/",
+    { id: "$type", name: "Type", width: 110, cls: "muted small", render: (r, ctx) => ctx.typeName(r) },
+    { id: "$folder", name: "Folder", width: 150, cls: "muted small", title: (r) => r.folder || "/",
       render: (r) => taken?.guids.has(r.guid) ? taken.note : r.folder || "/" },
   ];
 }
@@ -427,7 +427,7 @@ export class Picker extends LitElement {
     const taken = this.dialog.taken as { guids: Set<string>; note: string } | undefined;
     return html`<h2>${this.dialog.title as string}</h2>
       <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
-      <corestone-table class="picker-results" .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
+      <corestone-table class="picker-results" navigable .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}

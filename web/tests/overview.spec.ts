@@ -1,9 +1,12 @@
 import { build } from "esbuild";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { Schema, Summary, Workflow } from "../src/types";
+import type { Schema, Summary } from "../src/types";
 import { expect, test, type Page } from "./fixtures";
 
 let script: string;
+// The app styles make the table body the scroll container the lazy loading measures.
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 test.beforeAll(async () => {
   const result = await build({
     stdin: {
@@ -31,163 +34,86 @@ function row(guid: string, fields: Summary["fields"], type = "task"): Summary {
   return { guid, type, fields, kind: "entry", title: guid, folder: "", path: guid, links: 0, comments: 0 };
 }
 
-/** Mounts the real overview with API responses, without needing a repository server. */
-async function mount(page: Page, rows: Summary[], schemas = [schema], workflows: Record<string, Workflow> = {}, endpoints: Record<string, Summary> = {}, folder = "") {
+interface Calls { queries: { filter?: Record<string, unknown>; sort?: { col: string; dir: string }[]; limit?: number }[]; details: string[][] }
+
+/**
+ * Mounts the real overview against a mocked server. Sorting is the server's job
+ * (covered by the projection tests); the mock keeps the given order and reverses
+ * it when the first sort level is descending, so the rendered order shows it is
+ * the server's.
+ */
+async function mount(page: Page, rows: Summary[], schemas = [schema], related: Record<string, Summary> = {}, folder = ""): Promise<Calls> {
+  const calls: Calls = { queries: [], details: [] };
+  const byGuid = new Map(rows.map((r) => [r.guid, r]));
   await page.route("http://overview.test/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/") {
-      await route.fulfill({ contentType: "text/html", body: '<script type="module" src="/overview.js"></script><corestone-overview></corestone-overview>' });
+      await route.fulfill({ contentType: "text/html", body: `<style>${styles} corestone-overview { height: 600px; }</style><script type="module" src="/overview.js"></script><corestone-overview></corestone-overview>` });
     } else if (path === "/overview.js") {
       await route.fulfill({ contentType: "text/javascript", body: script });
     } else if (path === "/api/repository/types") {
       await route.fulfill({ json: { types: schemas } });
-    } else if (path === "/api/repository/search") {
-      await route.fulfill({ json: { artifacts: rows, total: rows.length } });
-    } else if (path.startsWith("/api/artifacts/")) {
-      const meta = endpoints[path.slice("/api/artifacts/".length)];
-      if (!meta) throw new Error(`Unexpected endpoint request: ${route.request().url()}`);
-      await route.fulfill({ json: { meta, data: {}, etag: "test" } });
-    } else if (path.startsWith("/api/workflows/")) {
-      const definition = workflows[decodeURIComponent(path.slice("/api/workflows/".length))];
-      if (!definition) throw new Error(`Unexpected workflow request: ${route.request().url()}`);
-      await route.fulfill({ json: definition });
+    } else if (path === "/api/repository/query") {
+      const body = route.request().postDataJSON();
+      calls.queries.push(body);
+      const kinds: string[] = body.filter?.kind ?? ["entry", "document"];
+      let ids = rows.filter((r) => kinds.includes(r.kind)).map((r) => r.guid);
+      if (body.sort?.[0]?.dir === "desc") ids = ids.reverse();
+      const total = ids.length;
+      if (body.limit) ids = ids.slice(0, body.limit);
+      await route.fulfill({ json: { total, ids, truncated: ids.length < total } });
+    } else if (path === "/api/artifacts/details") {
+      const ids: string[] = route.request().postDataJSON().ids;
+      calls.details.push(ids);
+      await route.fulfill({ json: { artifacts: ids.map((id) => byGuid.get(id)).filter(Boolean), related, typeNames: {} } });
     } else {
       throw new Error(`Unexpected overview request: ${route.request().url()}`);
     }
   });
   await page.goto("http://overview.test/" + (folder ? "?folder=" + encodeURIComponent(folder) : ""));
-  await expect(page.locator("table.grid tbody tr")).toHaveCount(rows.length);
+  return calls;
 }
 
 const sortBy = (page: Page, column: string) => page.locator(`th[data-col="${column}"] .th-sort`).click();
-const order = (page: Page) => page.locator("table.grid tbody tr").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-guid")));
+const order = (page: Page) => page.locator("table.grid tbody tr:not(.placeholder)").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-guid")));
+const lastSort = (calls: Calls) => calls.queries.filter((q) => !q.limit).at(-1)?.sort;
 
-test("enum sorting uses definition order, keeps unlisted and empty values last, and persists", async ({ page }) => {
+test("rows keep the server's order and enums render their labels", async ({ page }) => {
   await mount(page, [
-    row("high-first", { priority: "high" }), row("unknown-z", { priority: "zebra" }),
-    row("urgent", { priority: "urgent" }), row("missing", {}), row("low", { priority: "low" }),
-    row("unknown-a", { priority: "alpha" }), row("medium", { priority: "medium" }),
-    row("high-second", { priority: "high" }), row("empty", { priority: "" }),
-    row("null", { priority: null }),
+    row("urgent", { priority: "urgent", tags: ["urgent", "low"], effort: 3 }),
+    row("low", { priority: "low", tags: ["low"] }),
+    row("missing", {}),
   ]);
+  await expect.poll(() => order(page)).toEqual(["urgent", "low", "missing"]);
+  await expect(page.locator('tr[data-guid="urgent"] td corestone-enum .enum-label')).toHaveText(["Label 1", "Label 1", "Label 4"]);
   await sortBy(page, "priority");
-  await expect.poll(() => order(page)).toEqual([
-    "low", "medium", "high-first", "high-second", "urgent", "unknown-a", "unknown-z", "missing", "empty", "null",
-  ]);
   await sortBy(page, "priority");
-  const descending = [
-    "urgent", "high-first", "high-second", "medium", "low", "unknown-z", "unknown-a", "missing", "empty", "null",
-  ];
-  await expect.poll(() => order(page)).toEqual(descending);
-  await page.reload();
+  await expect.poll(() => order(page)).toEqual(["missing", "low", "urgent"]);
   await expect(page.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
-  await expect.poll(() => order(page)).toEqual(descending);
 });
 
-test("multi-select enums sort by their maximum defined rank, not selection order", async ({ page }) => {
-  await mount(page, [
-    row("urgent", { tags: ["urgent", "low"] }),
-    row("high-first", { tags: ["high", "medium"] }),
-    row("low", { tags: ["low"] }), row("empty", { tags: [] }),
-    row("high-second", { tags: ["low", "high"] }),
-    row("unknown", { tags: ["low", "custom"] }),
-    row("medium", { tags: ["medium", "low"] }),
-  ]);
-  await sortBy(page, "tags");
-  await expect.poll(() => order(page)).toEqual(["low", "medium", "high-first", "high-second", "urgent", "unknown", "empty"]);
-  await sortBy(page, "tags");
-  await expect.poll(() => order(page)).toEqual(["urgent", "high-first", "high-second", "medium", "low", "unknown", "empty"]);
-  await expect(page.locator('tr[data-guid="urgent"] td corestone-enum .enum-label')).toHaveText(["Label 1", "Label 4"]);
-});
-
-test("enum ranks come from each row's type definition and ties remain stable", async ({ page }) => {
-  const other: Schema = {
-    ...schema, type: "other",
-    fields: [{ id: "priority", type: "enum", options: [{ value: "urgent" }, { value: "low" }] }],
-  };
-  await mount(page, [
-    row("task-high", { priority: "high" }),
-    row("other-urgent", { priority: "urgent" }, "other"),
-    row("task-low", { priority: "low" }),
-    row("other-low", { priority: "low" }, "other"),
-  ], [schema, other]);
-  await sortBy(page, "priority");
-  await expect.poll(() => order(page)).toEqual(["other-urgent", "task-low", "other-low", "task-high"]);
-  await sortBy(page, "priority");
-  await expect.poll(() => order(page)).toEqual(["task-high", "other-low", "other-urgent", "task-low"]);
-});
-
-test("text and numeric columns retain natural sorting and empty values stay last", async ({ page }) => {
-  await mount(page, [
-    row("ten", { effort: 10, text: "Item 10" }),
-    row("missing", {}), row("two", { effort: 2, text: "item 2" }),
-    row("empty", { text: "" }), row("zero", { effort: 0, text: "Alpha" }),
-  ]);
-  await sortBy(page, "effort");
-  await expect.poll(() => order(page)).toEqual(["zero", "two", "ten", "missing", "empty"]);
-  await sortBy(page, "effort");
-  await expect.poll(() => order(page)).toEqual(["ten", "two", "zero", "missing", "empty"]);
-  await sortBy(page, "text");
-  await expect.poll(() => order(page)).toEqual(["zero", "two", "ten", "missing", "empty"]);
-  await sortBy(page, "text");
-  await expect.poll(() => order(page)).toEqual(["ten", "two", "zero", "missing", "empty"]);
-});
-
-test("workflow field and State column use the fetched states-list sequence", async ({ page }) => {
-  const task: Workflow = {
-    id: "task", initial: "open",
-    states: ["open", "implementation", "verification", "done"].map((id) => ({ id })),
-    transitions: [],
-  };
-  const workflowSchema: Schema = {
-    ...schema, workflows: ["task"],
-    fields: [{ id: "status", type: "workflow", workflow: "task" }],
-    presentation: { columns: ["status"] },
-  };
-  const rows = ["done", "verification", "open", "implementation"].map((id) => ({
-    ...row(id, { status: id }), workflows: { task: id },
-  }));
-  await mount(page, rows, [workflowSchema], { task });
-  for (const column of ["status", "$state"]) {
-    await sortBy(page, column);
-    await expect.poll(() => order(page)).toEqual(["open", "implementation", "verification", "done"]);
-    await sortBy(page, column);
-    await expect.poll(() => order(page)).toEqual(["done", "verification", "implementation", "open"]);
-  }
-});
-
-test("three sort levels break ties, promote without duplicates and persist", async ({ page }) => {
-  await mount(page, [
-    row("a", { priority: "low", effort: 2, text: "same" }),
-    row("b", { priority: "high", effort: 1, text: "same" }),
-    row("c", { priority: "low", effort: 1, text: "same" }),
-    row("d", { priority: "high", effort: 1, text: "first" }),
-  ]);
+test("three sort levels are sent to the server, promote without duplicates and persist", async ({ page }) => {
+  const calls = await mount(page, [row("a", { priority: "low" }), row("b", { priority: "high" })]);
+  await expect.poll(() => order(page)).toEqual(["a", "b"]);
   await sortBy(page, "priority");
   await sortBy(page, "effort");
   await sortBy(page, "text");
-  await expect.poll(() => order(page)).toEqual(["d", "c", "b", "a"]);
+  await expect.poll(() => lastSort(calls)).toEqual([{ col: "text", dir: "asc" }, { col: "effort", dir: "asc" }, { col: "priority", dir: "asc" }]);
   await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
   await expect(page.locator('th[data-col="text"]')).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator('th[data-col="effort"] .sort-level')).toHaveText("2");
   await sortBy(page, "effort");
-  await expect.poll(() => order(page)).toEqual(["d", "c", "b", "a"]);
   await sortBy(page, "effort");
-  await expect.poll(() => order(page)).toEqual(["a", "d", "c", "b"]);
   await sortBy(page, "text");
-  await expect.poll(() => order(page)).toEqual(["d", "a", "c", "b"]);
+  const expected = [{ col: "text", dir: "asc" }, { col: "effort", dir: "desc" }, { col: "priority", dir: "asc" }];
+  await expect.poll(() => lastSort(calls)).toEqual(expected);
   const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort);
-  await expect.poll(saved).toEqual([
-    { col: "text", dir: "asc" }, { col: "effort", dir: "desc" }, { col: "priority", dir: "asc" },
-  ]);
+  await expect.poll(saved).toEqual(expected);
   await sortBy(page, "$title");
-  await expect.poll(saved).toEqual([
-    { col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" },
-  ]);
-  await page.reload();
-  await expect.poll(saved).toEqual([
-    { col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" },
-  ]);
-  await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
+  const promoted = [{ col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" }];
+  await expect.poll(saved).toEqual(promoted);
+  const after = await mount(page, [row("a", {})]);
+  await expect.poll(() => lastSort(after)).toEqual(promoted);
   await expect(page.locator('th[data-col="$title"]')).toHaveAttribute("aria-sort", "ascending");
 });
 
@@ -196,8 +122,8 @@ test("legacy single-column sort settings remain usable", async ({ page }) => {
   await page.evaluate(() => localStorage.setItem("corestone.table", JSON.stringify({
     widths: {}, sort: { col: "priority", dir: "desc" },
   })));
-  await page.reload();
-  await expect.poll(() => order(page)).toEqual(["high", "low"]);
+  const calls = await mount(page, [row("low", { priority: "low" }), row("high", { priority: "high" })]);
+  await expect.poll(() => lastSort(calls)).toEqual([{ col: "priority", dir: "desc" }]);
   await expect(page.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
   await sortBy(page, "effort");
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort)).toEqual([
@@ -205,6 +131,18 @@ test("legacy single-column sort settings remain usable", async ({ page }) => {
   ]);
 });
 
+test("large results load row details lazily while scrolling", async ({ page }) => {
+  const rows = Array.from({ length: 500 }, (_, i) => row(`row-${String(i).padStart(3, "0")}`, { effort: i }));
+  const calls = await mount(page, rows);
+  const table = page.locator("table.grid");
+  await expect(table).toHaveAttribute("aria-rowcount", "500");
+  await expect(page.locator('tr[data-guid="row-000"]:not(.placeholder)')).toHaveCount(1);
+  expect(calls.details.flat().length).toBeLessThan(200);
+  expect(await page.locator("table.grid tbody tr").count()).toBeLessThan(200);
+  await page.locator(".ctable-body").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(page.locator('tr[data-guid="row-499"]:not(.placeholder)')).toHaveCount(1);
+  expect(new Set(calls.details.flat()).size).toBeLessThan(500);
+});
 
 for (const folder of ["", "overview-scope"]) {
   test(`Links columns show From Role To and fields with independent navigation in ${folder || "root"}`, async ({ page }) => {
@@ -216,7 +154,7 @@ for (const folder of ["", "overview-scope"]) {
     const linkSchema: Schema = { type: "verifies", kind: "link", displayName: "Verifies",
       fields: [{ id: "note", name: "Note", type: "text" }, { id: "priority", name: "Priority", type: "enum",
         options: [{ value: "high", label: "High" }] }] };
-    await mount(page, [link], [linkSchema], {}, { [source.guid]: source, [target.guid]: target }, folder);
+    await mount(page, [link], [linkSchema], { [source.guid]: source, [target.guid]: target }, folder);
     await page.getByRole("button", { name: "Links", exact: true }).click();
     await expect(page.locator("thead th .th-sort")).toHaveText(["From", "Role", "To", "Note", "Priority", "Author", "Created", "Updated"]);
     const cells = page.locator(`tr[data-guid="${link.guid}"] td`);

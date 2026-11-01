@@ -3,10 +3,12 @@ import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
-import type { CommentView, LogEntry, OverlayView, Relationships, Schema, Summary, View, WorkflowEval } from "./types";
+import type { Attachment, CommentView, LogEntry, OverlayView, Relationships, Schema, Summary, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
 import "./type-icon";
+import "./table";
+import type { TableColumn } from "./table";
 import "./fields";
 import type { OverlayState } from "./fields";
 
@@ -540,6 +542,11 @@ export class Detail extends LitElement {
         <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid, tab: "" }); }}>${label(s)}</a></span>`;
   }
 
+  /** An artifact cell opening it; the row click does the same. */
+  private openCell(s: Summary, tab?: string) {
+    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}<a href=${"/artifact/" + s.guid} @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate(tab === undefined ? { guid: s.guid } : { guid: s.guid, tab }); }}>${label(s)}</a>`;
+  }
+
   /** A link's own relation: From → role → To, each endpoint opening that artifact. */
   private linkRelSection() {
     const v = this.view!;
@@ -575,19 +582,22 @@ export class Detail extends LitElement {
   private relSection() {
     if (this.view?.meta.kind === "link") return this.linkRelSection();
     const rel = this.rel;
-    const row = (lv: { link: { type: string; guid: string }; other: { guid: string; title?: string; hid?: string; kind: string; type: string; folder: string } }, dir: "in" | "out") => html`<div class="link-row">
-      <span class="type">${lv.link.type}</span><span class="arrow">${dir === "in" ? "←" : "→"}</span>
-      <corestone-type-icon .kind=${lv.other.kind as never} .type=${lv.other.type} .folder=${lv.other.folder}></corestone-type-icon>${lv.other.hid ? html`<span class="hid">${lv.other.hid}</span>` : nothing}
-      <a href=${"/artifact/" + lv.other.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: lv.other.guid }); }}>${label(lv.other as never)}</a>
-      <span class="grow"></span>
-      <button class="btn sm" title="Remove link" aria-label="Remove link" @click=${() => api.remove(lv.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`;
+    type Row = { link: Summary; other: Summary; dir: "in" | "out" };
+    const rows: Row[] = rel ? [...rel.outgoing.map((l) => ({ ...l, dir: "out" as const })), ...rel.incoming.map((l) => ({ ...l, dir: "in" as const }))] : [];
+    const columns: TableColumn<Row>[] = [
+      { id: "role", name: "Role", width: 140, value: (r) => r.link.type, render: (r) => html`<span class="type">${r.link.type}</span>` },
+      { id: "dir", name: "Dir", width: 72, value: (r) => r.dir, render: (r) => html`<span class="arrow" title=${r.dir === "in" ? "incoming" : "outgoing"}>${r.dir === "in" ? "←" : "→"}</span>` },
+      { id: "artifact", name: "Artifact", value: (r) => r.other.hid || label(r.other), render: (r) => this.openCell(r.other) },
+      { id: "folder", name: "Folder", width: 150, value: (r) => r.other.folder, render: (r) => html`<span class="muted small">${r.other.folder || "/"}</span>` },
+      { id: "remove", name: "", width: 60, sortable: false, render: (r) => html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); api.remove(r.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((err) => store.toast(err.message, "error")); }}>✕</button>` },
+    ];
     const actions = html`
         ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
         ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>← ${s.displayName || s.type}</button>`)}
         ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
     return this.section("relationships", () => html`
-      ${!rel || (!rel.incoming.length && !rel.outgoing.length) ? html`<div class="muted small">No links yet.</div>` : html`<div class="links-list">
-        ${rel.outgoing.map((l) => row(l as never, "out"))}${rel.incoming.map((l) => row(l as never, "in"))}</div>`}`, actions);
+      ${!rows.length ? html`<div class="muted small">No links yet.</div>` : html`<corestone-table class="detail-table" .items=${rows} .columns=${columns}
+        .rowKey=${(r: Row) => r.link.guid} .rowClass=${() => "link-row open-row"} @row-click=${(e: CustomEvent<Row>) => navigate({ guid: e.detail.other.guid })}></corestone-table>`}`, actions);
   }
 
   private commentSection() {
@@ -621,8 +631,11 @@ export class Detail extends LitElement {
     const att = this.view?.attachments ?? [];
     return this.section("attachments", () => html`
       ${!att.length ? html`<div class="muted small">Files stored in the artifact's GUID directory appear here.</div>` : nothing}
-      ${att.map((a) => html`<div class="attach-row"><a href=${api.fileUrl(this.guid, a.name)} target="_blank" rel="noopener">${a.name}</a><span class="size">${fmtSize(a.size)}</span>
-        <button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button></div>`)}`,
+      ${!att.length ? nothing : html`<corestone-table class="detail-table" .items=${att} .rowKey=${(a: Attachment) => a.name} .rowClass=${() => "attach-row"} .columns=${[
+        { id: "name", name: "Name", value: (a) => a.name, render: (a) => html`<a href=${api.fileUrl(this.guid, a.name)} target="_blank" rel="noopener">${a.name}</a>` },
+        { id: "size", name: "Size", width: 100, value: (a) => a.size, render: (a) => html`<span class="size">${fmtSize(a.size)}</span>` },
+        { id: "remove", name: "", width: 60, sortable: false, render: (a) => html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button>` },
+      ] satisfies TableColumn<Attachment>[]}></corestone-table>`}`,
       html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
   }
 
@@ -630,10 +643,11 @@ export class Detail extends LitElement {
   private documentSection() {
     return this.section("documents", () => !this.documents.length
       ? html`<div class="muted small">This entry is not used in any document.</div>`
-      : html`<div class="links-list" data-test="documents">${this.documents.map((d) => html`<div class="link-row">
-        <corestone-type-icon .kind=${d.kind} .type=${d.type} .folder=${d.folder}></corestone-type-icon>${d.hid ? html`<span class="hid">${d.hid}</span>` : nothing}
-        <a href=${"/artifact/" + d.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: d.guid, tab: "entry:" + this.guid }); }}>${label(d)}</a>
-        <span class="grow"></span><span class="muted small">${d.folder || "/"}</span></div>`)}</div>`);
+      : html`<corestone-table class="detail-table" data-test="documents" .items=${this.documents} .rowClass=${() => "open-row"} .columns=${[
+        { id: "document", name: "Document", value: (d) => d.hid || label(d), render: (d) => this.openCell(d, "entry:" + this.guid) },
+        { id: "type", name: "Type", width: 140, value: (d) => d.type, render: (d) => html`<span class="muted small">${d.type}</span>` },
+        { id: "folder", name: "Folder", width: 150, value: (d) => d.folder, render: (d) => html`<span class="muted small">${d.folder || "/"}</span>` },
+      ] satisfies TableColumn<Summary>[]} @row-click=${(e: CustomEvent<Summary>) => navigate({ guid: e.detail.guid, tab: "entry:" + this.guid })}></corestone-table>`);
   }
 
   /** This entry with its direct neighbours: the base it overrides and the overlays overriding it. */
@@ -660,7 +674,12 @@ export class Detail extends LitElement {
 
   private historySection() {
     return this.section("history", () => !this.historyLoaded ? html`<div class="muted small">Loading…</div>` : html`
-      ${this.history.map((h) => html`<div class="history-row"><span class="when" title=${h.time}>${fmtTime(h.time)}</span><span>${h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}</span><span class="mono muted">${h.sha.slice(0, 8)}</span></div>`)}
+      ${!this.history.length ? nothing : html`<corestone-table class="detail-table" .items=${this.history} .rowKey=${(h: LogEntry) => h.sha} .rowClass=${() => "history-row"} .columns=${[
+        { id: "when", name: "When", width: 150, value: (h) => h.time, render: (h) => html`<span class="when" title=${h.time}>${fmtTime(h.time)}</span>` },
+        { id: "change", name: "Change", value: (h) => h.subject, render: (h) => html`${h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}` },
+        { id: "author", name: "Author", width: 130, value: (h) => h.author, render: (h) => html`<span class="muted small">${h.author}</span>` },
+        { id: "commit", name: "Commit", width: 100, value: (h) => h.sha, render: (h) => html`<span class="mono muted">${h.sha.slice(0, 8)}</span>` },
+      ] satisfies TableColumn<LogEntry>[]}></corestone-table>`}
       ${!this.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}`);
   }
 
