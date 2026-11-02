@@ -48,9 +48,11 @@ async function mount(page: Page, rows: Summary[], schemas = [schema], related: R
   await page.route("http://overview.test/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/") {
-      await route.fulfill({ contentType: "text/html", body: `<style>${styles} corestone-overview { height: 600px; }</style><script type="module" src="/overview.js"></script><corestone-overview></corestone-overview>` });
+      await route.fulfill({ contentType: "text/html", body: `<!doctype html><style>${styles} corestone-overview { height: 600px; }</style><script type="module" src="/overview.js"></script><corestone-overview></corestone-overview>` });
     } else if (path === "/overview.js") {
       await route.fulfill({ contentType: "text/javascript", body: script });
+    } else if (path.startsWith("/api/icons/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="6" fill="#c33"/></svg>' });
     } else if (path === "/api/repository/types") {
       await route.fulfill({ json: { types: schemas } });
     } else if (path === "/api/repository/query") {
@@ -142,6 +144,38 @@ test("large results load row details lazily while scrolling", async ({ page }) =
   await page.locator(".ctable-body").evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await expect(page.locator('tr[data-guid="row-499"]:not(.placeholder)')).toHaveCount(1);
   expect(new Set(calls.details.flat()).size).toBeLessThan(500);
+});
+
+test("rows with and without an enum value are equally high", async ({ page }) => {
+  // a type with an icon-marked enum next to one without enum fields (like a spec next to a task)
+  const marked: Schema = { type: "task", kind: "entry", presentation: { columns: ["priority"] },
+    fields: [{ id: "priority", type: "enum", options: options.map((o) => ({ ...o, presentation: { icon: "dot" } })) }] };
+  const plain: Schema = { type: "note", kind: "entry", fields: [] };
+  await mount(page, [row("with-enum", { priority: "high" }), row("without-enum", {}, "note")], [marked, plain]);
+  await expect(page.locator('tr[data-guid="with-enum"] corestone-enum img.enum-marker')).toHaveJSProperty("complete", true);
+  // natural heights, without the uniform height the lazy table imposes
+  const heights = await page.locator("table.grid tbody tr:not(.placeholder)").evaluateAll((rows) =>
+    rows.map((r) => { (r as HTMLElement).style.height = ""; return r.getBoundingClientRect().height; }));
+  expect(heights).toHaveLength(2);
+  expect(Math.abs(heights[0] - heights[1])).toBeLessThan(0.5);
+});
+
+test("scrolling past the first rows settles instead of running away", async ({ page }) => {
+  const rows = Array.from({ length: 2000 }, (_, i) => row(`row-${String(i).padStart(4, "0")}`, { effort: i }));
+  const calls = await mount(page, rows);
+  // rows of different natural heights (in real repositories e.g. chips in some rows)
+  await page.addStyleTag({ content: 'tr[data-guid$="3"] td, tr[data-guid$="7"] td { padding-top: 9px; }' });
+  const body = page.locator(".ctable-body");
+  await expect(page.locator('tr[data-guid="row-0000"]:not(.placeholder)')).toHaveCount(1);
+  // ordinary wheel scrolling, a few screens down from the top
+  await body.hover();
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(300);
+  const settled = await body.evaluate((el) => el.scrollTop);
+  await page.waitForTimeout(1000);
+  expect(await body.evaluate((el) => el.scrollTop)).toBe(settled);
+  expect(settled).toBeLessThan(3000);
+  expect(new Set(calls.details.flat()).size).toBeLessThan(300);
 });
 
 for (const folder of ["", "overview-scope"]) {

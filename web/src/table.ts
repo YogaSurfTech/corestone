@@ -148,9 +148,13 @@ export class Table extends LitElement {
 
   override updated() {
     if (this.local) return;
-    // Rows have one line; their real height drives the scroll arithmetic.
-    const h = this.querySelector<HTMLElement>("tbody tr:not(.placeholder)")?.getBoundingClientRect().height;
-    if (h && Math.abs(h - this.rh) > 0.5) {
+    // Every row is rendered rh high, but content may need more; the tallest rendered
+    // row then raises rh for all. Only growing keeps this from oscillating: rows of
+    // different natural heights would otherwise change rh, the range, the first row
+    // and rh again within the same task, freezing the page.
+    let h = 0;
+    for (const tr of this.querySelectorAll<HTMLElement>("tbody tr")) h = Math.max(h, tr.getBoundingClientRect().height);
+    if (h > this.rh + 0.5) {
       this.rh = h;
       this.updateRange();
     }
@@ -356,14 +360,14 @@ export class Table extends LitElement {
 
   private serverRow(id: string, index: number) {
     const r = this.rows.get(id);
-    if (r) return this.row(r, id, index);
-    return html`<tr class="row placeholder ${index === this.active ? "active" : ""}" data-guid=${id}><td colspan=${this.columns.length + (this.filler ? 1 : 0)} class="muted">…</td></tr>`;
+    if (r) return this.row(r, id, index, `height:${this.rh}px`);
+    return html`<tr class="row placeholder ${index === this.active ? "active" : ""}" data-guid=${id} style=${`height:${this.rh}px`}><td colspan=${this.columns.length + (this.filler ? 1 : 0)} class="muted">…</td></tr>`;
   }
 
-  private row(r: Row, key: string, index: number) {
+  private row(r: Row, key: string, index: number, style?: string) {
     const off = this.disabled?.(r);
     const cls = ["row", off ? "taken" : "", index === this.active ? "active" : "", this.selected?.(r) ? "selected" : "", this.rowClass?.(r) ?? ""].filter(Boolean).join(" ");
-    return html`<tr class=${cls} data-guid=${key} aria-disabled=${off ? "true" : "false"} title=${off ?? nothing} @click=${() => this.pick(r)}>${this.columns.map((c) =>
+    return html`<tr class=${cls} data-guid=${key} style=${style ?? nothing} aria-disabled=${off ? "true" : "false"} title=${off ?? nothing} @click=${() => this.pick(r)}>${this.columns.map((c) =>
       html`<td class=${c.cls ?? ""} title=${c.title?.(r, this.ctx) ?? nothing}>${c.render(r, this.ctx)}</td>`)}${this.filler ? html`<td></td>` : nothing}</tr>`;
   }
 }
