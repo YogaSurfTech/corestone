@@ -410,5 +410,7 @@ corestone-enum { display: block; min-width: 0; max-width: 100%; }
 .enum-option[aria-selected=true] { background: var(--panel-2); }
 .enum-readonly { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* One line high and top-aligned, so an enum never makes its row taller than rows without one (as a block, the line box added the text baseline space to the label) */
+table.grid corestone-enum { display: inline-flex; vertical-align: top; }
 table.grid .enum-readonly { display: inline-flex; flex-wrap: nowrap; width: max-content; }
 table.grid .enum-label { flex: none; white-space: nowrap; overflow-wrap: normal; }
