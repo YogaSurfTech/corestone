@@ -237,6 +237,9 @@ div.history-row { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10p
 .chain .col { display: flex; flex-direction: column; gap: 6px; }
 .base-change { border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 8px; }
 .base-change .keep { display: flex; align-items: center; gap: 6px; }
+.base-change .underlay-title { display: flex; flex-direction: column; gap: 4px; }
+.base-change .underlay-fields { display: flex; flex-direction: column; gap: 4px; }
+.base-change .underlay-fields label { display: flex; align-items: baseline; gap: 6px; }
 .base-change .buttons { display: flex; justify-content: flex-end; gap: 6px; }
 table.base-diff { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--panel); }
 table.base-diff th, table.base-diff td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -327,6 +330,9 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .picker-results { height: 300px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; overflow: hidden; }
 .dialog .foot .grow { align-self: center; }
 .dialog.picker .picker-count { margin-top: 3px; min-height: 1.4em; }
+.picker-action .act-icon { font-weight: 700; }
+.picker-action.add .act-icon { color: var(--ok); }
+.picker-action.remove { color: var(--danger); }
 
 /* ---- generic table (table.grid inside): server-sorted with only visible rows rendered, or rows held in the browser ---- */
 corestone-table { display: flex; flex-direction: column; min-height: 0; }

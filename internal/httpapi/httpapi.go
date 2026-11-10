@@ -98,6 +98,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/artifacts/{guid}/comments", s.comments)
 	m.HandleFunc("GET /api/artifacts/{guid}/history", s.history)
 	m.HandleFunc("POST /api/artifacts/{guid}/move", s.move)
+	m.HandleFunc("POST /api/artifacts/{guid}/underlay", s.underlay)
 	m.HandleFunc("GET /api/artifacts/{guid}/files/{name}", s.getFile)
 	m.HandleFunc("PUT /api/artifacts/{guid}/files/{name}", s.putFile)
 	m.HandleFunc("DELETE /api/artifacts/{guid}/files/{name}", s.deleteFile)
@@ -489,6 +490,34 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	}
 	setETag(w, v.ETag)
 	writeJSON(w, http.StatusOK, v)
+}
+
+// underlay creates a new base below an entry from fields it sets itself:
+// {"title": "...", "fields": ["id", ...]}.
+func (s *Server) underlay(w http.ResponseWriter, r *http.Request) {
+	guid, ok := guidParam(w, r)
+	if !ok {
+		return
+	}
+	body, ok := readObject(w, r)
+	if !ok {
+		return
+	}
+	var fields []string
+	for _, v := range body.Array("fields") {
+		id, isString := v.(string)
+		if !isString {
+			writeError(w, http.StatusBadRequest, "fields must be field ids")
+			return
+		}
+		fields = append(fields, id)
+	}
+	u, err := s.F.CreateUnderlay(r.Context(), guid, ifMatch(r), body.String("title"), fields)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, u)
 }
 
 func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {

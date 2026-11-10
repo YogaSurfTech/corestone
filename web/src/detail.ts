@@ -11,6 +11,7 @@ import "./table";
 import type { TableColumn } from "./table";
 import "./fields";
 import { OVERLAY_HELP, type OverlayState } from "./fields";
+import type { PickerAction } from "./dialogs";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -57,6 +58,8 @@ export class Detail extends LitElement {
   @state() private actionsOpen = false;
   /** A base change shown for review: the new base (null removes it) and that base's effective fields. */
   @state() private baseChange: { to: Summary | null; next: OverlayView | null; keep: boolean } | null = null;
+  /** A new base being set up from fields this entry sets itself: its title and the fields that move. */
+  @state() private underlay: { title: string; fields: Set<string> } | null = null;
   /** Sections the user opened or closed; remembered for the browser session. */
   @state() private openPrefs: Record<string, boolean> = readOpenPrefs();
   private lastTick = -1;
@@ -129,7 +132,7 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; this.baseChange = null; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
     this.error = "";
     try {
       const view = await api.get(guid);
@@ -662,7 +665,7 @@ export class Detail extends LitElement {
       <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid }); }}>${hid ? html`<span class="hid">${hid}</span> ` : nothing}${title || (hid ? "" : guid.slice(0, 8))}</a>
       ${sets(fields)}</div>`;
     const empty = !base && !ov.overlays.length;
-    return this.section("overlay", () => html`${this.baseChangePreview()}${empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
+    return this.section("overlay", () => html`${this.baseChangePreview()}${this.underlayForm()}${empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
       <div class="chain">
         ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>` : nothing}
         <div class="col"><div class="node self"><b>this entry</b>${sets(self?.fields ?? [])}</div></div>
@@ -685,14 +688,82 @@ export class Detail extends LitElement {
   private pickBase = () => {
     const v = this.view!;
     const base = v.meta.base;
-    store.set({ picker: { kind: "pick", title: base ? "Change or remove the base" : "Choose a base", types: [v.meta.type], kinds: ["entry"], exclude: this.guid,
-      extra: base ? { label: `Remove base ${this.levelLabel(base)}`, test: "remove-base", danger: true, run: () => { void this.previewBase(null); } } : undefined,
-      onPick: (s: Summary) => { void this.previewBase(s); } } });
+    const actions: PickerAction[] = [{ label: "Create new base…", test: "create-base", tone: "add", run: this.startUnderlay }];
+    if (base) actions.push({ label: `Remove base ${this.levelLabel(base)}`, test: "remove-base", tone: "remove", run: () => { void this.previewBase(null); } });
+    store.set({ picker: { kind: "pick", title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: this.guid,
+      actions, onPick: (s: Summary) => { void this.previewBase(s); } } });
+  };
+
+  /** The fields this entry sets itself, which can move into a new base. */
+  private ownFields(): Record<string, unknown> {
+    return ((this.view?.data as Record<string, unknown> | undefined)?.fields ?? {}) as Record<string, unknown>;
+  }
+
+  /** Without a base of its own, a new base must contain the required fields. */
+  private mustMove(id: string): boolean {
+    return !this.view?.meta.base && !!this.schema?.fields?.find((f) => f.id === id)?.required;
+  }
+
+  private startUnderlay = () => {
+    this.baseChange = null;
+    this.underlay = { title: this.view?.meta.title ?? "", fields: new Set(Object.keys(this.ownFields())) };
+    void this.reveal("overlay");
+  };
+
+  private toggleUnderlayField(id: string, on: boolean) {
+    const fields = new Set(this.underlay!.fields);
+    if (on) fields.add(id); else fields.delete(id);
+    this.underlay = { ...this.underlay!, fields };
+  }
+
+  /** The new base: title, the fields that move, and the resulting chain. Effective values stay. */
+  private underlayForm() {
+    const u = this.underlay;
+    if (!u || !this.view) return nothing;
+    const own = this.ownFields();
+    const ids = Object.keys(own);
+    const base = this.view.meta.base;
+    const name = (id: string) => this.schema?.fields?.find((f) => f.id === id)?.name || id;
+    const show = (v: unknown) => typeof v === "object" ? JSON.stringify(v) : String(v);
+    return html`<div class="base-change" data-test="underlay">
+      <div class="title">Create a new base for this entry</div>
+      <label class="underlay-title small">Title of the new base
+        <input type="text" data-test="underlay-title" .value=${u.title} @input=${(e: Event) => { this.underlay = { ...u, title: (e.target as HTMLInputElement).value }; }}></label>
+      ${ids.length ? html`<div class="small">Fields that move into the new base:</div>
+        <div class="underlay-fields">${ids.map((id) => html`<label class="small" data-field=${id}>
+          <input type="checkbox" .checked=${u.fields.has(id) || this.mustMove(id)} ?disabled=${this.mustMove(id)}
+            @change=${(e: Event) => this.toggleUnderlayField(id, (e.target as HTMLInputElement).checked)}>
+          <span><b>${name(id)}</b>: ${show(own[id])}${this.mustMove(id) ? html` <span class="muted">(required: a base without a base of its own must set it)</span>` : nothing}</span></label>`)}</div>`
+        : html`<div class="muted small">This entry sets no fields itself; the new base starts empty.</div>`}
+      <div class="chain small" data-test="underlay-chain">${base ? html`<span>${this.levelLabel(base)}</span><span class="arrow">→ overlaid by</span>` : nothing}
+        <span><b>new base</b></span><span class="arrow">→ overlaid by</span><span>this entry</span></div>
+      <div class="muted small">The moved values are inherited from the new base, so this entry's effective values stay the same.${base ? ` The new base inherits from ${this.levelLabel(base)}.` : ""}</div>
+      <div class="buttons">
+        <button class="btn sm" data-test="cancel-underlay" @click=${() => { this.underlay = null; }}>Cancel</button>
+        <button class="btn sm primary" data-test="apply-underlay" ?disabled=${this.busy} @click=${this.applyUnderlay}>Create base</button>
+      </div></div>`;
+  }
+
+  /** One commit: the new base with the moved fields, and this entry inheriting them. */
+  private applyUnderlay = async () => {
+    const u = this.underlay, v = this.view;
+    if (!u || !v) return;
+    const fields = Object.keys(this.ownFields()).filter((id) => u.fields.has(id) || this.mustMove(id));
+    this.busy = true;
+    try {
+      const res = await api.underlay(this.guid, u.title.trim(), fields, v.etag);
+      store.toast(`New base ${label(res.base.meta)} created`, "success");
+      this.underlay = null;
+      this.reload(true);
+      store.refresh();
+    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    finally { this.busy = false; }
   };
 
   private async previewBase(to: Summary | null) {
     try {
       const next = to ? await api.overlay(to.guid) : null;
+      this.underlay = null;
       this.baseChange = { to, next, keep: true };
       void this.reveal("overlay");
     } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }

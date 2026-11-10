@@ -185,7 +185,7 @@ test("change or remove an entry's base with a preview of the effective values", 
   expect((await get<{ meta: { base?: string } }>(`/artifacts/${e.meta.guid}`)).meta.base).toBe(b.meta.guid);
   // removing the base (from the picker) keeps the values by default: nothing changes, the values move into the entry
   await page.locator("[data-test=change-base]").click();
-  await expect(page.locator("[data-test=remove-base]")).toHaveText(`Remove base ${b.meta.hid}`);
+  await expect(page.locator("[data-test=remove-base]")).toHaveText(`✕Remove base ${b.meta.hid}`);
   await page.locator("[data-test=remove-base]").click();
   await expect(page.locator("corestone-picker")).toHaveCount(0);
   await expect(preview.locator("[data-test=keep-values]")).toBeChecked();
@@ -205,8 +205,59 @@ test("change or remove an entry's base with a preview of the effective values", 
   // without a base, the button offers to inherit from an entry, and the picker has nothing to remove
   await expect(page.locator("[data-test=change-base]")).toHaveText("Inherit from…");
   await page.locator("[data-test=change-base]").click();
-  await expect(page.locator("corestone-picker h2")).toHaveText("Choose a base");
+  await expect(page.locator("corestone-picker h2")).toHaveText("Choose or create a base");
   await expect(page.locator("[data-test=remove-base]")).toHaveCount(0);
+});
+
+test("create a new base from an entry's own fields, as a level of its own or below an existing base", async ({ page }) => {
+  const a = await post("/entries", { path: folder, type: "req", title: `Under A ${id}`, fields: { priority: "high", rationale: "from A" } });
+  const e = await post("/entries", { path: folder, type: "req", title: `Under E ${id}`, base: a.meta.guid, fields: { priority: "low", effort: 3 } });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  const form = page.locator("[data-test=underlay]");
+  // the picker offers it next to removing the base, marked green and red
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("[data-test=create-base]")).toHaveClass(/\badd\b/);
+  await expect(page.locator("[data-test=remove-base]")).toHaveClass(/\bremove\b/);
+  await page.locator("[data-test=create-base]").click();
+  await expect(page.locator("corestone-picker")).toHaveCount(0);
+  // all own fields are offered and checked; with a base, none is forced
+  await expect(form.locator("[data-test=underlay-title]")).toHaveValue(`Under E ${id}`);
+  await expect(form.locator("label[data-field=priority] input")).toBeChecked();
+  await expect(form.locator("label[data-field=effort] input")).toBeEnabled();
+  await expect(form.locator("[data-test=underlay-chain]")).toHaveText(new RegExp(`${a.meta.hid}\\s*→ overlaid by\\s*new base\\s*→ overlaid by\\s*this entry`));
+  await form.locator("label[data-field=effort] input").uncheck();
+  await form.locator("[data-test=underlay-title]").fill(`Middle ${id}`);
+  await form.locator("[data-test=apply-underlay]").click();
+  await expect(form).toHaveCount(0);
+  // the moved value is now inherited from the new middle level; the effective value is unchanged
+  await expect(page.locator("[data-field=priority] .inherited")).toContainText("inherited from base");
+  await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("low");
+  const entry = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
+  expect(entry.data.fields).toEqual({ effort: 3 });
+  const mid = await get<{ meta: { title: string; base: string; hid: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${entry.meta.base}`);
+  expect(mid.meta.title).toBe(`Middle ${id}`);
+  expect(mid.meta.base).toBe(a.meta.guid);
+  expect(mid.data.fields).toEqual({ priority: "low" });
+  await expect(page.locator("#sec-overlay .chain .node").first()).toContainText(mid.meta.hid);
+
+  // without a base, required fields must move with it
+  const solo = await post("/entries", { path: folder, type: "req", title: `Solo ${id}`, fields: { priority: "high", effort: 2 } });
+  await page.goto(`/artifact/${solo.meta.guid}`);
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("corestone-picker h2")).toHaveText("Choose or create a base");
+  await page.locator("[data-test=create-base]").click();
+  await expect(form.locator("label[data-field=priority] input")).toBeChecked();
+  await expect(form.locator("label[data-field=priority] input")).toBeDisabled();
+  await expect(form.locator("label[data-field=priority]")).toContainText("required");
+  await form.locator("label[data-field=effort] input").uncheck();
+  await form.locator("[data-test=apply-underlay]").click();
+  await expect(form).toHaveCount(0);
+  const soloAfter = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${solo.meta.guid}`);
+  expect(soloAfter.data.fields).toEqual({ effort: 2 });
+  const soloBase = await get<{ meta: { title: string; base?: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${soloAfter.meta.base}`);
+  expect(soloBase.meta.title).toBe(`Solo ${id}`);
+  expect(soloBase.meta.base).toBeFalsy();
+  expect(soloBase.data.fields).toEqual({ priority: "high" });
 });
 
 test("HID rename keeps history and lookup; move keeps identity", async ({ page }) => {

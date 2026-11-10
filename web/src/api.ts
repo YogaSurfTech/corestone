@@ -88,6 +88,9 @@ export const api = {
     request<View>("PUT", "/artifacts/" + guid, patch, etag ? { "If-Match": `"${etag}"` } : {}),
   remove: (guid: string, etag?: string) => request<void>("DELETE", "/artifacts/" + guid, undefined, etag ? { "If-Match": `"${etag}"` } : {}),
   move: (guid: string, path: string) => request<View>("POST", `/artifacts/${guid}/move`, { path }),
+  /** Creates a new base below an entry from fields it sets itself (one commit). */
+  underlay: (guid: string, title: string, fields: string[], etag?: string) =>
+    request<{ base: View; entry: View }>("POST", `/artifacts/${guid}/underlay`, { title, fields }, etag ? { "If-Match": `"${etag}"` } : {}),
   schemaOf: (guid: string) => request<{ schema: Schema | null; type: string; folder: string }>("GET", `/artifacts/${guid}/schema`),
   overlay: (guid: string) => request<OverlayView>("GET", `/artifacts/${guid}/overlay`),
   documents: (guid: string) => request<{ documents: Summary[] }>("GET", `/artifacts/${guid}/documents`),

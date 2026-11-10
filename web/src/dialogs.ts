@@ -11,6 +11,9 @@ import "./type-icon";
 import "./fields";
 import "./folder-field";
 
+/** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
+export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
+
 const PICKER_SIZE_KEY = "corestone.pickerSize";
 
 /** The picker size the user last dragged it to, if any. */
@@ -425,8 +428,8 @@ export class Picker extends LitElement {
     const exclude = this.dialog.exclude as string | undefined;
     // Shown but not selectable, with a reason (e.g. an entry already in the document).
     const taken = this.dialog.taken as { guids: Set<string>; note: string } | undefined;
-    // An optional action besides picking, e.g. removing the current base.
-    const extra = this.dialog.extra as { label: string; test?: string; danger?: boolean; run: () => void } | undefined;
+    // Optional actions besides picking, e.g. creating or removing a base.
+    const actions = (this.dialog.actions as PickerAction[] | undefined) ?? [];
     return html`<h2>${this.dialog.title as string}</h2>
       <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
       <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
@@ -435,8 +438,8 @@ export class Picker extends LitElement {
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @row-click=${(e: CustomEvent<Summary>) => { store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(e.detail); }}></corestone-table>
       <div class="picker-count muted small" data-test="picker-count">${this.total < 0 ? "" : `${this.total} ${this.total === 1 ? "match" : "matches"}`}</div>
-      <div class="foot">${extra ? html`<button class="btn ${extra.danger ? "danger" : ""}" data-test=${extra.test ?? "picker-extra"}
-          @click=${() => { store.set({ picker: null }); extra.run(); }}>${extra.label}</button>` : nothing}
+      <div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
+          @click=${() => { store.set({ picker: null }); a.run(); }}><span class="act-icon" aria-hidden="true">${a.tone === "add" ? "＋" : "✕"}</span>${a.label}</button>`)}
         <span class="grow"></span>
         <button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
   }
