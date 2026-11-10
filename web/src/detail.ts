@@ -55,6 +55,8 @@ export class Detail extends LitElement {
   @state() private showDiagram: string | null = null;
   @state() private historyLoaded = false;
   @state() private actionsOpen = false;
+  /** A base change shown for review: the new base (null removes it) and that base's effective fields. */
+  @state() private baseChange: { to: Summary | null; next: OverlayView | null; keep: boolean } | null = null;
   /** Sections the user opened or closed; remembered for the browser session. */
   @state() private openPrefs: Record<string, boolean> = readOpenPrefs();
   private lastTick = -1;
@@ -127,7 +129,7 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; this.baseChange = null; }
     this.error = "";
     try {
       const view = await api.get(guid);
@@ -660,16 +662,107 @@ export class Detail extends LitElement {
       <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid }); }}>${hid ? html`<span class="hid">${hid}</span> ` : nothing}${title || (hid ? "" : guid.slice(0, 8))}</a>
       ${sets(fields)}</div>`;
     const empty = !base && !ov.overlays.length;
-    return this.section("overlay", () => empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
+    return this.section("overlay", () => html`${this.baseChangePreview()}${empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
       <div class="chain">
         ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>` : nothing}
         <div class="col"><div class="node self"><b>this entry</b>${sets(self?.fields ?? [])}</div></div>
         ${ov.overlays.length ? html`<span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>
           <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
       </div>
-      ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`,
-      html`<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
+      ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`}`,
+      html`${this.baseActions(!!base)}<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
   }
+
+  /** One button for the base: the picker chooses a new one or, if there is one, removes it. */
+  private baseActions(hasBase: boolean) {
+    const blocked = this.dirty;
+    return html`<button class="btn sm" data-test="change-base" ?disabled=${blocked}
+      title=${blocked ? "Save or discard your changes first" : hasBase ? "Choose another base or remove it" : "Inherit the fields this entry does not set from another entry"}
+      @click=${this.pickBase}>${hasBase ? "Change base…" : "Inherit from…"}</button>`;
+  }
+
+  /** Picks a new base of the same type, or removes the current one; nothing changes until the preview is applied. */
+  private pickBase = () => {
+    const v = this.view!;
+    const base = v.meta.base;
+    store.set({ picker: { kind: "pick", title: base ? "Change or remove the base" : "Choose a base", types: [v.meta.type], kinds: ["entry"], exclude: this.guid,
+      extra: base ? { label: `Remove base ${this.levelLabel(base)}`, test: "remove-base", danger: true, run: () => { void this.previewBase(null); } } : undefined,
+      onPick: (s: Summary) => { void this.previewBase(s); } } });
+  };
+
+  private async previewBase(to: Summary | null) {
+    try {
+      const next = to ? await api.overlay(to.guid) : null;
+      this.baseChange = { to, next, keep: true };
+      void this.reveal("overlay");
+    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+  }
+
+  /** Effective values before and after the base change. Values set in this entry stay; on
+   *  removal with "keep", inherited values are copied into the entry. */
+  private baseChangeRows() {
+    const c = this.baseChange!, ov = this.overlay!;
+    const own = ((this.view!.data as Record<string, unknown>).fields ?? {}) as Record<string, unknown>;
+    const after: Record<string, unknown> = {}, afterFrom: Record<string, string> = {};
+    if (c.next) for (const [k, v] of Object.entries(c.next.fields)) { after[k] = v; afterFrom[k] = c.next.origin[k]; }
+    if (!c.to && c.keep) for (const [k, v] of Object.entries(ov.fields)) { after[k] = v; afterFrom[k] = this.guid; }
+    for (const [k, v] of Object.entries(own)) { after[k] = v; afterFrom[k] = this.guid; }
+    const levels = [...ov.chain, ...(c.next?.chain ?? [])];
+    const from = (g: string | undefined) => !g ? "" : g === this.guid ? "this entry" : ((l) => l?.hid || l?.title || g.slice(0, 8))(levels.find((l) => l.guid === g));
+    const name = (id: string) => this.schema?.fields?.find((f) => f.id === id)?.name || id;
+    const ids = [...new Set([...Object.keys(ov.fields), ...Object.keys(after)])];
+    return ids.map((id) => ({ id, name: name(id), before: ov.fields[id], beforeFrom: from(ov.origin[id]), after: after[id], afterFrom: from(afterFrom[id]),
+      changed: !deepEqual(ov.fields[id], after[id]) }));
+  }
+
+  private baseChangePreview() {
+    const c = this.baseChange;
+    if (!c || !this.view || !this.overlay) return nothing;
+    const cycle = !!c.next?.chain.some((l) => l.guid === this.guid);
+    const same = !!c.to && c.to.guid === this.view.meta.base;
+    const rows = cycle || same ? [] : this.baseChangeRows();
+    const changed = rows.filter((r) => r.changed);
+    const ownCount = Object.keys(((this.view.data as Record<string, unknown>).fields ?? {}) as object).length;
+    const overlays = this.overlay.overlays.length;
+    const show = (v: unknown) => v === undefined || v === "" ? html`<span class="muted">—</span>` : typeof v === "object" ? JSON.stringify(v) : String(v);
+    return html`<div class="base-change" data-test="base-change">
+      <div class="title">${c.to ? html`Change the base to <b>${label(c.to)}</b>` : html`Remove the base <b>${this.levelLabel(this.view.meta.base ?? "")}</b>`}</div>
+      ${cycle ? html`<div class="notice error">${label(c.to)} inherits from this entry, so it cannot become its base (cycle).</div>`
+        : same ? html`<div class="muted small">This already is the base; nothing changes.</div>` : html`
+        ${!c.to ? html`<label class="keep small"><input type="checkbox" data-test="keep-values" .checked=${c.keep}
+          @change=${(e: Event) => { this.baseChange = { ...c, keep: (e.target as HTMLInputElement).checked }; }}> Keep the inherited values in this entry</label>` : nothing}
+        ${changed.length ? html`<table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
+          <tbody>${changed.map((r) => html`<tr data-field=${r.id}><td>${r.name}</td>
+            <td>${show(r.before)} ${r.beforeFrom ? html`<small class="muted">from ${r.beforeFrom}</small>` : nothing}</td>
+            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table>`
+          : html`<div class="muted small" data-test="base-no-change">No effective value changes.</div>`}
+        <div class="muted small">${ownCount === 1 ? "1 value set in this entry stays" : `${ownCount} values set in this entry stay`} as ${ownCount === 1 ? "it is" : "they are"}.${
+          overlays ? ` ${overlays === 1 ? "Its overlay inherits" : `Its ${overlays} overlays inherit`} the new values too.` : ""}</div>`}
+      <div class="buttons">
+        <button class="btn sm" data-test="cancel-base" @click=${() => { this.baseChange = null; }}>Cancel</button>
+        <button class="btn sm primary" data-test="apply-base" ?disabled=${cycle || same || this.busy} @click=${this.applyBase}>${c.to ? "Change base" : "Remove base"}</button>
+      </div></div>`;
+  }
+
+  /** One update: the new base, plus on removal with "keep" the inherited values. */
+  private applyBase = async () => {
+    const c = this.baseChange, v = this.view, ov = this.overlay;
+    if (!c || !v || !ov) return;
+    const patch: Record<string, unknown> = { base: c.to?.guid ?? "" };
+    if (!c.to && c.keep) {
+      const copy = Object.fromEntries(Object.entries(ov.fields).filter(([k]) => ov.origin[k] !== this.guid));
+      if (Object.keys(copy).length) patch.fields = copy;
+    }
+    this.busy = true;
+    try {
+      await api.update(this.guid, patch, v.etag);
+      store.toast(c.to ? `Base changed to ${label(c.to)}` : "Base removed", "success");
+      this.baseChange = null;
+      this.reload(true);
+      store.refresh();
+    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    finally { this.busy = false; }
+  };
 
 
   private historySection() {
