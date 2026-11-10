@@ -27,6 +27,9 @@ function valuesInUse(type: string, field: string, folder: string): Promise<strin
 /** How a field relates to the entry's overlay base: shown from the base and locked, or set here over a base value. */
 export interface OverlayState { from: string; state: "inherited" | "overridden"; baseValue: unknown }
 
+/** How overlays resolve, shown wherever the overlay chain or a field's origin appears. */
+export const OVERLAY_HELP = "An overlay inherits every field from its base. Values set in the overlay take precedence; everything else comes from the base.";
+
 @customElement("corestone-field")
 export class FieldEditor extends LitElement {
   @property({ attribute: false }) field!: Field;
@@ -60,9 +63,9 @@ export class FieldEditor extends LitElement {
     const o = this.overlay;
     if (!o) return nothing;
     return o.state === "inherited"
-      ? html`<div class="inherited">inherited from base <b>${o.from}</b> ·
+      ? html`<div class="inherited" title=${OVERLAY_HELP}>inherited from base <b>${o.from}</b> ·
           <button type="button" data-test="override" @click=${() => this.overlayEvent("overlay-unlock")}>🔓 override</button></div>`
-      : html`<div class="inherited overridden">overrides base <b>${o.from}</b> ·
+      : html`<div class="inherited overridden" title=${OVERLAY_HELP}>overrides base <b>${o.from}</b> ·
           <button type="button" data-test="revert" title=${"Base value: " + (typeof o.baseValue === "object" ? JSON.stringify(o.baseValue) : String(o.baseValue))}
             @click=${() => this.overlayEvent("overlay-revert")}>↩ revert to base</button></div>`;
   }

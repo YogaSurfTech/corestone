@@ -153,6 +153,17 @@ type txn struct {
 	head string
 	cfg  *model.ConfigIndex
 	ops  map[string]gitx.Op // staged ops by path (last wins)
+	// Artifacts created earlier in this transaction: load and exists find
+	// them, so a write can create one artifact and reference it in another.
+	created map[string]*loaded
+}
+
+// stage makes an artifact created in this transaction visible to load and exists.
+func (t *txn) stage(l *loaded) {
+	if t.created == nil {
+		t.created = map[string]*loaded{}
+	}
+	t.created[l.GUID] = l
 }
 
 // prepare builds the changeset for one attempt. It is re-run from scratch
@@ -295,6 +306,9 @@ type loaded struct {
 }
 
 func (t *txn) load(guid string) (*loaded, error) {
+	if l, ok := t.created[guid]; ok {
+		return l, nil
+	}
 	loc, err := t.f.DB.Locate(t.ctx, guid)
 	if err != nil {
 		return nil, err
@@ -315,7 +329,13 @@ func (t *txn) load(guid string) (*loaded, error) {
 
 // exists checks that a referenced artifact exists (and optionally has a kind).
 func (t *txn) exists(guid string, kinds ...model.Kind) (*projection.Located, error) {
-	loc, err := t.f.DB.Locate(t.ctx, guid)
+	var loc *projection.Located
+	var err error
+	if l, ok := t.created[guid]; ok {
+		loc = l.Loc
+	} else {
+		loc, err = t.f.DB.Locate(t.ctx, guid)
+	}
 	if errors.Is(err, model.ErrNotFound) {
 		return nil, model.Invalid("referenced artifact %s does not exist", guid)
 	}

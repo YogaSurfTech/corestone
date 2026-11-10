@@ -149,6 +149,117 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(ov.locator("[data-test=overlays] .node a", { hasText: `Leaf ${id}` })).toBeVisible();
 });
 
+test("change or remove an entry's base with a preview of the effective values", async ({ page }) => {
+  const a = await post("/entries", { path: folder, type: "req", title: `Base A ${id}`, fields: { priority: "high", rationale: "from A" } });
+  const b = await post("/entries", { path: folder, type: "req", title: `Base B ${id}`, fields: { priority: "low", rationale: "from B" } });
+  const e = await post("/entries", { path: folder, type: "req", title: `Overlay E ${id}`, base: a.meta.guid, fields: { effort: 3 } });
+  const top = await post("/entries", { path: folder, type: "req", title: `Top ${id}`, base: e.meta.guid, fields: {} });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  const ov = page.locator("#sec-overlay");
+  const preview = page.locator("[data-test=base-change]");
+  const pick = async (title: string) => {
+    await page.locator("[data-test=change-base]").click();
+    await expect(page.locator("corestone-picker h2")).toHaveText("Change or remove the base");
+    await page.locator("corestone-picker input").fill(title);
+    await page.locator(".picker-results .row", { hasText: title }).click();
+  };
+  // an overlay of this entry cannot become its base
+  await pick(`Top ${id}`);
+  await expect(preview).toContainText("cycle");
+  await expect(preview.locator("[data-test=apply-base]")).toBeDisabled();
+  await preview.locator("[data-test=cancel-base]").click();
+  await expect(preview).toHaveCount(0);
+  // the preview lists the inherited values that change; the own value stays
+  await pick(`Base B ${id}`);
+  const diff = preview.locator("[data-test=base-diff]");
+  await expect(diff.locator("tr[data-field=priority]")).toContainText(`high from ${a.meta.hid}`);
+  await expect(diff.locator("tr[data-field=priority]")).toContainText(`low from ${b.meta.hid}`);
+  await expect(diff.locator("tr[data-field=rationale]")).toContainText("from B");
+  await expect(diff.locator("tr[data-field=effort]")).toHaveCount(0);
+  await expect(preview).toContainText("1 value set in this entry stays");
+  await expect(preview).toContainText("Its overlay inherits the new values too");
+  await preview.locator("[data-test=apply-base]").click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator("[data-field=priority] .inherited")).toContainText(`inherited from base ${b.meta.hid}`);
+  await expect(ov.locator(".chain .node").first()).toContainText(b.meta.hid!);
+  expect((await get<{ meta: { base?: string } }>(`/artifacts/${e.meta.guid}`)).meta.base).toBe(b.meta.guid);
+  // removing the base (from the picker) keeps the values by default: nothing changes, the values move into the entry
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("[data-test=remove-base]")).toHaveText(`✕Remove base ${b.meta.hid}`);
+  await page.locator("[data-test=remove-base]").click();
+  await expect(page.locator("corestone-picker")).toHaveCount(0);
+  await expect(preview.locator("[data-test=keep-values]")).toBeChecked();
+  await expect(preview.locator("[data-test=base-no-change]")).toBeVisible();
+  // without keeping them, the inherited values would disappear
+  await preview.locator("[data-test=keep-values]").uncheck();
+  await expect(preview.locator("[data-test=base-diff] tr[data-field=priority]")).toContainText(`low from ${b.meta.hid}`);
+  await preview.locator("[data-test=keep-values]").check();
+  await preview.locator("[data-test=apply-base]").click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator("[data-field=priority] .inherited")).toHaveCount(0);
+  const after = await get<{ meta: { base?: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
+  expect(after.meta.base).toBeFalsy();
+  expect(after.data.fields).toEqual({ effort: 3, priority: "low", rationale: "from B" });
+  // the overlay of this entry stays attached
+  expect((await get<{ meta: { base?: string } }>(`/artifacts/${top.meta.guid}`)).meta.base).toBe(e.meta.guid);
+  // without a base, the button offers to inherit from an entry, and the picker has nothing to remove
+  await expect(page.locator("[data-test=change-base]")).toHaveText("Inherit from…");
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("corestone-picker h2")).toHaveText("Choose or create a base");
+  await expect(page.locator("[data-test=remove-base]")).toHaveCount(0);
+});
+
+test("create a new base from an entry's own fields, as a level of its own or below an existing base", async ({ page }) => {
+  const a = await post("/entries", { path: folder, type: "req", title: `Under A ${id}`, fields: { priority: "high", rationale: "from A" } });
+  const e = await post("/entries", { path: folder, type: "req", title: `Under E ${id}`, base: a.meta.guid, fields: { priority: "low", effort: 3 } });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  const form = page.locator("[data-test=underlay]");
+  // the picker offers it next to removing the base, marked green and red
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("[data-test=create-base]")).toHaveClass(/\badd\b/);
+  await expect(page.locator("[data-test=remove-base]")).toHaveClass(/\bremove\b/);
+  await page.locator("[data-test=create-base]").click();
+  await expect(page.locator("corestone-picker")).toHaveCount(0);
+  // all own fields are offered and checked; with a base, none is forced
+  await expect(form.locator("[data-test=underlay-title]")).toHaveValue(`Under E ${id}`);
+  await expect(form.locator("label[data-field=priority] input")).toBeChecked();
+  await expect(form.locator("label[data-field=effort] input")).toBeEnabled();
+  await expect(form.locator("[data-test=underlay-chain]")).toHaveText(new RegExp(`${a.meta.hid}\\s*→ overlaid by\\s*new base\\s*→ overlaid by\\s*this entry`));
+  await form.locator("label[data-field=effort] input").uncheck();
+  await form.locator("[data-test=underlay-title]").fill(`Middle ${id}`);
+  await form.locator("[data-test=apply-underlay]").click();
+  await expect(form).toHaveCount(0);
+  // the moved value is now inherited from the new middle level; the effective value is unchanged
+  await expect(page.locator("[data-field=priority] .inherited")).toContainText("inherited from base");
+  await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("low");
+  const entry = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
+  expect(entry.data.fields).toEqual({ effort: 3 });
+  const mid = await get<{ meta: { title: string; base: string; hid: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${entry.meta.base}`);
+  expect(mid.meta.title).toBe(`Middle ${id}`);
+  expect(mid.meta.base).toBe(a.meta.guid);
+  expect(mid.data.fields).toEqual({ priority: "low" });
+  await expect(page.locator("#sec-overlay .chain .node").first()).toContainText(mid.meta.hid);
+
+  // without a base, required fields must move with it
+  const solo = await post("/entries", { path: folder, type: "req", title: `Solo ${id}`, fields: { priority: "high", effort: 2 } });
+  await page.goto(`/artifact/${solo.meta.guid}`);
+  await page.locator("[data-test=change-base]").click();
+  await expect(page.locator("corestone-picker h2")).toHaveText("Choose or create a base");
+  await page.locator("[data-test=create-base]").click();
+  await expect(form.locator("label[data-field=priority] input")).toBeChecked();
+  await expect(form.locator("label[data-field=priority] input")).toBeDisabled();
+  await expect(form.locator("label[data-field=priority]")).toContainText("required");
+  await form.locator("label[data-field=effort] input").uncheck();
+  await form.locator("[data-test=apply-underlay]").click();
+  await expect(form).toHaveCount(0);
+  const soloAfter = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${solo.meta.guid}`);
+  expect(soloAfter.data.fields).toEqual({ effort: 2 });
+  const soloBase = await get<{ meta: { title: string; base?: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${soloAfter.meta.base}`);
+  expect(soloBase.meta.title).toBe(`Solo ${id}`);
+  expect(soloBase.meta.base).toBeFalsy();
+  expect(soloBase.data.fields).toEqual({ priority: "high" });
+});
+
 test("HID rename keeps history and lookup; move keeps identity", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Renamed", fields: { priority: "low" } });
   const oldHid = e.meta.hid!;

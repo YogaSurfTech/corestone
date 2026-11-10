@@ -129,9 +129,17 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 	}
 	// Overlay chain.
 	resolved := a.Fields
+	// An overlay and its base have the same type. Checked when the base or
+	// the type changes, so existing data does not block unrelated edits.
+	baseChanged := previous == nil || previous.Base != a.Base
+	typeChanged := previous != nil && previous.Type != a.Type
 	if a.Base != "" {
-		if _, err := t.exists(a.Base, model.KindEntry); err != nil {
+		base, err := t.exists(a.Base, model.KindEntry)
+		if err != nil {
 			return err
+		}
+		if (baseChanged || typeChanged) && base.Type != a.Type {
+			return model.Invalid("base %s has type %s; an overlay must have the type of its base (%s)", a.Base, base.Type, a.Type)
 		}
 		ov, err := model.ResolveOverlay(a, func(g string) (*model.Artifact, error) {
 			l, err := t.load(g)
@@ -144,6 +152,17 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 			return err
 		}
 		resolved = ov.Fields
+	}
+	if typeChanged && a.Kind == model.KindEntry {
+		overlays, err := t.f.DB.Overlays(t.ctx, a.GUID)
+		if err != nil {
+			return err
+		}
+		for _, o := range overlays {
+			if o.Type != a.Type {
+				return model.Invalid("%s is the base of %s (type %s); an overlay must have the type of its base", a.GUID, o.GUID, o.Type)
+			}
+		}
 	}
 	// Anything deriving from this entry must not create a cycle when the
 	// base changes: ResolveOverlay above walks upwards; downward cycles are

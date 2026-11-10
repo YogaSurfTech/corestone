@@ -16,6 +16,11 @@ import (
 	"github.com/thomdehoog/corestone/internal/testutil"
 )
 
+// typeOfBase reports a validation error from the overlay type rule.
+func typeOfBase(err error) bool {
+	return errors.Is(err, model.ErrValidation) && strings.Contains(err.Error(), "type of its base")
+}
+
 func open(t *testing.T) *Foundation {
 	t.Helper()
 	f, err := Open(context.Background(), t.TempDir()+"/repo.git", "main", testutil.DSN(t))
@@ -175,6 +180,66 @@ func TestLifecycle(t *testing.T) {
 	// overlay may omit required fields that the base provides
 	if _, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, `{"path":"specs","type":"requirement","title":"thin overlay","base":"`+r1.Meta.GUID+`"}`)); err != nil {
 		t.Fatalf("thin overlay: %v", err)
+	}
+	// an overlay has the type of its base: on create, on a base change, and on a retype of either side
+	if _, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, `{"path":"tests","type":"testcase","title":"wrong type","base":"`+r1.Meta.GUID+`"}`)); !typeOfBase(err) {
+		t.Fatalf("overlay of another type accepted on create: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, tc.Meta.GUID, "", obj(t, `{"base":"`+r1.Meta.GUID+`"}`)); !typeOfBase(err) {
+		t.Fatalf("base of another type accepted on update: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"type":"testcase"}`)); !typeOfBase(err) {
+		t.Fatalf("overlay retyped away from its base: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, "", obj(t, `{"type":"testcase"}`)); !typeOfBase(err) {
+		t.Fatalf("base retyped away from its overlays: %v", err)
+	}
+	r4 := create(t, f, model.KindEntry, `{"path":"specs","type":"requirement","title":"other base","fields":{"priority":"high"}}`)
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"base":"`+r4.Meta.GUID+`"}`)); err != nil {
+		t.Fatalf("change to a base of the same type: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"base":"`+r1.Meta.GUID+`"}`)); err != nil {
+		t.Fatalf("change back: %v", err)
+	}
+
+	// create underlay: a new level between an overlay and its base, in one commit, values unchanged
+	ovBefore, _ := f.Overlay(ctx, ov.Meta.GUID)
+	commits := func() int { l, _ := f.Repo.Log(ctx, mustHead(t, f), nil, 0); return len(l) }
+	nCommits := commits()
+	if _, err := f.CreateUnderlay(ctx, ov.Meta.GUID, "", "mid", []string{"nope"}); !errors.Is(err, model.ErrValidation) {
+		t.Fatalf("underlay with a field the entry does not set: %v", err)
+	}
+	if _, err := f.CreateUnderlay(ctx, ov.Meta.GUID, "stale", "mid", []string{"priority"}); !errors.Is(err, model.ErrPrecondition) {
+		t.Fatalf("underlay with a stale ETag: %v", err)
+	}
+	und, err := f.CreateUnderlay(ctx, ov.Meta.GUID, "", "mid", []string{"priority"})
+	if err != nil {
+		t.Fatalf("underlay: %v", err)
+	}
+	if commits() != nCommits+1 {
+		t.Fatalf("underlay must be one commit: %d", commits()-nCommits)
+	}
+	mid := und.Base.Meta
+	if mid.Title != "mid" || mid.Type != "requirement" || mid.Base != r1.Meta.GUID || und.Entry.Meta.Base != mid.GUID || mid.HID == "" {
+		t.Fatalf("underlay levels: base %+v entry base %s", mid, und.Entry.Meta.Base)
+	}
+	ovAfter, _ := f.Overlay(ctx, ov.Meta.GUID)
+	if ovAfter.Fields.String("priority") != ovBefore.Fields.String("priority") || ovAfter.Origin["priority"] != mid.GUID || ovAfter.Origin["effort"] != r1.Meta.GUID {
+		t.Fatalf("underlay changed effective values: %+v", ovAfter)
+	}
+	if _, has := und.Entry.Data.Object("fields").Get("priority"); has {
+		t.Fatal("moved field still set in the entry")
+	}
+	// an entry without a base: required fields must move, the title defaults to the entry's
+	if _, err := f.CreateUnderlay(ctx, r4.Meta.GUID, "", "", nil); !errors.Is(err, model.ErrValidation) {
+		t.Fatalf("base without its required fields: %v", err)
+	}
+	und, err = f.CreateUnderlay(ctx, r4.Meta.GUID, "", "", []string{"priority"})
+	if err != nil {
+		t.Fatalf("underlay of an entry without base: %v", err)
+	}
+	if und.Base.Meta.Title != "other base" || und.Base.Meta.Base != "" || und.Entry.Meta.Base != und.Base.Meta.GUID {
+		t.Fatalf("underlay without base: %+v", und.Base.Meta)
 	}
 
 	// links: endpoint rules, cardinality, duplicates
