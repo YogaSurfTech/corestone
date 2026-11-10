@@ -10,7 +10,7 @@ import "./type-icon";
 import "./table";
 import type { TableColumn } from "./table";
 import "./fields";
-import type { OverlayState } from "./fields";
+import { OVERLAY_HELP, type OverlayState } from "./fields";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -662,9 +662,9 @@ export class Detail extends LitElement {
     const empty = !base && !ov.overlays.length;
     return this.section("overlay", () => empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
       <div class="chain">
-        ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow">→ overrides</span>` : nothing}
+        ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>` : nothing}
         <div class="col"><div class="node self"><b>this entry</b>${sets(self?.fields ?? [])}</div></div>
-        ${ov.overlays.length ? html`<span class="arrow">→ overrides</span>
+        ${ov.overlays.length ? html`<span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>
           <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
       </div>
       ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`,
