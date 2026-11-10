@@ -16,6 +16,11 @@ import (
 	"github.com/thomdehoog/corestone/internal/testutil"
 )
 
+// typeOfBase reports a validation error from the overlay type rule.
+func typeOfBase(err error) bool {
+	return errors.Is(err, model.ErrValidation) && strings.Contains(err.Error(), "type of its base")
+}
+
 func open(t *testing.T) *Foundation {
 	t.Helper()
 	f, err := Open(context.Background(), t.TempDir()+"/repo.git", "main", testutil.DSN(t))
@@ -175,6 +180,26 @@ func TestLifecycle(t *testing.T) {
 	// overlay may omit required fields that the base provides
 	if _, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, `{"path":"specs","type":"requirement","title":"thin overlay","base":"`+r1.Meta.GUID+`"}`)); err != nil {
 		t.Fatalf("thin overlay: %v", err)
+	}
+	// an overlay has the type of its base: on create, on a base change, and on a retype of either side
+	if _, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, `{"path":"tests","type":"testcase","title":"wrong type","base":"`+r1.Meta.GUID+`"}`)); !typeOfBase(err) {
+		t.Fatalf("overlay of another type accepted on create: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, tc.Meta.GUID, "", obj(t, `{"base":"`+r1.Meta.GUID+`"}`)); !typeOfBase(err) {
+		t.Fatalf("base of another type accepted on update: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"type":"testcase"}`)); !typeOfBase(err) {
+		t.Fatalf("overlay retyped away from its base: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, "", obj(t, `{"type":"testcase"}`)); !typeOfBase(err) {
+		t.Fatalf("base retyped away from its overlays: %v", err)
+	}
+	r4 := create(t, f, model.KindEntry, `{"path":"specs","type":"requirement","title":"other base","fields":{"priority":"high"}}`)
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"base":"`+r4.Meta.GUID+`"}`)); err != nil {
+		t.Fatalf("change to a base of the same type: %v", err)
+	}
+	if _, err := f.UpdateArtifact(ctx, ov.Meta.GUID, "", obj(t, `{"base":"`+r1.Meta.GUID+`"}`)); err != nil {
+		t.Fatalf("change back: %v", err)
 	}
 
 	// links: endpoint rules, cardinality, duplicates
