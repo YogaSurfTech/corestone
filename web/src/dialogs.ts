@@ -10,6 +10,7 @@ import { collectionOf, displayName, kindLabel, kindPlural, label } from "./util"
 import "./type-icon";
 import "./fields";
 import "./folder-field";
+import "./account";
 
 /** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
 export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
@@ -102,10 +103,11 @@ export class Dialogs extends LitElement {
       case "new": body = html`<corestone-new-dialog .dialog=${d}></corestone-new-dialog>`; break;
       case "confirm": body = this.confirm(d); break;
       case "prompt": body = this.prompt(d); break;
+      case "account": body = html`<corestone-account-dialog></corestone-account-dialog>`; break;
       default: body = nothing;
     }
     return html`${d ? html`<div class="backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.dismiss(); }}>
-        <div class="dialog ${d.kind === "prompt" ? "prompt" : ""}" role="dialog" aria-modal="true">${body}</div></div>` : nothing}
+        <div class="dialog ${d.kind === "prompt" || d.kind === "account" ? d.kind : ""}" role="dialog" aria-modal="true">${body}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) { const c = p.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); } }}>
         <div class="dialog picker" role="dialog" aria-modal="true" style=${((sz) => sz ? `width:${sz.w}px;height:${sz.h}px` : "")(pickerSize())}>
           <corestone-picker .dialog=${p}></corestone-picker>

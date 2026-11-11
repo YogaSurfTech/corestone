@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thomdehoog/corestone/internal/accounts"
 	"github.com/thomdehoog/corestone/internal/foundation"
 	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/model"
@@ -36,28 +37,60 @@ type Server struct {
 	Hub *Hub
 	// Version is reported by GET /api/health.
 	Version string
-	mux     *http.ServeMux
+	// Accounts, when set, requires signing in (-auth local); nil keeps the
+	// API open with the author named by the client (-auth none).
+	Accounts *accounts.Store
+	roles    *roles
+	mux      *http.ServeMux
 }
 
 // New builds the API handler.
 func New(f *foundation.Foundation) *Server {
-	s := &Server{F: f, Hub: NewHub(f), mux: http.NewServeMux()}
+	s := &Server{F: f, Hub: NewHub(f), roles: newRoles(f), mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// The client names its user (percent-encoded) so commits carry them as author.
-	if user, err := url.PathUnescape(r.Header.Get("X-Corestone-User")); err == nil && user != "" {
-		r = r.WithContext(gitx.WithAuthor(r.Context(), user))
+	if s.Accounts == nil {
+		// The client names its user (percent-encoded) so commits carry them as author.
+		if user, err := url.PathUnescape(r.Header.Get("X-Corestone-User")); err == nil && user != "" {
+			r = r.WithContext(gitx.WithAuthor(r.Context(), user))
+		}
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	// Signed in: the account is the commit author; otherwise only signing in is open.
+	acc, err := s.Accounts.Session(r.Context(), sessionToken(r))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if acc != nil {
+		if acc.Role, err = s.roles.of(r.Context(), acc.GUID); err != nil {
+			fail(w, err)
+			return
+		}
+		ctx := accounts.WithAccount(r.Context(), acc)
+		r = r.WithContext(gitx.WithIdentity(ctx, acc.Name, acc.Email))
+	} else if !public(r) {
+		writeError(w, http.StatusUnauthorized, "sign in required")
+		return
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// public reports the requests that need no session: health and signing in.
+func public(r *http.Request) bool {
+	p := r.URL.Path
+	return p == "/api/health" || p == "/api/auth" || strings.HasPrefix(p, "/api/auth/")
 }
 
 func (s *Server) routes() {
 	m := s.mux
 	// repository services
 	m.HandleFunc("GET /api/health", s.health)
+	s.authRoutes()
 	m.HandleFunc("GET /api/repository", s.status)
 	m.HandleFunc("GET /api/repository/tree", s.tree)
 	m.HandleFunc("GET /api/repository/search", s.search)
@@ -791,6 +824,12 @@ func (s *Server) reindex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.F.Reindex()
+	if s.Accounts != nil {
+		// Accounts are rebuilt from their file just like the projection from Git.
+		if err := s.Accounts.Load(r.Context()); err != nil {
+			log.Printf("httpapi: reload accounts: %v", err)
+		}
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
 }
 

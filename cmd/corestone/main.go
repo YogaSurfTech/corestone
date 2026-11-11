@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/thomdehoog/corestone/internal/accounts"
 	"github.com/thomdehoog/corestone/internal/foundation"
 	"github.com/thomdehoog/corestone/internal/httpapi"
 )
@@ -25,6 +26,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "account" {
+		os.Exit(accountCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	var (
 		repo      = flag.String("repo", envOr("CORESTONE_REPO", "data/corestone.git"), "path of the bare Git repository (created if missing)")
 		branch    = flag.String("branch", envOr("CORESTONE_BRANCH", "main"), "branch the Foundation owns")
@@ -34,6 +38,8 @@ func main() {
 		watch     = flag.Duration("watch", envDuration("CORESTONE_WATCH", 3*time.Second), "how often to check for direct Git pushes (0 disables)")
 		origins   = flag.String("allow-origin", os.Getenv("CORESTONE_ALLOW_ORIGIN"), "comma-separated extra origins allowed to open WebSocket sessions (same-origin is always allowed)")
 		accessLog = flag.Bool("access-log", os.Getenv("CORESTONE_ACCESS_LOG") == "1", "log every HTTP request")
+		auth      = flag.String("auth", envOr("CORESTONE_AUTH", "local"), "sign-in: \"local\" (accounts with email and password) or \"none\" (open, for development)")
+		accFile   = flag.String("accounts", os.Getenv("CORESTONE_ACCOUNTS"), "accounts file for -auth local (default: accounts.json next to the repository)")
 		showVer   = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
@@ -43,6 +49,10 @@ func main() {
 	}
 	if *dsn == "" {
 		fmt.Fprintln(os.Stderr, "corestone: -db (or CORESTONE_DB) is required: the PostgreSQL projection database")
+		os.Exit(2)
+	}
+	if *auth != "local" && *auth != "none" {
+		fmt.Fprintln(os.Stderr, "corestone: -auth must be \"local\" or \"none\"")
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -63,6 +73,18 @@ func main() {
 
 	api := httpapi.New(f)
 	api.Version = version
+	if *auth == "local" {
+		path := *accFile
+		if path == "" {
+			path = filepath.Join(filepath.Dir(filepath.Clean(*repo)), "accounts.json")
+		}
+		if api.Accounts, err = accounts.Open(ctx, f.DB.SQL(), path); err != nil {
+			log.Fatalf("corestone: accounts: %v", err)
+		}
+		log.Printf("corestone: sign-in required (-auth local), accounts in %s", path)
+	} else {
+		log.Printf("corestone: WARNING: sign-in disabled (-auth none); anyone who can reach %s can write", *addr)
+	}
 	if *origins != "" {
 		for _, o := range strings.Split(*origins, ",") {
 			if o = strings.TrimSpace(o); o != "" {

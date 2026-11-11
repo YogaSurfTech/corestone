@@ -85,6 +85,7 @@ const (
 	ConfigLinks    = "links"
 	ConfigComments = "comments"
 	ConfigScanner  = "scanner"
+	ConfigAccess   = "access" // roles of the accounts: .corestone/access.json at the root
 	ConfigOther    = "other"
 )
 
@@ -119,7 +120,7 @@ func (Foundation) Accept(m Match) bool {
 		return true
 	case ConfigFile:
 		switch m.ConfigKind {
-		case ConfigConfig, ConfigLinks, ConfigComments, ConfigScanner:
+		case ConfigConfig, ConfigLinks, ConfigComments, ConfigScanner, ConfigAccess:
 			return true
 		}
 	}
@@ -172,6 +173,8 @@ func (s *Scanner) Classify(p string) Match {
 			switch {
 			case len(rest) == 1 && rest[0] == "scanner.json" && m.Folder == "":
 				m.ConfigKind, m.Name = ConfigScanner, "scanner"
+			case len(rest) == 1 && rest[0] == "access.json" && m.Folder == "" && seg == model.MetadataDir:
+				m.ConfigKind, m.Name = ConfigAccess, "access"
 			case len(rest) >= 2 && rest[0] == ConfigConfig:
 				m.ConfigKind, m.Name = ConfigConfig, strings.Join(rest[1:], "/")
 			case len(rest) == 2 && strings.HasSuffix(rest[1], ".json") && isKnownConfigKind(rest[0]):

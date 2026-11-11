@@ -46,8 +46,8 @@ corestone-app { display: block; height: 100%; }
 .shell.nav-collapsed corestone-sidebar, .shell.nav-collapsed .nav-splitter { display: none; }
 .header { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .header .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: 0.2px; }
-.header .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
-.header .brand .logo::after { content: ""; width: 12px; height: 12px; border: 3px solid #fff; border-radius: 50%; }
+:is(.header, .signin-card) .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
+:is(.header, .signin-card) .brand .logo::after { content: ""; width: 12px; height: 12px; border: 3px solid #fff; border-radius: 50%; }
 .header .crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); overflow: hidden; white-space: nowrap; }
 .header .crumbs a { color: var(--text); }
 .header .spacer { flex: 1; }
@@ -141,7 +141,7 @@ corestone-type-icon { display: inline-flex; align-items: center; vertical-align:
 .btn.danger { color: var(--danger); }
 .btn.sm { padding: 3px 9px; font-size: 12.5px; }
 .btn.icon { padding: 5px 8px; }
-input[type=text], input[type=search], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=url], select, textarea {
+input[type=text], input[type=search], input[type=email], input[type=password], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=url], select, textarea {
   border: 1px solid var(--border); background: var(--input-bg); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
 }
 input:focus, select:focus, textarea:focus, .block[contenteditable]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -427,3 +427,26 @@ corestone-enum { display: block; min-width: 0; max-width: 100%; }
 table.grid corestone-enum { display: inline-flex; vertical-align: top; }
 table.grid .enum-readonly { display: inline-flex; flex-wrap: nowrap; width: max-content; }
 table.grid .enum-label { flex: none; white-space: nowrap; overflow-wrap: normal; }
+
+/* ---- accounts (-auth local) ---- */
+.signin { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+.signin-card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 24px; }
+.signin-card .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; }
+.signin-card h2 { font-size: 16px; }
+.signin-card .hint { color: var(--muted); margin: 0; }
+.signin-card label, .account-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.signin-card .notice { margin: 0; }
+.dialog.account { width: min(560px, 94vw); }
+.account-form { display: grid; gap: 10px; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.account-form .foot { margin-top: 0; }
+.dialog .foot .spacer { flex: 1; }
+.account-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.account-section h3 { font-size: 14px; margin: 0 0 8px; }
+.account-section .account-form { border-bottom: none; margin-bottom: 0; }
+table.accounts { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+table.accounts th { text-align: left; color: var(--muted); font-weight: 500; }
+table.accounts :is(th, td) { padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.accounts td:last-child { text-align: right; }
+.inline-form { display: inline-flex; gap: 6px; align-items: center; }
+.inline-form input { width: 150px; }
+.btn.delete-x { color: var(--danger); font-weight: 800; }

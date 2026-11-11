@@ -128,6 +128,7 @@ export class App extends LitElement {
   };
 
   private setName = () => {
+    if (this.s.account) { store.set({ dialog: { kind: "account" } }); return; }
     const theme = this.s.theme; // the dialog previews themes live; Cancel restores this one
     store.prompt("Your name", { text: "Shown to others while you view or edit an artifact.", value: this.s.user, confirmLabel: "Save", theme: true })
       .then((n) => {
@@ -164,7 +165,7 @@ export class App extends LitElement {
         ${p?.maintenance && p.total ? html`<div class="progress" title=${p.phase ?? ""}><div style=${`width:${Math.round((100 * p.progress) / Math.max(1, p.total))}%`}></div></div>` : nothing}
         <span class="status" title=${status ? `head ${status.head.slice(0, 8)} · projection ${p?.processedHash.slice(0, 8) ?? ""}` : ""}><span class="dot ${health}"></span>${healthText}<span class="dot ${connected ? "ok" : "bad"}" data-test="session" title=${connected ? "session connected" : "session disconnected"}></span></span>
         <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch((e) => store.toast(e.message, "error"))}>Reindex</button>
-        <button class="btn sm" title="Your name and theme" @click=${this.setName}>${this.s.user || "anonymous"}</button>
+        <button class="btn sm" data-test="user" title=${this.s.account ? "Your account" : "Your name and theme"} @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>
       <div class="nav-splitter" data-test="nav-splitter" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"

@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/thomdehoog/corestone/internal/accounts"
 	"github.com/thomdehoog/corestone/internal/foundation"
 	"github.com/thomdehoog/corestone/internal/model"
 )
@@ -130,6 +131,11 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := &client{conn: conn, id: model.NewGUID()[:8], name: "user-" + model.NewGUID()[:4], send: make(chan []byte, 64)}
+	// A signed-in client is shown by its account name, whatever it says in hello.
+	account := accounts.FromContext(r.Context())
+	if account != nil {
+		c.name = account.Name
+	}
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
 	h.mu.Unlock()
@@ -191,7 +197,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request) {
 		}
 		switch msg.Type {
 		case "hello":
-			if msg.Name != "" && len(msg.Name) <= 64 {
+			if account == nil && msg.Name != "" && len(msg.Name) <= 64 {
 				h.mu.Lock()
 				c.name = msg.Name
 				h.mu.Unlock()

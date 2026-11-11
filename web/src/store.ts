@@ -1,4 +1,5 @@
 import type { RepoStatus, View } from "./types";
+import type { Account } from "./api";
 
 // Central application store (design guide §7.14): every persistent UI state
 // lives here; components observe it and never talk to each other.
@@ -22,7 +23,7 @@ export interface Toast { id: number; text: string; level: "info" | "error" | "su
 export interface Presence { viewers: string[]; editors: string[] }
 
 export interface Dialog {
-  kind: "new" | "pick" | "confirm" | "prompt" | "config";
+  kind: "new" | "pick" | "confirm" | "prompt" | "config" | "account";
   [k: string]: unknown;
 }
 
@@ -45,6 +46,8 @@ export interface State {
   connected: boolean;
   session: string;
   user: string;
+  /** The signed-in account (-auth local); null when the server runs open. */
+  account: Account | null;
   theme: Theme;
   selection: View | null;
   selectionError: string | null;
@@ -68,6 +71,7 @@ class Store {
     connected: false,
     session: "",
     user: localStorage.getItem("corestone.user") || "",
+    account: null,
     theme: applyTheme(localStorage.getItem("corestone.theme") as Theme | null),
     selection: null,
     selectionError: null,
@@ -121,6 +125,11 @@ class Store {
   setUser(name: string) {
     localStorage.setItem("corestone.user", name);
     this.set({ user: name });
+  }
+
+  /** The signed-in account also names the user (presence, commits). */
+  setAccount(account: Account) {
+    this.set({ account, user: account.name });
   }
 
   setTheme(theme: Theme) {
