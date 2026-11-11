@@ -224,7 +224,9 @@ func TestFileRejectsBrokenContent(t *testing.T) {
 		`{"users":[]}`,
 		`not json`,
 	} {
-		os.WriteFile(path, []byte(bad), 0o600)
+		if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := (File{path}).Read(); err == nil {
 			t.Errorf("accepted %s", bad)
 		}

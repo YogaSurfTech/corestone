@@ -18,7 +18,7 @@ func run(t *testing.T, input string, args ...string) (int, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { w.WriteString(input); w.Close() }()
+	go func() { _, _ = w.WriteString(input); w.Close() }()
 	defer r.Close()
 	var out, errOut bytes.Buffer
 	code := accountCommand(args, r, &out, &errOut)
