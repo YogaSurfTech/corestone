@@ -155,6 +155,24 @@ func TestAuthLocal(t *testing.T) {
 	bob.ok("GET", "/api/me", "", 401)
 	bob.ok("POST", "/api/auth/login", `{"email":"bob@example.org","password":"pw4"}`, 200)
 
+	// admins delete other accounts (an admin loses the role first), never themselves
+	raw = ada.ok("GET", "/api/accounts", "", 200)
+	k := strings.Index(raw, `"email":"cy@example.org"`)
+	cyGUID := raw[strings.LastIndex(raw[:k], `"guid":"`)+8:][:36]
+	cy := browser()
+	cy.ok("POST", "/api/auth/login", `{"email":"cy@example.org","password":"x"}`, 200)
+	bob.ok("DELETE", "/api/accounts/"+cyGUID, "", 403)
+	ada.ok("DELETE", "/api/accounts/"+adaGUID, "", 409)
+	ada.ok("DELETE", "/api/accounts/"+cyGUID, "", 204)
+	ada.ok("DELETE", "/api/accounts/"+cyGUID, "", 404)
+	cy.ok("GET", "/api/me", "", 401)
+	if access, _ := s.F.Access(context.Background()); access.IsAdmin(cyGUID) || !access.IsAdmin(adaGUID) {
+		t.Fatalf("access after delete %+v", access)
+	}
+	if raw := ada.ok("GET", "/api/accounts", "", 200); strings.Contains(raw, "cy@example.org") || !strings.Contains(raw, `"unknownAdmins":[]`) {
+		t.Fatalf("accounts after delete %s", raw)
+	}
+
 	// signing out ends the session
 	ada.ok("POST", "/api/auth/logout", "", 204)
 	ada.ok("GET", "/api/repository", "", 401)

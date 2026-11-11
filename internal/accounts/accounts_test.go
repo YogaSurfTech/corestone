@@ -169,6 +169,22 @@ func TestAccounts(t *testing.T) {
 		t.Fatalf("sign in after an outside change: %v", err)
 	}
 
+	// deleting removes the account from the file and ends its sessions
+	cy, _, _ := s.SignIn(ctx, "cy@example.org", "pw5")
+	_, cyToken, _ := s.SignIn(ctx, "cy@example.org", "pw5")
+	if err := s.Delete(ctx, cy.GUID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Session(ctx, cyToken); got != nil {
+		t.Fatal("session survived deletion")
+	}
+	if err := s.Delete(ctx, cy.GUID); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+	if recs, _ := (File{path}).Read(); len(recs) != 2 {
+		t.Fatalf("file after delete %+v", recs)
+	}
+
 	// a store opened on the same file and an empty database sees everything
 	db2, _ := sql.Open("postgres", testutil.DSN(t))
 	defer db2.Close()
@@ -176,7 +192,7 @@ func TestAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := s2.Count(ctx); n != 3 {
+	if n, _ := s2.Count(ctx); n != 2 {
 		t.Fatalf("count in a fresh database %d", n)
 	}
 }

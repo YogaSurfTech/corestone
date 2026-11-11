@@ -30,6 +30,7 @@ func (s *Server) authRoutes() {
 	m.HandleFunc("POST /api/accounts", s.admin(s.createAccount))
 	m.HandleFunc("POST /api/accounts/{guid}/password", s.admin(s.resetPassword))
 	m.HandleFunc("PUT /api/accounts/{guid}/role", s.admin(s.setRole))
+	m.HandleFunc("DELETE /api/accounts/{guid}", s.admin(s.deleteAccount))
 }
 
 // withAccounts answers 404 when the server runs without accounts.
@@ -316,3 +317,28 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func has(o *ojson.Object, key string) bool { _, ok := o.Get(key); return ok }
+
+// deleteAccount removes another account. An admin loses the role first (a
+// commit to the access file), then the account leaves the accounts file and
+// its sessions end. Its commits stay in the history. Admins cannot delete
+// themselves, so there is always one left to manage accounts.
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	a, err := s.Accounts.Get(r.Context(), r.PathValue("guid"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if a.GUID == accounts.FromContext(r.Context()).GUID {
+		writeError(w, http.StatusConflict, "you cannot delete your own account")
+		return
+	}
+	if err := s.F.SetAdmin(r.Context(), a.GUID, a.Name, false); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.Accounts.Delete(r.Context(), a.GUID); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

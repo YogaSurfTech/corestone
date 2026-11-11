@@ -112,6 +112,21 @@ test("an admin resets a password, which ends that account's sessions", async ({ 
   await other.close();
 });
 
+test("an admin deletes an account, which can no longer sign in", async ({ page }) => {
+  await signIn(page, admin.email, admin.password);
+  await page.locator("[data-test=user]").click();
+  await page.locator("[data-test=manage]").click();
+  const mine = page.locator(`[data-test=account-row][data-email="${admin.email}"]`);
+  await expect(mine.locator("[data-test=delete-account]")).toHaveCount(0); // never your own
+  const row = page.locator(`[data-test=account-row][data-email="${user.email}"]`);
+  await row.locator("[data-test=delete-account]").click();
+  await row.locator("[data-test=confirm-delete]").click();
+  await expect(row).toHaveCount(0);
+
+  const res = await page.request.post("/api/auth/login", { data: { email: user.email, password: "reset-pw" } });
+  expect(res.status()).toBe(401);
+});
+
 test("the API refuses requests without a session", async ({ request }) => {
   expect((await request.get(base + "/api/repository")).status()).toBe(401);
   expect((await request.get(base + "/api/health")).status()).toBe(200);

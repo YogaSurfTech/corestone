@@ -290,6 +290,18 @@ func (s *Store) SetPassword(ctx context.Context, guid, password string) error {
 	return err
 }
 
+// Delete removes an account from the file; its sessions end with it.
+func (s *Store) Delete(ctx context.Context, guid string) error {
+	return s.change(ctx, func(recs []Record) ([]Record, error) {
+		for i, r := range recs {
+			if r.GUID == guid {
+				return append(recs[:i:i], recs[i+1:]...), nil
+			}
+		}
+		return nil, model.ErrNotFound
+	})
+}
+
 // CheckPassword reports whether password is the account's password.
 func (s *Store) CheckPassword(ctx context.Context, guid, password string) (bool, error) {
 	var hash string

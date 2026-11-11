@@ -83,6 +83,7 @@ export const api = {
   updateMe: (name: string, email: string) => request<Account>("PATCH", "/me", { name, email }),
   changePassword: (current: string, password: string) => request<Account>("POST", "/me/password", { current, password }),
   accounts: () => request<{ accounts: Account[]; unknownAdmins: string[] }>("GET", "/accounts"),
+  deleteAccount: (guid: string) => request<void>("DELETE", `/accounts/${guid}`),
   setRole: (guid: string, role: "user" | "admin") => request<Account>("PUT", `/accounts/${guid}/role`, { role }),
   createAccount: (a: { name: string; email: string; password: string; role: "user" | "admin" }) => request<Account>("POST", "/accounts", a),
   resetPassword: (guid: string, password: string) => request<void>("POST", `/accounts/${guid}/password`, { password }),

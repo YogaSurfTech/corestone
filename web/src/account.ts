@@ -62,6 +62,7 @@ export class AccountDialog extends LitElement {
   @state() private accounts: Account[] = [];
   @state() private unknownAdmins: string[] = [];
   @state() private resetting: string | null = null; // the account whose new password is being typed
+  @state() private deleting: string | null = null; // the account whose deletion awaits confirmation
   @state() private error = "";
   private unsub?: () => void;
 
@@ -143,6 +144,31 @@ export class AccountDialog extends LitElement {
     }
   };
 
+  private deleteAccount = async (a: Account) => {
+    if (await this.run(() => api.deleteAccount(a.guid), `Account ${a.name} deleted`)) {
+      this.deleting = null;
+      await this.load();
+    }
+  };
+
+  /** The row's actions: reset the password or delete (with confirmation); never your own deletion. */
+  private rowActions(a: Account, me: Account) {
+    if (this.resetting === a.guid) {
+      return html`<form class="inline-form" @submit=${(e: Event) => this.resetPassword(e, a)}>
+        <input type="password" name="password" required placeholder="New password" aria-label=${`New password for ${a.name}`} autocomplete="new-password">
+        <button type="submit" class="btn sm primary">Set</button><button type="button" class="btn sm" @click=${() => (this.resetting = null)}>Cancel</button></form>`;
+    }
+    if (this.deleting === a.guid) {
+      return html`<span class="inline-form"><span class="small">Delete ${a.name}?</span>
+        <button class="btn sm danger" data-test="confirm-delete" @click=${() => this.deleteAccount(a)}>Delete</button>
+        <button class="btn sm" @click=${() => (this.deleting = null)}>Cancel</button></span>`;
+    }
+    return html`<span class="inline-form">
+      <button class="btn sm" data-test="reset-password" @click=${() => { this.error = ""; this.deleting = null; this.resetting = a.guid; }}>Reset password</button>
+      ${a.guid === me.guid ? nothing : html`<button class="btn sm delete-x" data-test="delete-account" title="Delete" aria-label=${`Delete ${a.name}`}
+        @click=${() => { this.error = ""; this.resetting = null; this.deleting = a.guid; }}>✕</button>`}</span>`;
+  }
+
   private themeChoice() {
     const themes: [Theme, string][] = [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]];
     return html`<div class="theme-choice" role="radiogroup" aria-label="Theme"><span class="muted small">Theme</span>
@@ -159,11 +185,7 @@ export class AccountDialog extends LitElement {
           <td>${a.name}${a.guid === me.guid ? html` <span class="muted small">(you)</span>` : nothing}</td><td>${a.email}</td>
           <td><button class="btn sm" data-test="toggle-role" title=${a.role === "admin" ? "Withdraw the admin role (commits .corestone/access.json)" : "Grant the admin role (commits .corestone/access.json)"}
             @click=${() => this.setRole(a, a.role === "admin" ? "user" : "admin")}>${a.role}</button></td>
-          <td>${this.resetting === a.guid
-            ? html`<form class="inline-form" @submit=${(e: Event) => this.resetPassword(e, a)}>
-                <input type="password" name="password" required placeholder="New password" aria-label=${`New password for ${a.name}`} autocomplete="new-password">
-                <button type="submit" class="btn sm primary">Set</button><button type="button" class="btn sm" @click=${() => (this.resetting = null)}>Cancel</button></form>`
-            : html`<button class="btn sm" data-test="reset-password" @click=${() => { this.error = ""; this.resetting = a.guid; }}>Reset password</button>`}</td>
+          <td>${this.rowActions(a, me)}</td>
         </tr>`)}</tbody>
       </table>
       ${this.unknownAdmins.length ? html`<div class="notice" data-test="unknown-admins">.corestone/access.json names admins without an account: ${this.unknownAdmins.join(", ")}</div>` : nothing}

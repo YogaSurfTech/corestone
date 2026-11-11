@@ -244,7 +244,8 @@ restructuring is restored with `POST /api/repository/maintenance/relocate-metada
   the file changes; sessions (HttpOnly cookie, 30 days) live in PostgreSQL only.
   **Roles** are in the repository: `.corestone/access.json` lists the admins by account GUID,
   `{"admins": ["<guid>", ...]}`; everyone else is a user. Admins differ only in managing accounts:
-  create them, reset passwords and grant or withdraw the admin role, each grant a commit to that
+  create and delete them (never their own; the commits of a deleted account stay), reset
+  passwords and grant or withdraw the admin role, each grant a commit to that
   file (the last admin cannot be removed). The file cannot be written through the configuration
   API, but whoever can push to the repository can edit it: repository access is admin access.
   On a new server (empty accounts file) the first visitor creates the first account and becomes

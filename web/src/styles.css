@@ -449,3 +449,4 @@ table.accounts :is(th, td) { padding: 5px 6px; border-bottom: 1px solid var(--bo
 table.accounts td:last-child { text-align: right; }
 .inline-form { display: inline-flex; gap: 6px; align-items: center; }
 .inline-form input { width: 150px; }
+.btn.delete-x { color: var(--danger); font-weight: 800; }
