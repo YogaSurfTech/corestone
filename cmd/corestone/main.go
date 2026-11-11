@@ -26,6 +26,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "account" {
+		os.Exit(accountCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	var (
 		repo      = flag.String("repo", envOr("CORESTONE_REPO", "data/corestone.git"), "path of the bare Git repository (created if missing)")
 		branch    = flag.String("branch", envOr("CORESTONE_BRANCH", "main"), "branch the Foundation owns")

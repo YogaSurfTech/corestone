@@ -248,7 +248,11 @@ restructuring is restored with `POST /api/repository/maintenance/relocate-metada
   file (the last admin cannot be removed). The file cannot be written through the configuration
   API, but whoever can push to the repository can edit it: repository access is admin access.
   On a new server (empty accounts file) the first visitor creates the first account and becomes
-  admin. Commits carry the signed-in account's name and email as author. `-auth none` turns all
+  admin. Accounts can also be added on the command line, which a running server picks up:
+  `corestone account add -name "Ada" -email ada@example.org -file data/accounts.json` asks for the
+  password without echo, or reads it from the first line of standard input when piped; without
+  `-file` it prints the JSON entry instead. To recover admin access, add an account this way and
+  list its GUID in `.corestone/access.json` with a push. Commits carry the signed-in account's name and email as author. `-auth none` turns all
   of this off for development: never expose such a server.
 - **TLS is not included.** Put a reverse proxy in front for HTTPS (the session cookie is marked
   `Secure` only when the server itself sees TLS); do not expose the port directly. The proxy must pass
