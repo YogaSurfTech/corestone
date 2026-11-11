@@ -9,6 +9,15 @@ export class ApiError extends Error {
   }
 }
 
+/** A local account (-auth local). */
+export interface Account { guid: string; name: string; email: string; role: "user" | "admin"; created: string }
+/** How the server signs in: "none" is open; "local" needs an account, and "setup" means none exists yet. */
+export interface AuthState { mode: "local" | "none"; setup?: boolean; account?: Account | null }
+
+let onUnauthorized: (() => void) | null = null;
+/** Called when the session has ended (any 401 outside signing in). */
+export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn; }
+
 /** Names the configured user so the server records them as commit author. */
 function userHeader(): Record<string, string> {
   let user = "";
@@ -48,6 +57,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
   } catch {
     /* not JSON */
   }
+  if (res.status === 401 && !path.startsWith("/auth")) onUnauthorized?.();
   if (!res.ok) {
     const msg = (parsed as { error?: string })?.error ?? res.statusText;
     throw new ApiError(res.status, msg);
@@ -66,6 +76,16 @@ const q = (params: Record<string, string | number | boolean | undefined>) => {
 };
 
 export const api = {
+  auth: () => request<AuthState>("GET", "/auth"),
+  setup: (name: string, email: string, password: string) => request<Account>("POST", "/auth/setup", { name, email, password }),
+  login: (email: string, password: string) => request<Account>("POST", "/auth/login", { email, password }),
+  logout: () => request<void>("POST", "/auth/logout"),
+  updateMe: (name: string, email: string) => request<Account>("PATCH", "/me", { name, email }),
+  changePassword: (current: string, password: string) => request<Account>("POST", "/me/password", { current, password }),
+  accounts: () => request<{ accounts: Account[]; unknownAdmins: string[] }>("GET", "/accounts"),
+  setRole: (guid: string, role: "user" | "admin") => request<Account>("PUT", `/accounts/${guid}/role`, { role }),
+  createAccount: (a: { name: string; email: string; password: string; role: "user" | "admin" }) => request<Account>("POST", "/accounts", a),
+  resetPassword: (guid: string, password: string) => request<void>("POST", `/accounts/${guid}/password`, { password }),
   status: () => request<RepoStatus>("GET", "/repository"),
   tree: (path: string, subtree: boolean, limit = 500) => request<Tree>("GET", "/repository/tree" + q({ path, subtree, limit })),
   search: (params: { q?: string; kind?: string; type?: string; path?: string; subtree?: boolean; limit?: number; [k: string]: string | number | boolean | undefined }) =>

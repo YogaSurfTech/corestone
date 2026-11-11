@@ -89,12 +89,14 @@ Requirements: Go 1.24+, git, Node 22+ (web client), PostgreSQL 14+ (16 recommend
 ```sh
 createdb corestone
 make build                      # web/dist + bin/corestone
-./bin/corestone -repo data/corestone.git -addr 127.0.0.1:8080 -web web/dist \
+./bin/corestone -repo data/corestone.git -addr 127.0.0.1:8080 -web web/dist -auth none \
   -db "postgres://user:pass@localhost:5432/corestone?sslmode=disable"
 ./examples/seed.sh              # a demo requirements domain
 ```
 
-Open <http://127.0.0.1:8080>. Or with containers: `docker compose up --build`. Full instructions,
+Open <http://127.0.0.1:8080>. `-auth none` skips signing in, for development and the seed script;
+without it (the default `-auth local`) the server asks for an email and password, and a new server
+first offers to create the admin account. Or with containers: `docker compose up --build`. Full instructions,
 including deployment notes, health probes and the systemd unit, are in
 [docs/INSTALL.md](docs/INSTALL.md).
 

@@ -23,6 +23,13 @@ Groups:
 **Gap.** There is none. Anyone who reaches the port can read and rewrite everything, and the commit
 author is whatever name the browser sends.
 
+**Status.** A first step is done (TSK-23): local accounts (GUID, name, email, password hash) in
+an accounts file next to the repository with a copy in PostgreSQL, admins listed by GUID in the
+repository's `.corestone/access.json`, sign-in with an HttpOnly session cookie, `-auth local` as the
+default and `-auth none` for development, commit authors and presence names taken from the
+account, and admins resetting passwords. This deliberately makes the server an identity provider
+for now; the design below (OIDC, proxy mode, tokens, folder roles, CSRF header) remains the target.
+
 **Design.** Identity comes from an existing provider; the server never becomes one.
 
 - **Built-in OIDC as the primary mode.** The OpenID Connect authorization-code flow with PKCE

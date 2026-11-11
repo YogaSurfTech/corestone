@@ -259,6 +259,8 @@ func extractConfig(m scanner.Match, sha string, content []byte) *ConfigRecord {
 		_, _, err = model.ParseConfigFile(m.Name, content)
 	case scanner.ConfigScanner:
 		_, err = scanner.ParseConfig(content)
+	case scanner.ConfigAccess:
+		_, err = model.ParseAccess(content)
 	}
 	if err != nil {
 		c.Valid, c.Error = false, err.Error()

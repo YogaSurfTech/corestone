@@ -57,6 +57,8 @@ go build -o bin/corestone ./cmd/corestone
 | `-watch` / `CORESTONE_WATCH` | `3s` | how often to check for direct Git pushes and resynchronize; `0` disables |
 | `-allow-origin` / `CORESTONE_ALLOW_ORIGIN` | *(none)* | extra origins (host patterns such as `app.example.com`, `*.example.com`) allowed to open WebSocket sessions; same-origin is always allowed |
 | `-access-log` / `CORESTONE_ACCESS_LOG=1` | off | one log line per HTTP request (method, path, status, size, duration, client) |
+| `-auth` / `CORESTONE_AUTH` | `local` | `local`: sign in with an email and password (see below); `none`: no sign-in, the client names the commit author (development only) |
+| `-accounts` / `CORESTONE_ACCOUNTS` | `accounts.json` next to the repository | the accounts file of `-auth local` |
 | `-version` | | print the build version and exit |
 
 Check it is alive:
@@ -235,8 +237,21 @@ restructuring is restored with `POST /api/repository/maintenance/relocate-metada
 
 ## 7. Deployment notes
 
-- **Authentication and TLS are not included** (outside the MVP scope of the design guide). Put an
-  authenticating reverse proxy in front; do not expose the port directly. The proxy must pass
+- **Accounts** (`-auth local`, the default) are local to the server. The **accounts file**
+  (`-accounts`, by default `accounts.json` next to the repository, mode 0600) is their source of
+  truth: GUID, name, email, PBKDF2-SHA256 password hash. It is not in Git, so **back it up with the
+  repository**. PostgreSQL holds a copy, rebuilt from the file on start, on a reindex and whenever
+  the file changes; sessions (HttpOnly cookie, 30 days) live in PostgreSQL only.
+  **Roles** are in the repository: `.corestone/access.json` lists the admins by account GUID,
+  `{"admins": ["<guid>", ...]}`; everyone else is a user. Admins differ only in managing accounts:
+  create them, reset passwords and grant or withdraw the admin role, each grant a commit to that
+  file (the last admin cannot be removed). The file cannot be written through the configuration
+  API, but whoever can push to the repository can edit it: repository access is admin access.
+  On a new server (empty accounts file) the first visitor creates the first account and becomes
+  admin. Commits carry the signed-in account's name and email as author. `-auth none` turns all
+  of this off for development: never expose such a server.
+- **TLS is not included.** Put a reverse proxy in front for HTTPS (the session cookie is marked
+  `Secure` only when the server itself sees TLS); do not expose the port directly. The proxy must pass
   WebSocket upgrades for `/api/ws` and keep the `Host` header (or list the public origin with
   `-allow-origin`), since sessions are refused for foreign origins.
 - **Health probes**: `GET /api/health` answers 200 while the projection database is reachable and
