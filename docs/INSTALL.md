@@ -242,6 +242,11 @@ restructuring is restored with `POST /api/repository/maintenance/relocate-metada
   truth: GUID, name, email, PBKDF2-SHA256 password hash. It is not in Git, so **back it up with the
   repository**. PostgreSQL holds a copy, rebuilt from the file on start, on a reindex and whenever
   the file changes; sessions (HttpOnly cookie, 30 days) live in PostgreSQL only.
+  **One host:** the accounts file belongs to the host that serves the repository. Several server
+  processes on that host (or on one shared volume) may use it together, but servers on different
+  machines must not share one projection database with separate accounts files: each would
+  replace the database copy with its own file and remove the other's accounts. A multi-host setup
+  is planned separately.
   **Roles** are in the repository: `.corestone/access.json` lists the admins by account GUID,
   `{"admins": ["<guid>", ...]}`; everyone else is a user. Admins differ only in managing accounts:
   create and delete them (never their own; the commits of a deleted account stay), reset
