@@ -271,6 +271,46 @@ func TestForeignHistoryTriggersRebuild(t *testing.T) {
 	}
 }
 
+// A reused database whose projection came from another history, opened on
+// an empty repository with a forced rebuild pending, ends up empty instead of
+// serving (and later building on) the stale rows.
+func TestEmptyRepositoryDropsStaleProjection(t *testing.T) {
+	ctx := context.Background()
+	dsn := testutil.DSN(t)
+	repo, err := gitx.Open(t.TempDir()+"/repo.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Open(ctx, dsn, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	g := model.NewGUID()
+	commit(t, repo, "one", gitx.Op{Path: g + "/.corestone.json", Content: entryJSON(g, "t", "one", "", "")})
+	if err := p.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = '' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := gitx.Open(t.TempDir()+"/empty.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := Open(ctx, dsn, empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if err := q.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Get(ctx, g); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("stale artifact still projected: %v", err)
+	}
+}
+
 func TestLeaveMaintenancePreservesHistoryReadiness(t *testing.T) {
 	p, _ := testDB(t)
 	for _, ready := range []bool{false, true} {

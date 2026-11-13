@@ -126,6 +126,22 @@ export interface LogEntry {
   trailers?: Record<string, string>;
 }
 
+/** A commit in an artifact's history; blob addresses the artifact's version then ("" or absent: it did not exist). */
+export interface HistoryEntry extends LogEntry { blob?: string }
+
+/** An artifact as it was at one commit (read-only); configuration is today's. */
+export interface VersionView extends View {
+  commit: LogEntry;
+  exact: boolean;   // false: shown at the commit that introduced this content
+  exists: boolean;  // the artifact still exists today
+  schema?: Schema | null;
+  overlay?: { chain: OverlayLevel[]; fields: Record<string, unknown>; origin: Record<string, string> } | null;
+  baseOverlay?: { chain: OverlayLevel[]; fields: Record<string, unknown>; origin: Record<string, string> } | null;
+  workflows: WorkflowEval[];
+  relationships: Relationships;
+  comments: CommentView[];
+}
+
 export interface FolderInfo { name: string; path: string; artifacts: number; direct: number; hasConfig: boolean }
 export interface Tree { folder: string; folders: FolderInfo[]; artifacts: Summary[]; total: number }
 

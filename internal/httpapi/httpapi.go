@@ -130,6 +130,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/artifacts/{guid}/relationships", s.relationships)
 	m.HandleFunc("GET /api/artifacts/{guid}/comments", s.comments)
 	m.HandleFunc("GET /api/artifacts/{guid}/history", s.history)
+	m.HandleFunc("GET /api/artifacts/{guid}/versions/{blob}", s.version)
+	m.HandleFunc("GET /api/artifacts/{guid}/versions/{blob}/files/{name}", s.versionFile)
 	m.HandleFunc("POST /api/artifacts/{guid}/move", s.move)
 	m.HandleFunc("POST /api/artifacts/{guid}/underlay", s.underlay)
 	m.HandleFunc("GET /api/artifacts/{guid}/files/{name}", s.getFile)
@@ -499,12 +501,39 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h, err := s.F.History(r.Context(), guid, intParam(r, "limit", 200))
+	h, err := s.F.HistoryPage(r.Context(), guid, intParam(r, "limit", 200), r.URL.Query().Get("before"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"history": h})
+	writeJSON(w, http.StatusOK, h)
+}
+
+// version serves an artifact as it was: /versions/{blob}?commit=<sha>.
+func (s *Server) version(w http.ResponseWriter, r *http.Request) {
+	guid, ok := guidParam(w, r)
+	if !ok {
+		return
+	}
+	v, err := s.F.Version(r.Context(), guid, r.PathValue("blob"), r.URL.Query().Get("commit"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) versionFile(w http.ResponseWriter, r *http.Request) {
+	guid, ok := guidParam(w, r)
+	if !ok {
+		return
+	}
+	data, sha, err := s.F.VersionFile(r.Context(), guid, r.PathValue("blob"), r.URL.Query().Get("commit"), r.PathValue("name"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	serveAttachment(w, r.PathValue("name"), sha, data)
 }
 
 func (s *Server) move(w http.ResponseWriter, r *http.Request) {
@@ -563,9 +592,13 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	serveAttachment(w, r.PathValue("name"), sha, data)
+}
+
+func serveAttachment(w http.ResponseWriter, name, sha string, data []byte) {
 	setETag(w, sha)
 	w.Header().Set("Content-Type", http.DetectContentType(data))
-	w.Header().Set("Content-Disposition", "inline; filename=\""+strings.ReplaceAll(r.PathValue("name"), `"`, "")+"\"")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+strings.ReplaceAll(name, `"`, "")+"\"")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Attachments are user content served from the application origin: a
 	// sandboxed policy keeps an uploaded HTML file from running as the app.

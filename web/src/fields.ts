@@ -62,6 +62,7 @@ export class FieldEditor extends LitElement {
   private overlayNote() {
     const o = this.overlay;
     if (!o) return nothing;
+    if (this.readonly) return html`<div class="inherited ${o.state === "overridden" ? "overridden" : ""}" title=${OVERLAY_HELP}>${o.state === "inherited" ? "inherited from" : "overrides"} base <b>${o.from}</b></div>`;
     return o.state === "inherited"
       ? html`<div class="inherited" title=${OVERLAY_HELP}>inherited from base <b>${o.from}</b> ·
           <button type="button" data-test="override" @click=${() => this.overlayEvent("overlay-unlock")}>🔓 override</button></div>`
@@ -100,8 +101,8 @@ export class FieldEditor extends LitElement {
         ${this.input()}
         ${f.description ? html`<div class="help">${f.description}</div>` : nothing}
         ${this.overlayNote()}
-        ${this.undeclared ? html`<div class="inherited undeclared">not defined for this type ·
-          <button type="button" data-test="remove-field" @click=${() => this.emit(null)}>✕ remove</button></div>` : nothing}
+        ${this.undeclared ? html`<div class="inherited undeclared">not defined for this type${this.readonly ? " (today)" : html` ·
+          <button type="button" data-test="remove-field" @click=${() => this.emit(null)}>✕ remove</button>`}</div>` : nothing}
       </div>
     </div>`;
   }

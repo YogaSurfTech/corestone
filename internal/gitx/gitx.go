@@ -211,6 +211,31 @@ func (r *Repo) ListTree(ctx context.Context, rev string) ([]TreeEntry, error) {
 	return entries, nil
 }
 
+// ListDir lists the files directly inside dir at rev (no subdirectories).
+func (r *Repo) ListDir(ctx context.Context, rev, dir string) ([]TreeEntry, error) {
+	if rev == "" {
+		return nil, nil
+	}
+	out, err := r.run(ctx, nil, "ls-tree", "-z", "-l", "--full-tree", rev, "--", Literal(dir+"/"))
+	if err != nil {
+		return nil, err
+	}
+	var entries []TreeEntry
+	for _, rec := range bytes.Split(out, []byte{0}) {
+		meta, path, ok := bytes.Cut(rec, []byte{'\t'})
+		if !ok {
+			continue
+		}
+		f := strings.Fields(string(meta))
+		if len(f) < 4 || f[1] != "blob" {
+			continue
+		}
+		size, _ := strconv.ParseInt(f[3], 10, 64)
+		entries = append(entries, TreeEntry{Path: string(path), SHA: f[2], Mode: f[0], Size: size})
+	}
+	return entries, nil
+}
+
 // ReadBlobs fetches many blobs in one cat-file process. Missing objects are
 // simply absent from the result.
 func (r *Repo) ReadBlobs(ctx context.Context, shas []string) (map[string][]byte, error) {

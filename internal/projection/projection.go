@@ -366,6 +366,12 @@ var ddl = []string{
 		PRIMARY KEY (guid, commit_sha))`,
 	`CREATE INDEX IF NOT EXISTS artifact_commits_guid_seq ON artifact_commits (guid, seq DESC)`,
 	`CREATE INDEX IF NOT EXISTS artifact_commits_seq ON artifact_commits (seq)`,
+	// The artifact's own file in that commit: its path and blob when the
+	// commit added, changed or moved it, '' when it deleted it, NULL when the
+	// file stayed as it was (only attachments, comments or links changed).
+	`ALTER TABLE artifact_commits ADD COLUMN IF NOT EXISTS path text`,
+	`ALTER TABLE artifact_commits ADD COLUMN IF NOT EXISTS blob text`,
+	`CREATE INDEX IF NOT EXISTS artifact_commits_blob ON artifact_commits (guid, blob) WHERE blob IS NOT NULL AND blob <> ''`,
 	`CREATE TABLE IF NOT EXISTS file_issues (
 		path text PRIMARY KEY,
 		guid text NOT NULL,
@@ -385,7 +391,9 @@ var ddl = []string{
 func (p *DB) migrate(ctx context.Context) error {
 	var hadTables bool
 	if err := p.sql.QueryRowContext(ctx, `SELECT to_regclass(quote_ident(current_schema()) || '.artifact_commits') IS NOT NULL
-		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL`).Scan(&hadTables); err != nil {
+		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+			AND table_name = 'artifact_commits' AND column_name = 'path')`).Scan(&hadTables); err != nil {
 		return fmt.Errorf("projection schema: %w", err)
 	}
 	for _, stmt := range ddl {
@@ -394,12 +402,24 @@ func (p *DB) migrate(ctx context.Context) error {
 		}
 	}
 	if !hadTables {
-		// A projection built before artifact_commits or artifact_refs existed
-		// lacks the history or reference index: force a rebuild, which
-		// backfills them from Git.
-		if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = '' WHERE id = 1`); err != nil {
+		// A projection built before artifact_commits (with the file path and
+		// blob per commit) or artifact_refs existed lacks the history or
+		// reference index: force a rebuild, which backfills them from Git.
+		// Not '': that would equal the head of an empty repository and skip
+		// the rebuild, leaving the stale rows in place.
+		if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = 'rebuild' WHERE id = 1`); err != nil {
 			return fmt.Errorf("projection schema: %w", err)
 		}
+	}
+	// The backfills below read Git for the projected rows; a projection that
+	// is rebuilt anyway (forced, or made from another repository's history)
+	// is left to the rebuild.
+	var processed string
+	if err := p.sql.QueryRowContext(ctx, `SELECT processed_hash FROM repo_state WHERE id = 1`).Scan(&processed); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return unavailable(err)
+	}
+	if processed == "" || !p.repo.Exists(ctx, processed) {
+		return nil
 	}
 	tx, err := p.Begin(ctx)
 	if err != nil {

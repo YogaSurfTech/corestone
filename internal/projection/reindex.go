@@ -381,7 +381,21 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 	deleted := map[string]*delRow{}
 	var events []histEvent
 	var commitRows []commitRow
+	var linkRefs []linkRef
 	commits := 0
+	// flushCommitRows writes the buffered history rows, with the endpoint
+	// rows of the buffered link changes (their blobs read in one batch).
+	flushCommitRows := func() error {
+		ends, err := p.endpointRows(ctx, linkRefs)
+		if err != nil {
+			return err
+		}
+		if err := p.insertCommitRows(ctx, append(commitRows, ends...)); err != nil {
+			return err
+		}
+		commitRows, linkRefs = commitRows[:0], linkRefs[:0]
+		return nil
+	}
 
 	// flush resolves the GUID of every buffered event and applies it in walk
 	// order (newest first).
@@ -576,14 +590,12 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 			n := commits
 			p.setStatus(func(s *Status) { s.Progress = n })
 		}
-		for _, g := range commitGUIDs(cd.Changes) {
-			commitRows = append(commitRows, commitRow{guid: g, commit: cd.SHA, seq: int64(1 - commits)})
-		}
-		if len(commitRows) >= 10*batchSize {
-			if err := p.insertCommitRows(ctx, commitRows); err != nil {
+		commitRows = append(commitRows, commitRowsOf(sc, cd.SHA, int64(1-commits), cd.Changes)...)
+		linkRefs = append(linkRefs, linkRefsOf(sc, cd.SHA, int64(1-commits), cd.Changes)...)
+		if len(commitRows) >= 10*batchSize || len(linkRefs) >= batchSize {
+			if err := flushCommitRows(); err != nil {
 				return err
 			}
-			commitRows = commitRows[:0]
 		}
 		for _, ch := range cd.Changes {
 			m, ok := sc.Match(ch.Path)
@@ -608,7 +620,7 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 	if err := flush(); err != nil {
 		return err
 	}
-	if err := p.insertCommitRows(ctx, commitRows); err != nil {
+	if err := flushCommitRows(); err != nil {
 		return err
 	}
 
