@@ -46,7 +46,7 @@ export function routeToURL(r: Route): string {
   return path + (s ? "?" + s : "");
 }
 
-/** An editor with unsaved changes, asked before the route leaves its artifact. */
+/** An editor with unsaved changes, asked before the route leaves its artifact or version. */
 export interface LeaveGuard {
   dirty(): boolean;
   /** Saves; resolves true when the changes are stored. */
@@ -89,12 +89,16 @@ function apply(next: Route, replace: boolean) {
   store.setRoute(next);
 }
 
+function sameArtifactView(a: Route, b: Route): boolean {
+  return a.guid === b.guid && a.version === b.version && a.at === b.at;
+}
+
 export function navigate(patch: Partial<Route>, replace = false) {
   const next = { ...store.state.route, ...patch };
   // A version belongs to its artifact: opening another one shows it as it is now.
   if (next.guid !== store.state.route.guid && !("version" in patch)) { next.version = ""; next.at = ""; }
-  if (next.guid === store.state.route.guid) return apply(next, replace);
-  // Leaving the open artifact: unsaved changes are saved, discarded or kept.
+  if (sameArtifactView(next, store.state.route)) return apply(next, replace);
+  // Leaving the open artifact or version: unsaved changes are saved, discarded or kept.
   void mayLeave().then((ok) => { if (ok) apply(next, replace); });
 }
 
@@ -113,7 +117,7 @@ export function installRouter() {
   window.addEventListener("popstate", () => {
     const next = parseRoute();
     // Only unsaved changes interfere with the browser's history.
-    if (next.guid === store.state.route.guid || !guard?.dirty()) return store.setRoute(next);
+    if (sameArtifactView(next, store.state.route) || !guard?.dirty()) return store.setRoute(next);
     // The browser has already moved: put the current page back while asking.
     const here = store.state.route;
     history.pushState(null, "", routeToURL(here));

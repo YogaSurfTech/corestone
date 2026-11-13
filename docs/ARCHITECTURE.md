@@ -119,7 +119,9 @@ and status broadcasts, viewer/editor presence per artifact.
 
 ## web — the client
 
-`store.ts` (central state), `router.ts` (URL ⇄ state), `api.ts`, `ws.ts`; components `app`
+`store.ts` (central state), `router.ts` (URL ⇄ state; save/discard/cancel guards protect
+unsaved edits when changing artifacts or historic versions, including browser back/forward),
+`api.ts`, `ws.ts`; components `app`
 (shell), `sidebar`, `overview` (with the ＋ New menu), `dialogs` (type choice → generated form →
 create; picker; confirm), `table` (`<corestone-table>`: server-sorted, lazily loaded rows in
 batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; with
