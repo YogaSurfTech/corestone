@@ -181,6 +181,9 @@ corestone-detail.historic .field.changed > label { color: var(--changed); font-w
 corestone-detail.historic .field.changed > label::before { content: "● "; font-size: 10px; }
 corestone-detail.historic :is(.title-input, .hid-input).changed { text-decoration: underline 2px var(--changed); text-underline-offset: 4px; }
 corestone-detail.historic :is(.workflow, .comment, .link-row span).changed { box-shadow: inset 3px 0 0 var(--changed); padding-left: 6px; }
+/* Changes that wait for Save. */
+corestone-detail .pending-add { background: var(--added-bg); box-shadow: inset 3px 0 0 var(--added-bar); }
+corestone-detail .pending-remove { text-decoration: line-through; opacity: 0.6; }
 corestone-detail.historic .added { background: var(--added-bg); box-shadow: inset 3px 0 0 var(--added-bar); }
 corestone-detail.historic .section.changed { box-shadow: inset 3px 0 0 var(--changed); }
 corestone-detail.historic .section.changed > h3 { color: var(--changed); }

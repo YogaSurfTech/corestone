@@ -6,7 +6,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, commentTypeOf, deepEqual, fmtTime, label, relTime, safeImageSrc, undeclaredField } from "./util";
+import { blockId, commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, safeImageSrc, undeclaredField } from "./util";
 import "./type-icon";
 import "./fields";
 
@@ -46,7 +46,7 @@ export class DocumentView extends LitElement {
     dirty: () => this.dirty,
     save: async () => { await this.save(); return !this.dirty; },
     discard: () => this.discard(),
-    label: () => (this.view ? label(this.view.meta) : "This document"),
+    label: () => (this.view ? hidLabel(this.view.meta) : "This document"),
   };
 
   /** Drops unsaved edits: title, blocks and fields go back to the stored version. */

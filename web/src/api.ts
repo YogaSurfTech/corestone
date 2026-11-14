@@ -32,7 +32,7 @@ function userHeader(): Record<string, string> {
 async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   const init: RequestInit = { method, headers: { ...userHeader(), ...headers }, signal };
   if (body !== undefined) {
-    if (typeof body === "string") {
+    if (typeof body === "string" || body instanceof FormData) {
       init.body = body;
     } else {
       init.body = JSON.stringify(body);
@@ -74,6 +74,16 @@ const q = (params: Record<string, string | number | boolean | undefined>) => {
   const s = sp.toString();
   return s ? "?" + s : "";
 };
+
+/** The body of a save: what changed besides attachments to store. */
+export interface SaveChanges {
+  patch?: Record<string, unknown>;
+  transitions?: { workflow: string; to: string }[];
+  addLinks?: { type: string; source: string; target: string }[];
+  removeLinks?: string[];
+  addComments?: { type: string | null; text: string; parent?: string; author: string }[];
+  removeFiles?: string[];
+}
 
 export const api = {
   auth: () => request<AuthState>("GET", "/auth"),
@@ -118,6 +128,17 @@ export const api = {
   workflows: (guid: string) => request<{ workflows: WorkflowEval[] }>("GET", `/artifacts/${guid}/workflows`),
   transition: (guid: string, workflow: string, to: string, etag?: string) =>
     request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
+  /** Everything the detail form changed, published as one commit; attachments go as multipart. */
+  save: (guid: string, changes: SaveChanges, files: File[], etag?: string) => {
+    let body: unknown = changes;
+    if (files.length) {
+      const form = new FormData();
+      form.append("changes", JSON.stringify(changes));
+      for (const f of files) form.append("file", f, f.name);
+      body = form;
+    }
+    return request<View>("POST", `/artifacts/${guid}/save`, body, etag ? { "If-Match": `"${etag}"` } : {});
+  },
   relationships: (guid: string) => request<Relationships>("GET", `/artifacts/${guid}/relationships`),
   comments: (guid: string) => request<{ comments: CommentView[] }>("GET", `/artifacts/${guid}/comments`),
   /** One batch of the history, newest first; before continues after that commit. */

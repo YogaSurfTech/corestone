@@ -1,11 +1,11 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { api, ApiError } from "./api";
+import { api, ApiError, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type Route, type State } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
+import { commentTypeOf, deepEqual, fmtSize, fmtTime, hidLabel, label, undeclaredField } from "./util";
 import "./type-icon";
 import "./table";
 import type { TableColumn } from "./table";
@@ -21,6 +21,18 @@ import type { PickerAction } from "./dialogs";
 // was at that commit (TSK-22): read-only, marked historic (sepia), with the
 // links, comments, attachments and base chain of then; configuration is
 // today's.
+
+/** Changes besides fields that wait for Save, published together in one commit. */
+interface Pending {
+  /** Workflow id → the transition chosen and the state it leads to. */
+  transitions: Record<string, { to: string; state: string }>;
+  links: { type: string; source: string; target: string; other: Summary; role: string; dir: "in" | "out" }[];
+  removedLinks: string[];
+  comments: { type: string | null; text: string; parent?: string }[];
+  files: File[];
+  removedFiles: string[];
+}
+const noPending = (): Pending => ({ transitions: {}, links: [], removedLinks: [], comments: [], files: [], removedFiles: [] });
 
 const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "documents", "history", "metadata"] as const;
 type Section = (typeof SECTIONS)[number];
@@ -60,6 +72,7 @@ export class Detail extends LitElement {
   /** Older history entries remain to be loaded. */
   @state() private historyMore = false;
   @state() private draft: { title: string; hid: string; fields: Record<string, unknown> } | null = null;
+  @state() private pending: Pending = noPending();
   @state() private busy = false;
   @state() private error = "";
   @state() private loading = true;
@@ -89,7 +102,7 @@ export class Detail extends LitElement {
     dirty: () => this.dirty,
     save: async () => { await this.save(); return !this.dirty; },
     discard: () => { if (this.view) this.resetDraft(); },
-    label: () => (this.view ? label(this.view.meta) : "This artifact"),
+    label: () => (this.view ? hidLabel(this.view.meta) : "This artifact"),
   };
 
   override connectedCallback() {
@@ -120,8 +133,39 @@ export class Detail extends LitElement {
 
   private get dirty(): boolean {
     if (!this.draft || !this.view || this.historic) return false;
-    const d = this.view.data as Record<string, unknown>;
-    return this.draft.title !== (d.title ?? "") || this.draft.hid !== (d.hid ?? "") || !deepEqual(this.draft.fields, d.fields ?? {});
+    return this.fieldsDirty || this.pendingCount > 0;
+  }
+
+  /** The edited title, HID and fields that differ from the stored ones. */
+  private get edited(): string[] {
+    const d = this.view!.data as Record<string, unknown>;
+    return [
+      ...(this.draft!.title !== (d.title ?? "") ? ["title"] : []),
+      ...(this.draft!.hid !== (d.hid ?? "") ? ["HID"] : []),
+      ...(!deepEqual(this.draft!.fields, d.fields ?? {}) ? ["fields"] : []),
+    ];
+  }
+
+  private get fieldsDirty(): boolean { return this.edited.length > 0; }
+
+  private get pendingCount(): number {
+    const p = this.pending;
+    return Object.keys(p.transitions).length + p.links.length + p.removedLinks.length + p.comments.length + p.files.length + p.removedFiles.length;
+  }
+
+  /** What Save will publish, for the save bar. */
+  private pendingSummary(): string {
+    const p = this.pending;
+    const n = (k: number, one: string, many = one + "s") => (k ? [`${k} ${k === 1 ? one : many}`] : []);
+    return [
+      ...this.edited,
+      ...n(Object.keys(p.transitions).length, "transition"),
+      ...n(p.links.length, "link added", "links added"),
+      ...n(p.removedLinks.length, "link removed", "links removed"),
+      ...n(p.comments.length, "comment"),
+      ...n(p.files.length, "attachment added", "attachments added"),
+      ...n(p.removedFiles.length, "attachment removed", "attachments removed"),
+    ].join(", ");
   }
 
   private async reload(soft: boolean) {
@@ -148,7 +192,7 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyMore = false; this.historyLoaded = false; this.workflows = []; this.historic = null; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.pending = noPending(); this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyMore = false; this.historyLoaded = false; this.workflows = []; this.historic = null; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
     this.error = "";
     try {
       if (this.version) return await this.loadVersion(guid, stale);
@@ -254,9 +298,10 @@ export class Detail extends LitElement {
 
   /** What the historic version shown changed in a section, as short badges for its heading. */
   private sectionChange(s: Section): string[] {
-    const c = this.historic?.change;
-    if (!c) return [];
     const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+    if (!this.historic) return this.pendingChange(s, plural);
+    const c = this.historic.change;
+    if (!c) return [];
     const added = (guids: string[]) => guids.filter((g) => c.added.includes(g)).length;
     switch (s) {
       case "fields": return c.changed.some((k) => k.startsWith("fields.")) ? ["changed"] : [];
@@ -271,6 +316,20 @@ export class Detail extends LitElement {
         const n = added(this.comments.map((x) => x.meta.guid));
         return [...(n ? [`${plural(n, "comment")} added`] : []), ...(c.removedComments ? [`${plural(c.removedComments, "comment")} removed`] : [])];
       }
+      default: return [];
+    }
+  }
+
+  /** The same badges for what waits for Save. */
+  private pendingChange(s: Section, plural: (n: number, what: string) => string): string[] {
+    const p = this.pending;
+    const badges = (n: number, what: string, verb: string) => (n ? [`${plural(n, what)} ${verb}`] : []);
+    switch (s) {
+      case "fields": return this.draft && this.view && this.edited.includes("fields") ? ["changed"] : [];
+      case "workflows": return Object.keys(p.transitions).length ? ["changed"] : [];
+      case "relationships": return [...badges(p.links.length, "link", "added"), ...badges(p.removedLinks.length, "link", "removed")];
+      case "comments": return badges(p.comments.length, "comment", "added");
+      case "attachments": return [...badges(p.files.length, "attachment", "added"), ...badges(p.removedFiles.length, "attachment", "removed")];
       default: return [];
     }
   }
@@ -294,6 +353,7 @@ export class Detail extends LitElement {
   private resetDraft() {
     const d = this.view!.data as Record<string, unknown>;
     this.draft = { title: String(d.title ?? ""), hid: String(d.hid ?? ""), fields: structuredClone((d.fields as Record<string, unknown>) ?? {}) };
+    this.pending = noPending();
     if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
   }
 
@@ -315,10 +375,22 @@ export class Detail extends LitElement {
     for (const [k, v] of Object.entries(this.draft.fields)) if (!deepEqual(v, old[k])) fields[k] = v === undefined ? null : v;
     for (const k of Object.keys(old)) if (!(k in this.draft.fields)) fields[k] = null;
     if (Object.keys(fields).length) patch.fields = fields;
+    const p = this.pending;
+    const changes: SaveChanges = {
+      patch,
+      transitions: Object.entries(p.transitions).map(([workflow, t]) => ({ workflow, to: t.to })),
+      addLinks: p.links.map(({ type, source, target }) => ({ type, source, target })),
+      removeLinks: p.removedLinks,
+      addComments: p.comments.map((c) => ({ ...c, author: this.s.user })),
+      removeFiles: p.removedFiles,
+    };
     try {
-      this.view = await api.update(this.guid, patch, this.view.etag);
+      this.view = await api.save(this.guid, changes, p.files, this.view.etag);
       store.toast("Saved", "success");
       this.resetDraft();
+      this.commentText = "";
+      this.replyTo = null;
+      this.reload(true);
       store.refresh();
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
@@ -331,15 +403,15 @@ export class Detail extends LitElement {
     }
   }
 
-  private async transition(wf: string, to: string) {
-    try {
-      this.view = await api.transition(this.guid, wf, to, this.view?.etag);
-      store.toast(`${wf}: now ${this.view.meta.workflows?.[wf] ?? to}`, "success");
-      this.reload(true);
-      store.refresh();
-    } catch (e) {
-      store.toast(e instanceof ApiError ? e.message : String(e), "error");
-    }
+  /** A transition waits for Save; choosing again replaces it, choosing none drops it. */
+  private transition(wf: string, to: string) {
+    const w = this.workflows.find((x) => x.id === wf);
+    const t = w?.available.find((x) => (x.id || x.to) === to);
+    const transitions = { ...this.pending.transitions };
+    if (!to || !t) delete transitions[wf];
+    else transitions[wf] = { to, state: t.to };
+    this.pending = { ...this.pending, transitions };
+    this.touched();
   }
 
   private async deleteArtifact() {
@@ -356,12 +428,23 @@ export class Detail extends LitElement {
       } } });
   }
 
+  /**
+   * Posting publishes the comment at once when nothing else waits for Save;
+   * otherwise it joins the pending changes and is saved with them.
+   */
   private async addComment() {
     if (!this.commentText.trim()) return;
     // A comment's subject is always the root artifact; here, replying defaults to the comment shown.
     const onComment = this.view?.meta.kind === "comment";
     const subject = onComment ? this.view?.meta.subject ?? this.guid : this.guid;
     const parent = this.replyTo ?? (onComment ? this.guid : undefined);
+    if (this.dirty) {
+      this.pending = { ...this.pending, comments: [...this.pending.comments, { type: this.commentType, text: this.commentText, parent }] };
+      this.commentText = "";
+      this.replyTo = null;
+      this.touched();
+      return;
+    }
     try {
       await api.create("comments", { subject, parent, type: this.commentType, text: this.commentText, author: this.s.user });
       this.commentText = "";
@@ -371,28 +454,48 @@ export class Detail extends LitElement {
     } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
   }
 
-  private addLink(asSource: boolean, type: string, types?: string[]) {
+  /** A new link waits for Save. */
+  private addLink(asSource: boolean, type: string, role: string, types?: string[]) {
     store.set({ picker: { kind: "pick", title: asSource ? `${type}: choose target` : `${type}: choose source`, types, exclude: this.guid, kinds: ["entry", "document"],
-      onPick: async (other: { guid: string }) => {
-        try {
-          await api.create("links", asSource ? { type, source: this.guid, target: other.guid } : { type, source: other.guid, target: this.guid });
-          store.toast("Link created", "success");
-          this.reload(true);
-          store.refresh();
-        } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+      onPick: (other: Summary) => {
+        const link = asSource ? { type, source: this.guid, target: other.guid } : { type, source: other.guid, target: this.guid };
+        const all = [...(this.rel?.outgoing ?? []), ...(this.rel?.incoming ?? [])].filter((l) => !this.pending.removedLinks.includes(l.link.guid));
+        if (all.some((l) => l.link.type === type && l.link.source === link.source && l.link.target === link.target)
+          || this.pending.links.some((l) => l.type === type && l.source === link.source && l.target === link.target)) {
+          store.toast(`This ${type} link already exists`, "error");
+          return;
+        }
+        this.pending = { ...this.pending, links: [...this.pending.links, { ...link, other, role, dir: asSource ? "out" : "in" }] };
+        this.setOpen("relationships", true, false);
+        this.touched();
       } } });
   }
 
-  private async upload(e: Event) {
+  /** Removing a stored link waits for Save; removing a pending one drops it. */
+  private toggleLinkRemoval(guid: string) {
+    const removed = this.pending.removedLinks;
+    this.pending = { ...this.pending, removedLinks: removed.includes(guid) ? removed.filter((g) => g !== guid) : [...removed, guid] };
+    this.touched();
+  }
+
+  /** An upload waits for Save; one with the name of a stored file replaces it. */
+  private upload(e: Event) {
     const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      await api.uploadFile(this.guid, file.name, file);
-      store.toast(`Attached ${file.name}`, "success");
-      this.reload(true);
-    } catch (err) { store.toast(err instanceof ApiError ? err.message : String(err), "error"); }
+    const files = [...(input.files ?? [])];
     input.value = "";
+    if (!files.length) return;
+    const names = new Set(files.map((f) => f.name));
+    this.pending = { ...this.pending,
+      files: [...this.pending.files.filter((f) => !names.has(f.name)), ...files],
+      removedFiles: this.pending.removedFiles.filter((n) => !names.has(n)) };
+    this.setOpen("attachments", true, false);
+    this.touched();
+  }
+
+  private toggleFileRemoval(name: string) {
+    const removed = this.pending.removedFiles;
+    this.pending = { ...this.pending, removedFiles: removed.includes(name) ? removed.filter((n) => n !== name) : [...removed, name] };
+    this.touched();
   }
 
   private move() {
@@ -441,7 +544,7 @@ export class Detail extends LitElement {
           ${order.map((s) => body[s]())}
         </div>
       </div>
-      ${this.dirty ? html`<div class="savebar"><span class="dirty">Unsaved changes</span>
+      ${this.dirty ? html`<div class="savebar"><span class="dirty" data-test="unsaved-summary">Unsaved changes: ${this.pendingSummary()}</span>
         <button class="btn" @click=${() => this.resetDraft()}>Discard</button>
         <button class="btn primary" data-test="save" ?disabled=${this.busy} @click=${this.save}>${this.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
   }
@@ -624,12 +727,13 @@ export class Detail extends LitElement {
 
   private workflowSection() {
     return this.section("workflows", () => html`
-      ${this.workflows.map((w) => html`<div class="workflow ${this.changedClass("workflows." + w.id)}" data-workflow=${w.id}>
+      ${this.workflows.map((w) => { const next = this.pending.transitions[w.id]; return html`<div class="workflow ${this.changedClass("workflows." + w.id)} ${next ? "pending-add" : ""}" data-workflow=${w.id}>
         <span class="name">${w.definition.name || w.id}</span>
-        <span class="pill state">${w.state}</span>
-        ${this.historic ? nothing : html`<select data-test=${"transition-" + w.id} @change=${(e: Event) => { const to = (e.target as HTMLSelectElement).value; if (to) this.transition(w.id, to); (e.target as HTMLSelectElement).value = ""; }}>
-          <option value="">${w.available.length ? "Transition to…" : "No transitions available"}</option>
-          ${w.available.map((t) => html`<option value=${t.id || t.to}>${t.name || t.id || "→ " + t.to}</option>`)}
+        <span class="pill state ${next ? "pending-remove" : ""}">${w.state}</span>
+        ${next ? html`<span class="arrow">→</span><span class="pill state" data-test=${"pending-state-" + w.id} title="Saved with the next Save">${next.state}</span>` : nothing}
+        ${this.historic ? nothing : html`<select data-test=${"transition-" + w.id} .value=${next?.to ?? ""} @change=${(e: Event) => this.transition(w.id, (e.target as HTMLSelectElement).value)}>
+          <option value="" ?selected=${!next}>${!w.available.length ? "No transitions available" : next ? "Keep " + w.state : "Transition to…"}</option>
+          ${w.available.map((t) => html`<option value=${t.id || t.to} ?selected=${next?.to === (t.id || t.to)}>${t.name || t.id || "→ " + t.to}</option>`)}
         </select>`}
         <button class="btn sm" @click=${() => (this.showDiagram = this.showDiagram === w.id ? null : w.id)}>? diagram</button>
         ${this.showDiagram === w.id ? html`<div class="wf-diagram" style="flex-basis:100%">
@@ -637,7 +741,7 @@ export class Detail extends LitElement {
           <span class="wf-edge">·</span>
           ${w.definition.transitions.map((t) => html`<span class="wf-edge">${t.from.join("|")} → ${t.to}${t.name ? ` (${t.name})` : ""}</span>`)}
           <span class="muted small">defined in ${w.definition.scope || "/"}</span></div>` : nothing}
-      </div>`)}`);
+      </div>`; })}`);
   }
 
   /**
@@ -703,64 +807,89 @@ export class Detail extends LitElement {
   private relSection() {
     if (this.view?.meta.kind === "link") return this.linkRelSection();
     const rel = this.rel;
-    type Row = { link: Summary; other: Summary; role?: string; dir: "in" | "out" };
-    const rows: Row[] = rel ? [...rel.outgoing.map((l) => ({ ...l, dir: "out" as const })), ...rel.incoming.map((l) => ({ ...l, dir: "in" as const }))] : [];
+    type Row = { link: Summary; other: Summary; role?: string; dir: "in" | "out"; pending?: number };
+    const p = this.pending;
+    const rows: Row[] = [...(rel ? [...rel.outgoing.map((l) => ({ ...l, dir: "out" as const })), ...rel.incoming.map((l) => ({ ...l, dir: "in" as const }))] : []),
+      ...p.links.map((l, i) => ({ link: { guid: "pending-" + i, kind: "link" as const, type: l.type, folder: "", path: "", source: l.source, target: l.target, links: 0, comments: 0 }, other: l.other, role: l.role, dir: l.dir, pending: i }))];
+    const removeLink = (r: Row) => r.pending !== undefined
+      ? (this.pending = { ...p, links: p.links.filter((_, i) => i !== r.pending) })
+      : this.toggleLinkRemoval(r.link.guid);
+    const removing = (r: Row) => p.removedLinks.includes(r.link.guid);
     const columns: TableColumn<Row>[] = [
       { id: "role", name: "Role", width: 160, value: (r) => r.role || r.link.type, render: (r) => html`<span class="type" title=${r.link.type}>${r.role || r.link.type}</span>` },
       { id: "dir", name: "Dir", width: 72, value: (r) => r.dir, render: (r) => html`<span class="arrow ${r.dir}" title=${r.dir === "in" ? "incoming: the other artifact links to this one" : "outgoing: this artifact links to the other"}>${r.dir === "in" ? "←" : "→"}</span>` },
       { id: "artifact", name: "Artifact", value: (r) => r.other.hid || label(r.other), render: (r) => this.openCell(r.other) },
       { id: "folder", name: "Folder", width: 150, value: (r) => r.other.folder, render: (r) => html`<span class="muted small">${r.other.folder || "/"}</span>` },
-      ...(this.historic ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (r: Row) => html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); api.remove(r.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((err) => store.toast(err.message, "error")); }}>✕</button>` }]),
+      ...(this.historic ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (r: Row) => removing(r)
+        ? html`<button class="btn sm" title="Keep link" aria-label="Keep link" data-test="link-keep" @click=${(e: Event) => { e.stopPropagation(); removeLink(r); }}>↺</button>`
+        : html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); removeLink(r); }}>✕</button>` }]),
     ];
     const actions = this.historic ? nothing : html`
-        ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
-        ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>＋ ${s.reverseName || s.displayName || s.type} ←</button>`)}
+        ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.displayName || s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
+        ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.reverseName || s.displayName || s.type, s.sourceTypes)}>＋ ${s.reverseName || s.displayName || s.type} ←</button>`)}
         ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
     return this.section("relationships", () => html`
       ${!rows.length ? html`<div class="muted small">No links yet.</div>` : html`<corestone-table class="detail-table" .items=${rows} .columns=${columns}
-        .rowKey=${(r: Row) => r.link.guid} .rowClass=${(r: Row) => `link-row open-row ${this.added(r.link.guid) ? "added" : ""}`} @row-click=${(e: CustomEvent<Row>) => navigate(this.refRoute(e.detail.other.guid, e.detail.other))}></corestone-table>`}
+        .rowKey=${(r: Row) => r.link.guid} .rowClass=${(r: Row) => `link-row open-row ${this.added(r.link.guid) ? "added" : ""} ${r.pending !== undefined ? "pending-add" : ""} ${removing(r) ? "pending-remove" : ""}`} @row-click=${(e: CustomEvent<Row>) => navigate(this.refRoute(e.detail.other.guid, e.detail.other))}></corestone-table>`}
       `, actions);
   }
 
   private commentSection() {
     const byParent = new Map<string, CommentView[]>();
-    const known = new Set(this.comments.map((c) => c.meta.guid));
-    for (const c of this.comments) {
+    // Pending comments sit in their thread like stored ones, marked until saved.
+    const pending: CommentView[] = this.pending.comments.map((c, i) => ({
+      meta: { guid: "pending-" + i, kind: "comment", type: c.type ?? "comment", folder: "", path: "", author: this.s.user, links: 0, comments: 0 },
+      data: { type: c.type, text: c.text, parent: c.parent } }));
+    const all = [...this.comments, ...pending];
+    const known = new Set(all.map((c) => c.meta.guid));
+    for (const c of all) {
       let p = String(c.data?.parent ?? "");
       if (p && (!known.has(p) || p === c.meta.guid)) p = ""; // orphaned reply: show at the root
       byParent.set(p, [...(byParent.get(p) ?? []), c]);
     }
     const seen = new Set<string>();
-    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === this.guid ? "current" : ""} ${this.added(c.meta.guid) ? "added" : ""}" data-comment=${c.meta.guid}>
-      <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
-        ${this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
+    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => { const pi = c.meta.guid.startsWith("pending-") ? Number(c.meta.guid.slice(8)) : -1; return html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === this.guid ? "current" : ""} ${this.added(c.meta.guid) ? "added" : ""} ${pi >= 0 ? "pending-add" : ""}" data-comment=${c.meta.guid}>
+      <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${pi >= 0 ? html`<i>unsaved</i>` : fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
+        ${pi >= 0 ? html`<a href="#" data-test="comment-drop" @click=${(e: Event) => { e.preventDefault(); this.pending = { ...this.pending, comments: this.pending.comments.filter((_, i) => i !== pi) }; }}>remove</a>`
+        : this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
       <div class="text">${String(c.data?.text ?? "")}</div>
-      ${render(c.meta.guid, depth + 1)}</div>`);
+      ${render(c.meta.guid, depth + 1)}</div>`; });
     const actions = this.historic ? nothing : !this.commentType
       ? html`<span class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</span>`
       : html`<button class="btn sm" data-test="comment-add" @click=${async () => { await this.reveal("comments"); this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>＋ Comment</button>`;
     return this.section("comments", () => html`
-      ${!this.comments.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
+      ${!all.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
       ${!this.commentType ? nothing : html`<div class="inline-form">
         <textarea id="comment-text" data-test="comment-text" placeholder=${this.replyTo || this.view?.meta.kind === "comment" ? "Reply…" : "Write a comment…"} .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
         <div style="display:flex;flex-direction:column;gap:4px">
-          <button class="btn primary sm" data-test="comment-send" @click=${this.addComment}>Post</button>
+          <button class="btn primary sm" data-test="comment-send" title=${this.dirty ? "Saved together with your other changes" : "Publishes the comment now"} @click=${this.addComment}>${this.dirty ? "Add" : "Post"}</button>
           ${this.replyTo ? html`<button class="btn sm" @click=${() => (this.replyTo = null)}>cancel reply</button>` : nothing}
         </div></div>`}`, actions);
   }
 
   private attachmentSection() {
-    const att = this.view?.attachments ?? [];
     const h = this.historic;
+    const p = this.pending;
+    type Row = Attachment & { file?: File };
+    const staged = new Set(p.files.map((f) => f.name));
+    const att: Row[] = [...(this.view?.attachments ?? []).filter((a) => h || !staged.has(a.name)),
+      ...(h ? [] : p.files.map((f) => ({ name: f.name, path: "", etag: "", size: f.size, file: f })))];
     const url = (a: Attachment) => h ? api.versionFileUrl(this.guid, h.etag, h.commit.sha, a.name) : api.fileUrl(this.guid, a.name);
+    const removing = (a: Row) => !a.file && p.removedFiles.includes(a.name);
+    const remove = (a: Row) => a.file
+      ? (this.pending = { ...p, files: p.files.filter((f) => f !== a.file) })
+      : this.toggleFileRemoval(a.name);
     return this.section("attachments", () => html`
       ${!att.length ? html`<div class="muted small">Files stored in the artifact's GUID directory appear here.</div>` : nothing}
-      ${!att.length ? nothing : html`<corestone-table class="detail-table" .items=${att} .rowKey=${(a: Attachment) => a.name} .rowClass=${() => "attach-row"} .columns=${[
-        { id: "name", name: "Name", value: (a) => a.name, render: (a) => html`<a href=${url(a)} target="_blank" rel="noopener">${a.name}</a>` },
+      ${!att.length ? nothing : html`<corestone-table class="detail-table" .items=${att} .rowKey=${(a: Row) => (a.file ? "pending:" : "") + a.name}
+        .rowClass=${(a: Row) => `attach-row ${a.file ? "pending-add" : ""} ${removing(a) ? "pending-remove" : ""}`} .columns=${[
+        { id: "name", name: "Name", value: (a) => a.name, render: (a) => a.file ? html`<span title="Stored with the next Save">${a.name}</span>` : html`<a href=${url(a)} target="_blank" rel="noopener">${a.name}</a>` },
         { id: "size", name: "Size", width: 100, value: (a) => a.size, render: (a) => html`<span class="size">${fmtSize(a.size)}</span>` },
-        ...(h ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (a: Attachment) => html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button>` }]),
-      ] satisfies TableColumn<Attachment>[]}></corestone-table>`}`,
-      h ? nothing : html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
+        ...(h ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (a: Row) => removing(a)
+          ? html`<button class="btn sm" title="Keep attachment" aria-label="Keep attachment" @click=${() => remove(a)}>↺</button>`
+          : html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => remove(a)}>✕</button>` }]),
+      ] satisfies TableColumn<Row>[]}></corestone-table>`}`,
+      h ? nothing : html`<label class="btn sm">＋ Upload<input type="file" multiple hidden @change=${this.upload} /></label>`);
   }
 
   /** The documents embedding this entry; each opens scrolled to the entry's block. */
