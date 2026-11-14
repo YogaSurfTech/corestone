@@ -8,6 +8,7 @@ import { defaultRoute, store, type Route } from "./store";
 //   /folder/<path>          a folder
 //   /artifact/<guid>        an artifact (detail or document view)
 //   ?q=&subtree=1&kind=&type=&tab=&sb=props,comments&x=1
+//   ?version=<blob>&at=<commit>   a historic version of the artifact
 
 export function parseRoute(loc: Location = window.location): Route {
   const r: Route = { ...defaultRoute, sidebars: [] };
@@ -22,6 +23,7 @@ export function parseRoute(loc: Location = window.location): Route {
   r.tab = sp.get("tab") ?? "";
   r.expanded = sp.get("x") === "1";
   r.sidebars = (sp.get("sb") ?? "").split(",").filter(Boolean);
+  if (r.guid) { r.version = sp.get("version") ?? ""; r.at = r.version ? sp.get("at") ?? "" : ""; }
   if (sp.get("folder")) r.folder = sp.get("folder")!;
   return r;
 }
@@ -39,11 +41,12 @@ export function routeToURL(r: Route): string {
   if (r.tab) sp.set("tab", r.tab);
   if (r.expanded) sp.set("x", "1");
   if (r.sidebars.length) sp.set("sb", r.sidebars.join(","));
+  if (r.guid && r.version) { sp.set("version", r.version); if (r.at) sp.set("at", r.at); }
   const s = sp.toString().replace(/%2C/g, ",");
   return path + (s ? "?" + s : "");
 }
 
-/** An editor with unsaved changes, asked before the route leaves its artifact. */
+/** An editor with unsaved changes, asked before the route leaves its artifact or version. */
 export interface LeaveGuard {
   dirty(): boolean;
   /** Saves; resolves true when the changes are stored. */
@@ -86,10 +89,16 @@ function apply(next: Route, replace: boolean) {
   store.setRoute(next);
 }
 
+function sameArtifactView(a: Route, b: Route): boolean {
+  return a.guid === b.guid && a.version === b.version && a.at === b.at;
+}
+
 export function navigate(patch: Partial<Route>, replace = false) {
   const next = { ...store.state.route, ...patch };
-  if (next.guid === store.state.route.guid) return apply(next, replace);
-  // Leaving the open artifact: unsaved changes are saved, discarded or kept.
+  // A version belongs to its artifact: opening another one shows it as it is now.
+  if (next.guid !== store.state.route.guid && !("version" in patch)) { next.version = ""; next.at = ""; }
+  if (sameArtifactView(next, store.state.route)) return apply(next, replace);
+  // Leaving the open artifact or version: unsaved changes are saved, discarded or kept.
   void mayLeave().then((ok) => { if (ok) apply(next, replace); });
 }
 
@@ -108,7 +117,7 @@ export function installRouter() {
   window.addEventListener("popstate", () => {
     const next = parseRoute();
     // Only unsaved changes interfere with the browser's history.
-    if (next.guid === store.state.route.guid || !guard?.dirty()) return store.setRoute(next);
+    if (sameArtifactView(next, store.state.route) || !guard?.dirty()) return store.setRoute(next);
     // The browser has already moved: put the current page back while asking.
     const here = store.state.route;
     history.pushState(null, "", routeToURL(here));

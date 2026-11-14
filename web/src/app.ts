@@ -177,7 +177,7 @@ export class App extends LitElement {
         <div class="splitter" data-test="splitter" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to resize; double-click to reset"
           aria-valuemin=${MIN_SPLIT} aria-valuemax=${MAX_SPLIT} aria-valuenow=${Math.round(this.split)}
           @pointerdown=${this.dragSplit} @keydown=${this.keySplit} @dblclick=${() => this.setSplit(DEFAULT_SPLIT)}></div>
-        ${route.guid ? (this.selectedKind === "document" ? html`<corestone-document .guid=${route.guid}></corestone-document>` : html`<corestone-detail .guid=${route.guid}></corestone-detail>`)
+        ${route.guid ? (this.selectedKind === "document" ? html`<corestone-document .guid=${route.guid}></corestone-document>` : html`<corestone-detail .guid=${route.guid} .version=${route.version} .at=${route.at}></corestone-detail>`)
           : html`<div class="empty-state" style="display:grid;place-items:center"><div><div class="big">Select an artifact</div>Pick a row above, search with <kbd>/</kbd>, or create one with <kbd>n</kbd>.</div></div>`}
       </div>
     </div>

@@ -2,8 +2,8 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { store, type State } from "./store";
-import type { Attachment, CommentView, LogEntry, OverlayView, Relationships, Schema, Summary, View, WorkflowEval } from "./types";
+import { store, type Route, type State } from "./store";
+import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
 import "./type-icon";
@@ -16,6 +16,11 @@ import type { PickerAction } from "./dialogs";
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
 // optimistic-concurrency save (ETag / If-Match).
+//
+// With a version (?version=<blob>&at=<commit>) it shows the artifact as it
+// was at that commit (TSK-22): read-only, marked historic (sepia), with the
+// links, comments, attachments and base chain of then; configuration is
+// today's.
 
 const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "documents", "history", "metadata"] as const;
 type Section = (typeof SECTIONS)[number];
@@ -28,6 +33,11 @@ function readOpenPrefs(): Record<string, boolean> {
 @customElement("corestone-detail")
 export class Detail extends LitElement {
   @property() guid = "";
+  /** A historic version to show: the content blob and the commit it is viewed at ("" = current). */
+  @property() version = "";
+  @property() at = "";
+  /** The loaded historic version; null while showing the current state. */
+  @state() private historic: VersionView | null = null;
   private unsub?: () => void;
   private s!: State;
   @state() private view: View | null = null;
@@ -46,7 +56,9 @@ export class Detail extends LitElement {
   @state() private baseOverlay: OverlayView | null = null;
   /** The comment type to post with here; null when the folder defines none (no comments then). */
   @state() private commentType: string | null = null;
-  @state() private history: LogEntry[] = [];
+  @state() private history: HistoryEntry[] = [];
+  /** Older history entries remain to be loaded. */
+  @state() private historyMore = false;
   @state() private draft: { title: string; hid: string; fields: Record<string, unknown> } | null = null;
   @state() private busy = false;
   @state() private error = "";
@@ -62,6 +74,8 @@ export class Detail extends LitElement {
   @state() private underlay: { title: string; fields: Set<string> } | null = null;
   /** Sections the user opened or closed; remembered for the browser session. */
   @state() private openPrefs: Record<string, boolean> = readOpenPrefs();
+  /** Toggles of changed sections while viewing one historic version; not persisted. */
+  @state() private versionOpen: Record<string, boolean> = {};
   private lastTick = -1;
   private editing = false;
   private loadSeq = 0;
@@ -86,7 +100,7 @@ export class Detail extends LitElement {
       this.s = s;
       if (s.refreshTick !== this.lastTick) {
         this.lastTick = s.refreshTick;
-        if (this.view) this.reload(true);
+        if (this.view && !this.version) this.reload(true); // a version does not change
       }
       this.requestUpdate();
     });
@@ -94,7 +108,7 @@ export class Detail extends LitElement {
   private closeActions = () => { if (this.actionsOpen) this.actionsOpen = false; };
   override disconnectedCallback() { this.unsub?.(); document.removeEventListener("click", this.closeActions); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
-    if (changed.has("guid") && this.guid) {
+    if ((changed.has("guid") || changed.has("version") || changed.has("at")) && this.guid) {
       // A deep link to a section (?tab=history) opens it.
       const tab = store.state.route.tab;
       if ((SECTIONS as readonly string[]).includes(tab)) this.setOpen(tab as Section, true, false);
@@ -102,8 +116,10 @@ export class Detail extends LitElement {
     }
   }
 
+  override updated() { this.classList.toggle("historic", !!this.historic); }
+
   private get dirty(): boolean {
-    if (!this.draft || !this.view) return false;
+    if (!this.draft || !this.view || this.historic) return false;
     const d = this.view.data as Record<string, unknown>;
     return this.draft.title !== (d.title ?? "") || this.draft.hid !== (d.hid ?? "") || !deepEqual(this.draft.fields, d.fields ?? {});
   }
@@ -132,9 +148,10 @@ export class Detail extends LitElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyLoaded = false; this.workflows = []; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyMore = false; this.historyLoaded = false; this.workflows = []; this.historic = null; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
     this.error = "";
     try {
+      if (this.version) return await this.loadVersion(guid, stale);
       const view = await api.get(guid);
       if (stale()) return;
       const isLink = view.meta.kind === "link";
@@ -156,7 +173,7 @@ export class Detail extends LitElement {
         // Replies share the root subject, so a comment shows the thread it belongs to.
         api.comments(isComment ? view.meta.subject ?? guid : guid).catch(() => ({ comments: [] })),
         // History is only fetched while its section is open.
-        this.isOpen("history") ? api.history(guid).catch(() => ({ history: [] })) : Promise.resolve(null),
+        this.isOpen("history") ? api.history(guid).catch(() => ({ history: [], more: false })) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.documents(guid).catch(() => ({ documents: [] })) : Promise.resolve({ documents: [] }),
@@ -184,6 +201,7 @@ export class Detail extends LitElement {
       this.subject = subject;
       this.comments = comments.comments;
       this.history = history?.history ?? [];
+      this.historyMore = history?.more ?? false;
       this.historyLoaded = !!history;
       this.overlay = overlay;
       this.baseOverlay = baseOverlay;
@@ -202,6 +220,77 @@ export class Detail extends LitElement {
     }
   }
 
+  /** A historic version: everything about the artifact comes from that commit, read-only. */
+  private async loadVersion(guid: string, stale: () => boolean) {
+    const v = await api.version(guid, this.version, this.at);
+    if (stale()) return;
+    const history = this.isOpen("history") ? await api.history(guid).catch(() => ({ history: [], more: false })) : null;
+    if (stale()) return;
+    this.historic = v;
+    this.versionOpen = {};
+    this.view = v;
+    this.schema = v.schema ?? null;
+    this.workflows = v.workflows;
+    this.rel = v.meta.kind === "link" || v.meta.kind === "comment" ? null : v.relationships;
+    // A link's endpoints and a comment's subject come as they were then.
+    this.endpoints = v.endpoints ?? null;
+    this.subject = v.subject ?? null;
+    this.comments = v.comments;
+    this.overlay = v.overlay ? { ...v.overlay, overlays: [] } : null;
+    this.baseOverlay = v.baseOverlay ? { ...v.baseOverlay, overlays: [] } : null;
+    this.documents = [];
+    this.commentType = null;
+    this.history = history?.history ?? [];
+    this.historyMore = history?.more ?? false;
+    this.historyLoaded = !!history;
+    this.resetDraft();
+  }
+
+  /** Whether the historic version shown changed a stored property (title, fields.<id>, …). */
+  private changed(key: string) { return !!this.historic?.change?.changed.includes(key); }
+  private changedClass(key: string) { return this.changed(key) ? "changed" : ""; }
+  /** Whether the historic version shown added this link or comment. */
+  private added(guid: string) { return !!this.historic?.change?.added.includes(guid); }
+
+  /** What the historic version shown changed in a section, as short badges for its heading. */
+  private sectionChange(s: Section): string[] {
+    const c = this.historic?.change;
+    if (!c) return [];
+    const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+    const added = (guids: string[]) => guids.filter((g) => c.added.includes(g)).length;
+    switch (s) {
+      case "fields": return c.changed.some((k) => k.startsWith("fields.")) ? ["changed"] : [];
+      case "workflows": return c.changed.some((k) => k.startsWith("workflows.")) ? ["changed"] : [];
+      case "comment": return this.changed("text") ? ["changed"] : [];
+      case "relationships": {
+        if (this.view?.meta.kind === "link") return this.changed("source") || this.changed("target") ? ["changed"] : [];
+        const n = added([...(this.rel?.incoming ?? []), ...(this.rel?.outgoing ?? [])].map((r) => r.link.guid));
+        return [...(n ? [`${plural(n, "link")} added`] : []), ...(c.removedLinks ? [`${plural(c.removedLinks, "link")} removed`] : [])];
+      }
+      case "comments": {
+        const n = added(this.comments.map((x) => x.meta.guid));
+        return [...(n ? [`${plural(n, "comment")} added`] : []), ...(c.removedComments ? [`${plural(c.removedComments, "comment")} removed`] : [])];
+      }
+      default: return [];
+    }
+  }
+
+  /** The banner of a historic version: when, by whom, and the way back. */
+  private historicBanner() {
+    const h = this.historic!;
+    const back = () => navigate({ version: "", at: "" });
+    return html`<div class="historic-banner" role="status" data-test="historic-banner">
+      <span class="hb-label">Historic version</span>
+      <span>${fmtTime(h.commit.time)} · ${h.commit.author} · <span title=${h.commit.body ?? ""}>${h.commit.subject}</span></span>
+      <span class="mono muted small" title="Content blob ${h.etag} at commit ${h.commit.sha}">${h.etag.slice(0, 8)} @ ${h.commit.sha.slice(0, 8)}</span>
+      ${h.exact ? nothing : html`<span class="small" data-test="historic-inexact">The requested commit is unknown; shown at the commit that introduced this version.</span>`}
+      <span class="small muted">Read-only. Fields, workflows and link roles are shown with today's configuration.</span>
+      <span class="spacer"></span>
+      ${h.exists ? html`<button class="btn sm" data-test="historic-back" @click=${back}>Back to current</button>`
+        : html`<span class="small" data-test="historic-deleted">This artifact has been deleted since.</span>`}
+    </div>`;
+  }
+
   private resetDraft() {
     const d = this.view!.data as Record<string, unknown>;
     this.draft = { title: String(d.title ?? ""), hid: String(d.hid ?? ""), fields: structuredClone((d.fields as Record<string, unknown>) ?? {}) };
@@ -209,6 +298,7 @@ export class Detail extends LitElement {
   }
 
   private touched() {
+    if (this.historic) return; // read-only: nobody is editing
     if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
   }
 
@@ -374,7 +464,7 @@ export class Detail extends LitElement {
     return html`<div class="detail-head">
       <div class="dh-top">
         <span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>
-        <span class="dh-actions">
+        <span class="dh-actions" ?hidden=${!!this.historic}>
           <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded=${this.actionsOpen}
             @click=${(e: Event) => { e.stopPropagation(); this.actionsOpen = !this.actionsOpen; }}>⋯</button>
           ${this.actionsOpen ? html`<div class="menu" role="menu">
@@ -387,12 +477,12 @@ export class Detail extends LitElement {
         <div class="dh-identity">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema} title=${typeName}></corestone-type-icon>
         ${v.meta.kind === "comment" ? html`<h2 class="dh-static" data-test="comment-heading">${typeName} by ${v.meta.author || "anonymous"}</h2>` : html`
-        <input class="hid-input ${d.hid ? "" : "empty"}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint}
+        <input class="hid-input ${d.hid ? "" : "empty"} ${this.changedClass("hid")}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint} ?readonly=${!!this.historic}
           size=${Math.max((d.hid || hidHint).length, 3)}
           title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${this.touched}
           @input=${(e: Event) => { this.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} />
         ${d.hid ? html`<span class="dash">–</span>` : nothing}
-        <h2><input class="title-input" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} @focus=${this.touched}
+        <h2><input class="title-input ${this.changedClass("title")}" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} ?readonly=${!!this.historic} @focus=${this.touched}
           @input=${(e: Event) => { this.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>`}
         </div>
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
@@ -405,6 +495,7 @@ export class Detail extends LitElement {
         <a href="/folder/" @click=${toFolder("")}>/</a>
         ${segs.map((s, i) => { const path = segs.slice(0, i + 1).join("/"); return html`${i ? html`<span class="sep">›</span>` : nothing}<a href=${"/folder/" + path} @click=${toFolder(path)}>${s}</a>`; })}
       </nav>
+      ${this.historic ? this.historicBanner() : nothing}
     </div>`;
   }
 
@@ -423,7 +514,7 @@ export class Detail extends LitElement {
       case "relationships": return k !== "comment";
       case "workflows": return this.workflows.length > 0;
       case "attachments": return k === "entry" || k === "document";
-      case "documents": return k === "entry";
+      case "documents": return k === "entry" && !this.historic;
       case "overlay": return !!this.overlay;
       default: return true;
     }
@@ -440,17 +531,25 @@ export class Detail extends LitElement {
       default: return false;
     }
   }
-  private isOpen(s: Section): boolean { return this.openPrefs[s] ?? !this.isEmpty(s); }
+  private isOpen(s: Section): boolean {
+    // A historic version opens what its commit changed, whatever the saved preference.
+    if (this.historic && this.sectionChange(s).length) return this.versionOpen[s] ?? true;
+    return this.openPrefs[s] ?? !this.isEmpty(s);
+  }
   private setOpen(s: Section, open: boolean, persist = true) {
+    if (this.historic && this.sectionChange(s).length) { this.versionOpen = { ...this.versionOpen, [s]: open }; return; }
     this.openPrefs = { ...this.openPrefs, [s]: open };
     if (persist) try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(this.openPrefs)); } catch { /* storage unavailable */ }
     if (s === "history" && open && !this.historyLoaded) void this.loadHistory();
   }
-  private async loadHistory() {
+  /** Loads the history in batches: the first one, or (more) the next older one. */
+  private async loadHistory(more = false) {
     const guid = this.guid;
-    const h = await api.history(guid).catch(() => ({ history: [] }));
-    if (guid !== this.guid) return;
-    this.history = h.history;
+    const before = more ? this.history[this.history.length - 1]?.sha ?? "" : "";
+    const h = await api.history(guid, before).catch((e) => { store.toast(e instanceof ApiError ? e.message : String(e), "error"); return null; });
+    if (guid !== this.guid || !h) return;
+    this.history = more ? [...this.history, ...h.history] : h.history;
+    this.historyMore = h.more;
     this.historyLoaded = true;
   }
   /** Opens a section and scrolls to it. */
@@ -463,9 +562,11 @@ export class Detail extends LitElement {
   private section(s: Section, body: () => unknown, actions: unknown = nothing) {
     const open = this.isOpen(s);
     const count = this.sectionCount(s);
-    return html`<section class="section ${open ? "" : "collapsed"}" id=${"sec-" + s}><h3>
+    const change = this.sectionChange(s);
+    return html`<section class="section ${open ? "" : "collapsed"} ${change.length ? "changed" : ""}" id=${"sec-" + s}><h3>
       <button class="sec-toggle" data-test=${"toggle-" + s} aria-expanded=${open} @click=${() => this.setOpen(s, !open)}>
-        <span class="chev">${open ? "▾" : "▸"}</span>${this.sectionName(s)}${count ? html`<span class="n">${count}</span>` : nothing}</button>
+        <span class="chev">${open ? "▾" : "▸"}</span>${this.sectionName(s)}${count ? html`<span class="n">${count}</span>` : nothing}
+        ${change.map((t) => html`<span class="change-badge ${t.endsWith("removed") ? "is-removed" : t.endsWith("added") ? "is-added" : ""}" data-test="change-badge">${t}</span>`)}</button>
       <span class="actions">${actions}</span></h3>
       ${open ? body() : nothing}</section>`;
   }
@@ -477,7 +578,7 @@ export class Detail extends LitElement {
       case "comments": return String(this.comments.length || "");
       case "attachments": return String(this.view?.attachments?.length || "");
       case "documents": return String(this.documents.length || "");
-      case "history": return this.historyLoaded ? String(this.history.length || "") : "";
+      case "history": return this.historyLoaded ? (this.history.length ? this.history.length + (this.historyMore ? "+" : "") : "") : "";
       case "overlay": return String(((this.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (this.overlay?.overlays.length ?? 0) || "");
       default: return "";
     }
@@ -491,12 +592,12 @@ export class Detail extends LitElement {
     return this.section("fields", () => html`
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
       ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
-        .overlay=${ov} @focusin=${this.touched}
+        .overlay=${ov} .readonly=${!!this.historic} .changed=${this.changed("fields." + f.id)} @focusin=${this.touched}
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
         @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
-      ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared
+      ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared .readonly=${!!this.historic} .changed=${this.changed("fields." + k)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}`);
   }
 
@@ -523,13 +624,13 @@ export class Detail extends LitElement {
 
   private workflowSection() {
     return this.section("workflows", () => html`
-      ${this.workflows.map((w) => html`<div class="workflow" data-workflow=${w.id}>
+      ${this.workflows.map((w) => html`<div class="workflow ${this.changedClass("workflows." + w.id)}" data-workflow=${w.id}>
         <span class="name">${w.definition.name || w.id}</span>
         <span class="pill state">${w.state}</span>
-        <select data-test=${"transition-" + w.id} @change=${(e: Event) => { const to = (e.target as HTMLSelectElement).value; if (to) this.transition(w.id, to); (e.target as HTMLSelectElement).value = ""; }}>
+        ${this.historic ? nothing : html`<select data-test=${"transition-" + w.id} @change=${(e: Event) => { const to = (e.target as HTMLSelectElement).value; if (to) this.transition(w.id, to); (e.target as HTMLSelectElement).value = ""; }}>
           <option value="">${w.available.length ? "Transition to…" : "No transitions available"}</option>
           ${w.available.map((t) => html`<option value=${t.id || t.to}>${t.name || t.id || "→ " + t.to}</option>`)}
-        </select>
+        </select>`}
         <button class="btn sm" @click=${() => (this.showDiagram = this.showDiagram === w.id ? null : w.id)}>? diagram</button>
         ${this.showDiagram === w.id ? html`<div class="wf-diagram" style="flex-basis:100%">
           ${w.definition.states.map((s) => html`<span class="wf-state ${s.id === w.state ? "current" : ""}" style=${s.presentation?.color ? `border-color:${s.presentation.color}` : ""}>${s.name || s.id}</span>`)}
@@ -539,26 +640,41 @@ export class Detail extends LitElement {
       </div>`)}`);
   }
 
+  /**
+   * Where a reference to another artifact leads: in a historic version to that artifact as it was
+   * at the same commit (documents have no version view), otherwise to it as it is now.
+   */
+  private refRoute(guid: string, s?: Summary | null): Partial<Route> {
+    const h = this.historic;
+    return h && s?.etag && s.kind !== "document" ? { guid, version: s.etag, at: h.commit.sha } : { guid };
+  }
+
+  private refHref(r: Partial<Route>) {
+    return "/artifact/" + r.guid + (r.version ? `?version=${r.version}&at=${r.at}` : "");
+  }
+
   /** An artifact reference: type icon, HID and title, opening it; a missing one shows its GUID. */
   private artifactRef(guid: string | undefined, s: Summary | null | undefined) {
-    return !guid ? html`<span class="muted">—</span>`
-      : !s ? html`<span class="muted mono" title="This artifact no longer exists">${guid}</span>`
-      : html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
-        <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid, tab: "" }); }}>${label(s)}</a></span>`;
+    if (!guid) return html`<span class="muted">—</span>`;
+    if (!s) return html`<span class="muted mono" title=${this.historic ? "This artifact did not exist then" : "This artifact no longer exists"}>${guid}</span>`;
+    const to = this.refRoute(guid, s);
+    return html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
+        <a href=${this.refHref(to)} @click=${(e: Event) => { e.preventDefault(); navigate({ ...to, tab: "" }); }}>${label(s)}</a></span>`;
   }
 
   /** An artifact cell opening it; the row click does the same. */
   private openCell(s: Summary, tab?: string) {
-    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}<a href=${"/artifact/" + s.guid} @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate(tab === undefined ? { guid: s.guid } : { guid: s.guid, tab }); }}>${label(s)}</a>`;
+    const to = this.refRoute(s.guid, s);
+    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}<a href=${this.refHref(to)} @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate(tab === undefined ? to : { ...to, tab }); }}>${label(s)}</a>`;
   }
 
   /** A link's own relation: From → role → To, each endpoint opening that artifact. */
   private linkRelSection() {
     const v = this.view!;
     return this.section("relationships", () => html`<div class="links-list"><div class="link-row" data-test="link-relation">
-      ${this.artifactRef(v.meta.source, this.endpoints?.source)}
+      <span class=${this.changedClass("source")}>${this.artifactRef(v.meta.source, this.endpoints?.source)}</span>
       <span class="arrow">→</span><span class="type">${this.schema?.displayName ?? v.meta.type}</span><span class="arrow">→</span>
-      ${this.artifactRef(v.meta.target, this.endpoints?.target)}</div></div>`);
+      <span class=${this.changedClass("target")}>${this.artifactRef(v.meta.target, this.endpoints?.target)}</span></div></div>`);
   }
 
   /** A comment itself: what it is on (and whom it answers), then its author, time and text. */
@@ -570,15 +686,15 @@ export class Detail extends LitElement {
     const on = !sub ? this.artifactRef(v.meta.subject, null)
       : sub.meta.kind !== "link" ? this.artifactRef(sub.meta.guid, sub.meta)
       : html`${this.artifactRef(sub.meta.source, sub.source)}
-        <a class="muted" href=${"/artifact/" + sub.meta.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: sub.meta.guid, tab: "" }); }}>→ ${sub.role ?? sub.meta.type} →</a>
+        <a class="muted" href=${this.refHref(this.refRoute(sub.meta.guid, sub.meta))} @click=${(e: Event) => { e.preventDefault(); navigate({ ...this.refRoute(sub.meta.guid, sub.meta), tab: "" }); }}>→ ${sub.role ?? sub.meta.type} →</a>
         ${this.artifactRef(sub.meta.target, sub.target)}`;
     return this.section("comment", () => html`
       <div class="comment-on" data-test="comment-subject">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema}></corestone-type-icon>
         <span class="muted">on</span><div class="link-row">${on}</div></div>
       ${parent ? html`<div class="small muted" data-test="comment-parent" style="margin-top:6px">Reply to
-        <a href=${"/artifact/" + parent} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: parent, tab: "" }); }}>${answered ? `${answered.meta.author || "anonymous"}'s comment` : "a comment"}</a></div>` : nothing}
-      <div class="comment" data-test="comment-own">
+        <a href=${this.refHref(this.refRoute(parent, answered?.meta))} @click=${(e: Event) => { e.preventDefault(); navigate({ ...this.refRoute(parent, answered?.meta), tab: "" }); }}>${answered ? `${answered.meta.author || "anonymous"}'s comment` : "a comment"}</a></div>` : nothing}
+      <div class="comment ${this.changedClass("text")}" data-test="comment-own">
         <div class="who"><b>${v.meta.author || "anonymous"}</b> · ${fmtTime(v.meta.created)}</div>
         <div class="text">${String(v.data.text ?? "")}</div>
       </div>`);
@@ -594,15 +710,16 @@ export class Detail extends LitElement {
       { id: "dir", name: "Dir", width: 72, value: (r) => r.dir, render: (r) => html`<span class="arrow ${r.dir}" title=${r.dir === "in" ? "incoming: the other artifact links to this one" : "outgoing: this artifact links to the other"}>${r.dir === "in" ? "←" : "→"}</span>` },
       { id: "artifact", name: "Artifact", value: (r) => r.other.hid || label(r.other), render: (r) => this.openCell(r.other) },
       { id: "folder", name: "Folder", width: 150, value: (r) => r.other.folder, render: (r) => html`<span class="muted small">${r.other.folder || "/"}</span>` },
-      { id: "remove", name: "", width: 60, sortable: false, render: (r) => html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); api.remove(r.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((err) => store.toast(err.message, "error")); }}>✕</button>` },
+      ...(this.historic ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (r: Row) => html`<button class="btn sm" title="Remove link" aria-label="Remove link" @click=${(e: Event) => { e.stopPropagation(); api.remove(r.link.guid).then(() => { this.reload(true); store.refresh(); }).catch((err) => store.toast(err.message, "error")); }}>✕</button>` }]),
     ];
-    const actions = html`
+    const actions = this.historic ? nothing : html`
         ${rel?.allowedAsSource.map((s) => html`<button class="btn sm" @click=${() => this.addLink(true, s.type, s.targetTypes)}>＋ ${s.displayName || s.type} →</button>`)}
         ${rel?.allowedAsTarget.filter((s) => !rel.allowedAsSource.some((x) => x.type === s.type)).map((s) => html`<button class="btn sm" @click=${() => this.addLink(false, s.type, s.sourceTypes)}>＋ ${s.reverseName || s.displayName || s.type} ←</button>`)}
         ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
     return this.section("relationships", () => html`
       ${!rows.length ? html`<div class="muted small">No links yet.</div>` : html`<corestone-table class="detail-table" .items=${rows} .columns=${columns}
-        .rowKey=${(r: Row) => r.link.guid} .rowClass=${() => "link-row open-row"} @row-click=${(e: CustomEvent<Row>) => navigate({ guid: e.detail.other.guid })}></corestone-table>`}`, actions);
+        .rowKey=${(r: Row) => r.link.guid} .rowClass=${(r: Row) => `link-row open-row ${this.added(r.link.guid) ? "added" : ""}`} @row-click=${(e: CustomEvent<Row>) => navigate(this.refRoute(e.detail.other.guid, e.detail.other))}></corestone-table>`}
+      `, actions);
   }
 
   private commentSection() {
@@ -614,12 +731,12 @@ export class Detail extends LitElement {
       byParent.set(p, [...(byParent.get(p) ?? []), c]);
     }
     const seen = new Set<string>();
-    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === this.guid ? "current" : ""}" data-comment=${c.meta.guid}>
+    const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === this.guid ? "current" : ""} ${this.added(c.meta.guid) ? "added" : ""}" data-comment=${c.meta.guid}>
       <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
         ${this.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); this.replyTo = c.meta.guid; this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
       <div class="text">${String(c.data?.text ?? "")}</div>
       ${render(c.meta.guid, depth + 1)}</div>`);
-    const actions = !this.commentType
+    const actions = this.historic ? nothing : !this.commentType
       ? html`<span class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</span>`
       : html`<button class="btn sm" data-test="comment-add" @click=${async () => { await this.reveal("comments"); this.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>＋ Comment</button>`;
     return this.section("comments", () => html`
@@ -634,14 +751,16 @@ export class Detail extends LitElement {
 
   private attachmentSection() {
     const att = this.view?.attachments ?? [];
+    const h = this.historic;
+    const url = (a: Attachment) => h ? api.versionFileUrl(this.guid, h.etag, h.commit.sha, a.name) : api.fileUrl(this.guid, a.name);
     return this.section("attachments", () => html`
       ${!att.length ? html`<div class="muted small">Files stored in the artifact's GUID directory appear here.</div>` : nothing}
       ${!att.length ? nothing : html`<corestone-table class="detail-table" .items=${att} .rowKey=${(a: Attachment) => a.name} .rowClass=${() => "attach-row"} .columns=${[
-        { id: "name", name: "Name", value: (a) => a.name, render: (a) => html`<a href=${api.fileUrl(this.guid, a.name)} target="_blank" rel="noopener">${a.name}</a>` },
+        { id: "name", name: "Name", value: (a) => a.name, render: (a) => html`<a href=${url(a)} target="_blank" rel="noopener">${a.name}</a>` },
         { id: "size", name: "Size", width: 100, value: (a) => a.size, render: (a) => html`<span class="size">${fmtSize(a.size)}</span>` },
-        { id: "remove", name: "", width: 60, sortable: false, render: (a) => html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button>` },
+        ...(h ? [] : [{ id: "remove", name: "", width: 60, sortable: false, render: (a: Attachment) => html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => api.deleteFile(this.guid, a.name).then(() => this.reload(true)).catch((e) => store.toast(e.message, "error"))}>✕</button>` }]),
       ] satisfies TableColumn<Attachment>[]}></corestone-table>`}`,
-      html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
+      h ? nothing : html`<label class="btn sm">＋ Upload<input type="file" hidden @change=${this.upload} /></label>`);
   }
 
   /** The documents embedding this entry; each opens scrolled to the entry's block. */
@@ -673,7 +792,7 @@ export class Detail extends LitElement {
           <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
       </div>
       ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`}`,
-      html`${this.baseActions(!!base)}<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
+      this.historic ? nothing : html`${this.baseActions(!!base)}<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
   }
 
   /** One button for the base: the picker chooses a new one or, if there is one, removes it. */
@@ -836,15 +955,25 @@ export class Detail extends LitElement {
   };
 
 
+  /** The commits that touched the artifact, newest first; each opens the artifact as it was then. */
   private historySection() {
+    // Documents open in the document view, which shows no versions yet.
+    const linkable = (h: HistoryEntry) => !!h.blob && this.view?.meta.kind !== "document";
+    const shown = (h: HistoryEntry) => !!this.historic && h.sha === this.historic.commit.sha;
+    const open = (h: HistoryEntry) => { if (linkable(h)) navigate({ version: h.blob!, at: h.sha }); };
     return this.section("history", () => !this.historyLoaded ? html`<div class="muted small">Loading…</div>` : html`
-      ${!this.history.length ? nothing : html`<corestone-table class="detail-table" .items=${this.history} .rowKey=${(h: LogEntry) => h.sha} .rowClass=${() => "history-row"} .columns=${[
+      ${!this.history.length ? nothing : html`<corestone-table class="detail-table" data-test="history" .items=${this.history} .rowKey=${(h: HistoryEntry) => h.sha}
+        .rowClass=${(h: HistoryEntry) => `history-row ${linkable(h) ? "open-row" : ""} ${shown(h) ? "shown" : ""}`} .columns=${[
         { id: "when", name: "When", width: 150, value: (h) => h.time, render: (h) => html`<span class="when" title=${h.time}>${fmtTime(h.time)}</span>` },
-        { id: "change", name: "Change", value: (h) => h.subject, render: (h) => html`${h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}` },
+        { id: "change", name: "Change", value: (h) => h.subject, render: (h) => html`${linkable(h)
+          ? html`<a href=${`/artifact/${this.guid}?version=${h.blob}&at=${h.sha}`} data-test="history-version" title="Show the artifact as it was after this change"
+              @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); open(h); }}>${h.subject}</a>`
+          : h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}` },
         { id: "author", name: "Author", width: 130, value: (h) => h.author, render: (h) => html`<span class="muted small">${h.author}</span>` },
         { id: "commit", name: "Commit", width: 100, value: (h) => h.sha, render: (h) => html`<span class="mono muted">${h.sha.slice(0, 8)}</span>` },
-      ] satisfies TableColumn<LogEntry>[]}></corestone-table>`}
-      ${!this.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}`);
+      ] satisfies TableColumn<HistoryEntry>[]} @row-click=${(e: CustomEvent<HistoryEntry>) => open(e.detail)}></corestone-table>`}
+      ${!this.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}
+      ${this.historyMore ? html`<button class="btn sm" data-test="history-more" style="margin-top:6px" @click=${() => this.loadHistory(true)}>Load older changes</button>` : nothing}`);
   }
 
   /** Every read-only property not shown elsewhere, plus extra stored properties. */

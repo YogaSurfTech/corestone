@@ -14,6 +14,8 @@ export interface Route {
   tab: string;           // detail section / document sidebar
   sidebars: string[];    // visible document sidebars
   expanded: boolean;     // detail fills the workspace
+  version: string;       // a historic version of the artifact: its content blob ("" = current)
+  at: string;            // the commit that version is viewed at
 }
 
 export type Theme = "auto" | "light" | "dark";
@@ -60,7 +62,7 @@ export interface State {
   navCollapsed: boolean;
 }
 
-export const defaultRoute: Route = { folder: "", guid: null, q: "", subtree: false, kind: "", type: "", tab: "", sidebars: [], expanded: false };
+export const defaultRoute: Route = { folder: "", guid: null, q: "", subtree: false, kind: "", type: "", tab: "", sidebars: [], expanded: false, version: "", at: "" };
 
 type Listener = (s: State) => void;
 

@@ -1,5 +1,5 @@
 import type {
-  Attachment, CommentView, Issue, LogEntry, OverlayView, Relationships, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, View,
+  Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
   Workflow, WorkflowEval,
 } from "./types";
 
@@ -120,7 +120,14 @@ export const api = {
     request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
   relationships: (guid: string) => request<Relationships>("GET", `/artifacts/${guid}/relationships`),
   comments: (guid: string) => request<{ comments: CommentView[] }>("GET", `/artifacts/${guid}/comments`),
-  history: (guid: string) => request<{ history: LogEntry[] }>("GET", `/artifacts/${guid}/history`),
+  /** One batch of the history, newest first; before continues after that commit. */
+  history: (guid: string, before = "", limit = 50) =>
+    request<{ history: HistoryEntry[]; more: boolean }>("GET", `/artifacts/${guid}/history?limit=${limit}${before ? "&before=" + before : ""}`),
+  /** The artifact as it was: its content blob viewed at a commit. */
+  version: (guid: string, blob: string, commit: string) =>
+    request<VersionView>("GET", `/artifacts/${guid}/versions/${blob}${commit ? "?commit=" + commit : ""}`),
+  versionFileUrl: (guid: string, blob: string, commit: string, name: string) =>
+    `/api/artifacts/${guid}/versions/${blob}/files/${encodeURIComponent(name)}${commit ? "?commit=" + commit : ""}`,
   uploadFile: async (guid: string, name: string, file: File) => {
     const res = await fetch(`/api/artifacts/${guid}/files/${encodeURIComponent(name)}`, { method: "PUT", body: file, headers: userHeader() });
     if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({})))?.error ?? res.statusText);

@@ -43,6 +43,8 @@ export class FieldEditor extends LitElement {
   @state() private suggestionQuery = "";
   /** The field is stored but the type does not define it: shown read-only, may be removed. */
   @property({ type: Boolean }) undeclared = false;
+  /** In a historic version: the change shown modified this field. */
+  @property({ type: Boolean }) changed = false;
   @state() private used: string[] = [];
   @state() private globalUsed: string[] = [];
   private usedKey = "";
@@ -62,6 +64,7 @@ export class FieldEditor extends LitElement {
   private overlayNote() {
     const o = this.overlay;
     if (!o) return nothing;
+    if (this.readonly) return html`<div class="inherited ${o.state === "overridden" ? "overridden" : ""}" title=${OVERLAY_HELP}>${o.state === "inherited" ? "inherited from" : "overrides"} base <b>${o.from}</b></div>`;
     return o.state === "inherited"
       ? html`<div class="inherited" title=${OVERLAY_HELP}>inherited from base <b>${o.from}</b> ·
           <button type="button" data-test="override" @click=${() => this.overlayEvent("overlay-unlock")}>🔓 override</button></div>`
@@ -94,14 +97,14 @@ export class FieldEditor extends LitElement {
 
   override render() {
     const f = this.field;
-    return html`<div class="field ${this.disabled ? "locked" : ""}" data-field=${f.id}>
-      <label for=${"f-" + f.id}>${f.name || f.id}${f.required ? html`<span class="req" title="required">*</span>` : nothing}</label>
+    return html`<div class="field ${this.disabled ? "locked" : ""} ${this.changed ? "changed" : ""}" data-field=${f.id}>
+      <label for=${"f-" + f.id} title=${this.changed ? "Changed in this version" : nothing}>${f.name || f.id}${f.required ? html`<span class="req" title="required">*</span>` : nothing}</label>
       <div class="value">
         ${this.input()}
         ${f.description ? html`<div class="help">${f.description}</div>` : nothing}
         ${this.overlayNote()}
-        ${this.undeclared ? html`<div class="inherited undeclared">not defined for this type ·
-          <button type="button" data-test="remove-field" @click=${() => this.emit(null)}>✕ remove</button></div>` : nothing}
+        ${this.undeclared ? html`<div class="inherited undeclared">not defined for this type${this.readonly ? " (today)" : html` ·
+          <button type="button" data-test="remove-field" @click=${() => this.emit(null)}>✕ remove</button>`}</div>` : nothing}
       </div>
     </div>`;
   }

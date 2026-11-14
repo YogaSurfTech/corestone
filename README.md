@@ -146,6 +146,7 @@ POST /api/repository/maintenance/relocate-metadata     restore metadata locality
 GET  /api/repository/hids/{hid}           current and historical owners of a HID
 GET  /api/repository/deleted?guid=        deleted artifacts with their deletion commit
 GET  /api/artifacts/{guid}/schema | overlay | workflows | relationships | comments | history
+GET  /api/artifacts/{guid}/versions/{blob}?commit=   a historic version: links, comments, endpoints and subject as they were then
 POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifacts/{guid}/move  {path}
 GET  /api/config?scope=[&path=]           a folder's configuration files, or one file (ETag)
 PUT  DELETE /api/config?scope=&path=      write or remove a file (If-Match); returns unresolved references as warnings

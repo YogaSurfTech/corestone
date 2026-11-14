@@ -3,8 +3,10 @@ package foundation
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 
+	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/ojson"
 )
 
@@ -34,7 +36,16 @@ func assertHistoryIndexed(t *testing.T, f *Foundation, guids ...string) {
 		if err != nil {
 			t.Fatalf("scanned history of %s: %v", guid, err)
 		}
-		if len(indexed) == 0 || !reflect.DeepEqual(indexed, scanned) {
+		// The index also holds the commits of links touching the artifact,
+		// which a path scan cannot find: apart from those, both agree.
+		var own []gitx.LogEntry
+		for _, e := range indexed {
+			if g := e.Trailers["Corestone-Guid"]; g != "" && g != guid && !slices.ContainsFunc(scanned, func(s gitx.LogEntry) bool { return s.SHA == e.SHA }) {
+				continue
+			}
+			own = append(own, e)
+		}
+		if len(indexed) == 0 || !reflect.DeepEqual(own, scanned) {
 			t.Fatalf("history of %s differs:\nindexed: %+v\nscanned: %+v", guid, indexed, scanned)
 		}
 	}

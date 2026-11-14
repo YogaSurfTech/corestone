@@ -71,7 +71,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 - `projection.go` — connection, DDL (`repo_state.processed_hash`, `artifacts` with an `ltree` path,
   `artifact_fields`, `artifact_refs`, `artifact_files`, `config_files`, `hid_history`,
-  `deleted_artifacts`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
+  `deleted_artifacts`, the history index `artifact_commits` and `relation_commits`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
   ICU collation `corestone_natural`), status
   and maintenance mode (also advertised through `repo_state.maintenance` for other processes), the
   §10.1 publish mutex, ltree label encoding.
@@ -82,7 +82,12 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   commit per transaction (`ProjectCommit` + CAS advance); anything else triggers a rebuild. Also the
   configuration index, cached per processed revision, and its unresolved references.
 - `reindex.go` — the phased rebuild: identity (GUID → path), fields, full text (drop GIN index,
-  parallel workers stream text, recreate index), history scan (deletions, HID history, timestamps).
+  parallel workers stream text, recreate index), history scan (deletions, HID history, timestamps,
+  history index).
+- `history.go` — the history index: per commit the artifacts it touched with their file's path and
+  blob (`artifact_commits`), and the artifacts a changed link or comment pointed to before or after
+  it (`relation_commits`, old and new content), so a past version finds the links and comments of
+  its time, also those deleted or reassigned since. Live writes and the rebuild fill both alike.
 - `query.go` — locate, get, search (filters, states, fields, full text), folders, scopes, HID
   helpers, links/comments, attachments, configuration files, HID history, deleted artifacts,
   statistics.
@@ -107,6 +112,10 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   evaluation, relationship analysis (each link with its role as read from this artifact: the
   display name outgoing, the `reverseName` incoming), comments, documents embedding an entry, history across moves,
   tree, search, table query and row details (with related endpoints and subjects), status.
+- `version.go` — historic versions (blob viewed at a commit): history pages, the item and its
+  base chain, attachments, links, comments, endpoints and subject as they were then, plus what that
+  commit changed (properties, added links/comments, counts of removed ones); configuration and
+  permissions are today's.
 
 ## internal/httpapi — transport
 
@@ -119,7 +128,9 @@ and status broadcasts, viewer/editor presence per artifact.
 
 ## web — the client
 
-`store.ts` (central state), `router.ts` (URL ⇄ state), `api.ts`, `ws.ts`; components `app`
+`store.ts` (central state), `router.ts` (URL ⇄ state; save/discard/cancel guards protect
+unsaved edits when changing artifacts or historic versions, including browser back/forward),
+`api.ts`, `ws.ts`; components `app`
 (shell), `sidebar`, `overview` (with the ＋ New menu), `dialogs` (type choice → generated form →
 create; picker; confirm), `table` (`<corestone-table>`: server-sorted, lazily loaded rows in
 batches of 50 with a virtual window; a header click promotes that column to the first of up to three sort levels; with
@@ -128,7 +139,8 @@ batches of 50 with a virtual window; a header click promotes that column to the 
 (relationships, documents, attachments, history) all use it; `rows-load` and `widths-change` let the
 overview resolve row schemas and persist its layout. The picker loads all fields for each fetched
 batch so selection callbacks can use the complete summary (including document entry-card fields).
-`fields` (one input per field type), `detail` (entry sections), `document`
+`fields` (one input per field type), `detail` (entry sections; a historic version shows what
+surrounded it then with the commit's changes highlighted, and its references open the other artifacts as of the same commit), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
 in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
 `node --test` (`npm run test:unit`).

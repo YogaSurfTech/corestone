@@ -165,6 +165,34 @@ textarea { resize: vertical; min-height: 70px; }
 
 /* ---- detail ---- */
 corestone-detail { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+/* A historic version (TSK-22): sepia surfaces, read-only, with a banner. */
+corestone-detail.historic {
+  --bg: light-dark(#f3ead6, #1f1a12);
+  --panel: light-dark(#faf3e3, #29221a);
+  --panel-2: light-dark(#eee2c6, #342b1f);
+  --border: light-dark(#dccba3, #4a3d2a);
+  /* What the shown change did: rust for modified, olive for added, brick for removed. */
+  --changed: light-dark(#a24e0c, #f0a35a);
+  --added-bg: light-dark(#e3e6bf, #2f3920);
+  --added-bar: light-dark(#6b8a2a, #a3c46c);
+  --removed: light-dark(#9c3b2b, #e58a7a);
+}
+corestone-detail.historic .field.changed > label { color: var(--changed); font-weight: 600; }
+corestone-detail.historic .field.changed > label::before { content: "● "; font-size: 10px; }
+corestone-detail.historic :is(.title-input, .hid-input).changed { text-decoration: underline 2px var(--changed); text-underline-offset: 4px; }
+corestone-detail.historic :is(.workflow, .comment, .link-row span).changed { box-shadow: inset 3px 0 0 var(--changed); padding-left: 6px; }
+corestone-detail.historic .added { background: var(--added-bg); box-shadow: inset 3px 0 0 var(--added-bar); }
+corestone-detail.historic .section.changed { box-shadow: inset 3px 0 0 var(--changed); }
+corestone-detail.historic .section.changed > h3 { color: var(--changed); }
+.change-badge { font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; border-radius: 999px; padding: 0 7px;
+  color: var(--changed); border: 1px solid currentColor; }
+.change-badge.is-added { color: var(--added-bar); background: var(--added-bg); }
+.change-badge.is-removed { color: var(--removed); }
+.historic-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; padding: 6px 10px; border-radius: 8px;
+  background: light-dark(#e6d3a6, #47391f); border: 1px solid light-dark(#cdb47c, #6b5630); }
+.historic-banner .hb-label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11.5px; }
+.historic-banner .spacer { flex: 1; }
+.history-row.shown { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .detail-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px 8px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .dh-top { display: flex; justify-content: flex-end; align-items: center; gap: 24px; }
 .dh-dates { color: var(--muted); font-size: 11.5px; }

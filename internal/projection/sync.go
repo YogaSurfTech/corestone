@@ -40,11 +40,22 @@ func (p *DB) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if head == "" {
+		// An empty repository matches an empty processed hash, but the
+		// projection may still hold rows of another history (a reused
+		// database, a forced rebuild): only an empty projection is current.
+		var stale bool
+		if err := p.sql.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM artifacts) OR EXISTS (SELECT 1 FROM config_files)
+			OR EXISTS (SELECT 1 FROM artifact_commits)`).Scan(&stale); err != nil {
+			return unavailable(err)
+		}
+		if processed == "" && !stale {
+			return nil
+		}
+		return p.rebuildLocked(ctx, "repository is empty")
+	}
 	if processed == head {
 		return nil
-	}
-	if head == "" {
-		return p.rebuildLocked(ctx, "repository is empty")
 	}
 	if processed == "" || !p.repo.Exists(ctx, processed) {
 		return p.rebuildLocked(ctx, "no usable processed revision")
@@ -252,7 +263,7 @@ func (p *DB) ProjectCommit(ctx context.Context, tx *sql.Tx, commit string, chang
 	if err := p.fillLinkAuthors(ctx, tx); err != nil {
 		return err
 	}
-	return recordCommit(ctx, tx, commit, changes)
+	return p.recordCommit(ctx, tx, commit, changes)
 }
 
 func (p *DB) upsertConfig(ctx context.Context, tx *sql.Tx, c *ConfigRecord) error {
