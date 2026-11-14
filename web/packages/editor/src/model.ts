@@ -125,20 +125,28 @@ function sameMarks(a: Marks | undefined, b: Marks): boolean {
   return ka.length === kb.length && ka.every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k]);
 }
 
-/** The plain text of a value, as search sees it: paragraphs and list items on lines of their own. */
+/** The plain text of a value, as search sees it: paragraphs and list items on lines of their own,
+ *  numbered lists numbered across levels as the editor shows them (1.2.3.). */
 export function plainText(value: RichText | string | null | undefined): string {
   if (typeof value === "string" || value == null) return value ?? "";
   const lines: string[] = [];
-  const walk = (bs: Block[], prefix: string) => {
+  const text = (b: Extract<Block, { type: "paragraph" }>) =>
+    typeof b.text === "string" ? b.text : b.text.map((r) => ("type" in r ? "\n" : r.text)).join("");
+  // number: the numbers of the enclosing numbered items; indent: the depth of lists
+  const walk = (bs: Block[], number: number[], indent: string) => {
     for (const b of bs) {
-      if (b.type === "paragraph") {
-        lines.push(prefix + (typeof b.text === "string" ? b.text
-          : b.text.map((r) => ("type" in r ? "\n" : r.text)).join("")));
-      } else if (b.type === "list") {
-        b.items.forEach((it, i) => walk(it.blocks, prefix + (b.ordered ? `${i + 1}. ` : "• ")));
+      if (b.type === "paragraph") lines.push(indent + text(b));
+      else if (b.type === "list") {
+        b.items.forEach((it, i) => {
+          const n = b.ordered ? [...number, i + 1] : number;
+          const marker = b.ordered ? n.join(".") + ". " : "• ";
+          const [first, ...rest] = it.blocks;
+          if (first?.type === "paragraph") lines.push(indent + marker + text(first));
+          walk(first?.type === "paragraph" ? rest : it.blocks, n, indent + "  ");
+        });
       }
     }
   };
-  walk(value, "");
+  walk(value, [], "");
   return lines.join("\n");
 }

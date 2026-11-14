@@ -95,3 +95,35 @@ test("pasted HTML keeps only what the editor supports", async ({ page }) => {
   expect(v).toHaveLength(2);
   await page.screenshot({ path: "test-results/editor-demo.png", fullPage: true });
 });
+
+test("list markers follow the alignment; nested numbered lists count across levels", async ({ page }) => {
+  const p = (text: string, align?: string) => (align ? { type: "paragraph", align, text } : { type: "paragraph", text });
+  const value = [
+    { type: "list", ordered: true, items: [
+      { blocks: [p("one"), { type: "list", ordered: true, items: [
+        { blocks: [p("one.one")] },
+        { blocks: [p("one.two"), { type: "list", ordered: true, items: [{ blocks: [p("one.two.one")] }] }] },
+      ] }] },
+      { blocks: [p("two")] },
+    ] },
+    { type: "list", items: [{ blocks: [p("right bullet", "right")] }] },
+  ];
+  await page.locator("#json").fill(JSON.stringify(value));
+  await page.locator("#load").click();
+  const marker = (text: string) => page.locator(".cs-area li > p", { hasText: new RegExp(`^${text.replace(/\./g, "\\.")}$`) })
+    .evaluate((el) => getComputedStyle(el, "::before").content);
+  // CSS reports counters() as the rule, so check the rendered numbers through the plain text and the rule itself
+  expect(await marker("one.two.one")).toContain("counters(cs-item");
+  await expect(page.locator("#plain")).toHaveText("1. one\n  1.1. one.one\n  1.2. one.two\n    1.2.1. one.two.one\n2. two\n• right bullet");
+  // the bullet of the right-aligned item sits next to its text on the right, not at the left edge
+  const right = page.locator(".cs-area li > p", { hasText: "right bullet" });
+  const box = (await right.boundingBox())!;
+  const textLeft = await right.evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    return r.getClientRects()[0].left;
+  });
+  expect(textLeft).toBeGreaterThan(box.x + box.width / 2);
+  expect(await marker("right bullet")).toBe('"•"');
+  await page.locator(".cs-editor").screenshot({ path: "test-results/editor-lists.png" });
+});

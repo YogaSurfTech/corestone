@@ -46,6 +46,18 @@
 .cs-area { background: var(--cs-panel); border: 1px solid var(--cs-border); border-top: 0; border-radius: 0 0 10px 10px; }
 .cs-area .ProseMirror { min-height: 140px; padding: 14px 18px; outline: none; white-space: pre-wrap; word-wrap: break-word; font-variant-ligatures: none; }
 .cs-area .ProseMirror p { margin: 0 0 .5em; }
-.cs-area .ProseMirror ul, .cs-area .ProseMirror ol { margin: 0 0 .5em; padding-left: 1.6em; }
-.cs-area .ProseMirror li > p { margin: 0; }
+/* List markers are drawn by the editor, at the start of an item's first line: they follow the
+   paragraph's alignment, and nested numbered lists count across levels (1.2.3). Left-aligned
+   items hang the marker so wrapped lines line up with the text. */
+.cs-area .ProseMirror ul, .cs-area .ProseMirror ol { margin: 0 0 .5em; padding-left: 0; list-style: none; }
+.cs-area .ProseMirror ol { counter-reset: cs-item; }
+.cs-area .ProseMirror ol > li { counter-increment: cs-item; }
+.cs-area .ProseMirror li { margin-left: 1.6em; }
+.cs-area .ProseMirror li > p, .cs-area .ProseMirror li > ul, .cs-area .ProseMirror li > ol { margin: 0; }
+.cs-area .ProseMirror li > p:first-child::before { display: inline-block; min-width: 1.6em; margin-left: -1.6em; padding-right: .3em; text-align: right; }
+.cs-area .ProseMirror ul > li > p:first-child::before { content: "•"; text-align: center; }
+.cs-area .ProseMirror ul ul > li > p:first-child::before { content: "◦"; }
+.cs-area .ProseMirror ul ul ul > li > p:first-child::before { content: "▪"; }
+.cs-area .ProseMirror ol > li > p:first-child::before { content: counters(cs-item, ".") "."; }
+.cs-area .ProseMirror li > p[style*="text-align"]:first-child::before { min-width: 0; margin-left: 0; }
 .cs-area .ProseMirror:focus-within { box-shadow: inset 0 0 0 2px rgba(21,101,192,.25); border-radius: 0 0 10px 10px; }
