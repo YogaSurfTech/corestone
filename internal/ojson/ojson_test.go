@@ -118,3 +118,30 @@ func TestRejectsGarbage(t *testing.T) {
 		t.Errorf("reasonable nesting rejected: %v", err)
 	}
 }
+
+func TestRowsWritesOneElementPerLine(t *testing.T) {
+	doc, err := ParseObject([]byte(`{"a": {"rows": [{"x": 1, "y": [2, 3]}, {"x": 4}], "other": [{"x": 5}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.Object("a").Set("touched", true) // re-encode, not the source text
+	st := DefaultStyle
+	st.Rows = func(path []string, _ []any) bool { return len(path) == 2 && path[1] == "rows" }
+	got := string(MustEncode(doc, st))
+	want := `{
+  "a": {
+    "rows": [
+      {"x": 1, "y": [2, 3]},
+      {"x": 4}
+    ],
+    "other": [
+      {"x": 5}
+    ],
+    "touched": true
+  }
+}
+`
+	if got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}

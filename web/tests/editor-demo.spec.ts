@@ -23,9 +23,12 @@ test("formatting is stored as runs, plain text stays a string", async ({ page })
   await page.keyboard.type("second line");
   await page.locator("#save").click();
   expect(await stored(page)).toEqual([
-    { type: "paragraph", text: [{ text: "plain " }, { text: "bold", marks: { bold: true } }] },
-    { type: "paragraph", text: "second line" },
+    { text: [{ text: "plain " }, { text: "bold", bold: true }] },
+    { text: "second line" },
   ]);
+  // the JSON as the entry's file holds it: one line per paragraph
+  expect(await page.locator("#json").inputValue()).toBe(
+    '[\n  {"text": [{"text": "plain "}, {"text": "bold", "bold": true}]},\n  {"text": "second line"}\n]');
   await expect(page.locator("#plain")).toHaveText("plain bold\nsecond line");
 });
 
@@ -47,13 +50,13 @@ test("toolbar: colour, font, size, list, alignment; unavailable buttons say why"
   await page.locator(".cs-tb .sp:has([data-cmd=al], [data-cmd=ac], [data-cmd=ar], [data-cmd=aj]) .c").click();
   await page.locator(".cs-tb .pop.open [data-cmd=ac]").click();
   await page.locator("#save").click();
-  expect(await stored(page)).toEqual([{ type: "paragraph", align: "center",
-    text: [{ text: "Housing", marks: { color: "#1565c0", font: "Georgia", size: 14 } }] }]);
+  expect(await stored(page)).toEqual([{ align: "center",
+    text: [{ text: "Housing", color: "#1565c0", font: "Georgia", size: 14 }] }]);
 
   await page.locator(".cs-tb .sp:has([data-cmd=ul], [data-cmd=ol], [data-cmd=indent], [data-cmd=outdent]) .c").click();
   await page.locator(".cs-tb .pop.open [data-cmd=ul]").click();
   await page.locator("#save").click();
-  expect((await stored(page))[0]).toMatchObject({ type: "list", items: [{ blocks: [{ type: "paragraph" }] }] });
+  expect((await stored(page))[0]).toMatchObject({ list: "ul", align: "center" });
 
   // redo has nothing to redo: disabled, and the tooltip says why
   const redo = page.locator(".cs-tb [data-cmd=redo]");
@@ -72,7 +75,8 @@ test("saved values come back; old plain strings and JSON load into the editor", 
   await page.locator("#json").fill(JSON.stringify("line one\nline two"));
   await page.locator("#load").click();
   await expect(page.locator(".cs-area .ProseMirror p")).toHaveCount(2);
-  expect(await stored(page)).toEqual([{ type: "paragraph", text: "line one" }, { type: "paragraph", text: "line two" }]);
+  // unformatted text stays plain text, lines as in a plain text field
+  expect(await stored(page)).toBe("line one\nline two");
 });
 
 test("pasted HTML keeps only what the editor supports", async ({ page }) => {
@@ -86,30 +90,31 @@ test("pasted HTML keeps only what the editor supports", async ({ page }) => {
   await page.locator("#save").click();
   const v = await stored(page);
   // the heading became a paragraph and kept its colour
-  expect(v[0]).toEqual({ type: "paragraph", text: [{ text: "Title", marks: { color: "#c62828" } }] });
+  expect(v[0]).toEqual({ text: [{ text: "Title", color: "#c62828" }] });
   // bold kept; the unknown font dropped, its size kept; script and image gone
-  const runs = v[1].text as { text: string; marks?: Record<string, unknown> }[];
-  expect(runs.find((r) => r.text === "bold")?.marks).toEqual({ bold: true });
-  expect(runs.find((r) => r.text === "odd font")?.marks).toEqual({ size: 12 });
+  const runs = v[1].text as { text: string }[];
+  expect(runs.find((r) => r.text === "bold")).toEqual({ text: "bold", bold: true });
+  expect(runs.find((r) => r.text === "odd font")).toEqual({ text: "odd font", size: 12 });
   expect(runs.map((r) => r.text).join("")).toBe("bold odd font");
   expect(v).toHaveLength(2);
   await page.screenshot({ path: "test-results/editor-demo.png", fullPage: true });
 });
 
 test("list markers follow the alignment; nested numbered lists count across levels", async ({ page }) => {
-  const p = (text: string, align?: string) => (align ? { type: "paragraph", align, text } : { type: "paragraph", text });
   const value = [
-    { type: "list", ordered: true, items: [
-      { blocks: [p("one"), { type: "list", ordered: true, items: [
-        { blocks: [p("one.one")] },
-        { blocks: [p("one.two"), { type: "list", ordered: true, items: [{ blocks: [p("one.two.one")] }] }] },
-      ] }] },
-      { blocks: [p("two")] },
-    ] },
-    { type: "list", items: [{ blocks: [p("right bullet", "right")] }] },
+    { list: "ol", text: "one" },
+    { list: "ol", level: 2, text: "one.one" },
+    { list: "ol", level: 2, text: "one.two" },
+    { list: "ol", level: 3, text: "one.two.one" },
+    { list: "ol", text: "two" },
+    { list: "ul", align: "right", text: "right bullet" },
   ];
   await page.locator("#json").fill(JSON.stringify(value));
   await page.locator("#load").click();
+  // the flat paragraphs are nested lists in the editor, and come back unchanged
+  await expect(page.locator(".cs-area ol ol ol li")).toHaveText("one.two.one");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual(value);
   const marker = (text: string) => page.locator(".cs-area li > p", { hasText: new RegExp(`^${text.replace(/\./g, "\\.")}$`) })
     .evaluate((el) => getComputedStyle(el, "::before").content);
   // CSS reports counters() as the rule, so check the rendered numbers through the plain text and the rule itself
@@ -130,8 +135,8 @@ test("list markers follow the alignment; nested numbered lists count across leve
 
 test("Enter keeps the alignment, in lists and paragraphs", async ({ page }) => {
   await page.locator("#json").fill(JSON.stringify([
-    { type: "list", items: [{ blocks: [{ type: "paragraph", align: "right", text: "first" }] }] },
-    { type: "paragraph", align: "center", text: "middle" },
+    { list: "ul", align: "right", text: "first" },
+    { align: "center", text: "middle" },
   ]));
   await page.locator("#load").click();
   // ProseMirror takes over the clicked position a moment after the click; End must come after that
@@ -147,12 +152,22 @@ test("Enter keeps the alignment, in lists and paragraphs", async ({ page }) => {
   await page.keyboard.press("Enter");
   await page.keyboard.type("below");
   await page.locator("#save").click();
-  expect(JSON.parse(await page.locator("#json").inputValue())).toEqual([
-    { type: "list", items: [
-      { blocks: [{ type: "paragraph", align: "right", text: "first" }] },
-      { blocks: [{ type: "paragraph", align: "right", text: "second" }] },
-    ] },
-    { type: "paragraph", align: "center", text: "middle" },
-    { type: "paragraph", align: "center", text: "below" },
+  expect(await stored(page)).toEqual([
+    { list: "ul", align: "right", text: "first" },
+    { list: "ul", align: "right", text: "second" },
+    { align: "center", text: "middle" },
+    { align: "center", text: "below" },
   ]);
+});
+
+test("a line break within a paragraph is stored as \\n", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("first");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("second");
+  await page.locator("#save").click();
+  // a line break is not a new paragraph, so the value is no longer plain text
+  expect(await stored(page)).toEqual([{ text: "first\nsecond" }]);
+  await page.locator("#load").click();
+  await expect(page.locator(".cs-area p br")).toHaveCount(1);
 });

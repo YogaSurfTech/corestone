@@ -4,15 +4,13 @@ import { plainText, type RichText, type RichTextElement } from "@corestone/edito
 
 const KEY = "cs-editor-demo";
 const SAMPLE: RichText = [
-  { type: "paragraph", text: [
-    { text: "The " }, { text: "main housing", marks: { bold: true } }, { text: " is machined from " },
-    { text: "stainless steel 1.4404", marks: { italic: true, color: "#1565c0" } }, { text: " and must withstand 16 bar." },
+  { text: [
+    { text: "The " }, { text: "main housing", bold: true }, { text: " is machined from " },
+    { text: "stainless steel 1.4404", italic: true, color: "#1565c0" }, { text: " and must withstand 16 bar." },
   ] },
-  { type: "list", items: [
-    { blocks: [{ type: "paragraph", text: "Tolerances follow ISO 2768-m" }] },
-    { blocks: [{ type: "paragraph", text: [{ text: "Surface: " }, { text: "Ra 0.8", marks: { bg: "#f9a825" } }] }] },
-  ] },
-  { type: "paragraph", align: "center", text: [{ text: "H", marks: {} }, { text: "2", marks: { sub: true } }, { text: "O at 20 °C", marks: {} }] },
+  { list: "ul", text: "Tolerances follow ISO 2768-m" },
+  { list: "ul", text: [{ text: "Surface: " }, { text: "Ra 0.8", bg: "#f9a825" }] },
+  { align: "center", text: [{ text: "H" }, { text: "2", sub: true }, { text: "O at 20 °C" }] },
 ];
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -20,12 +18,20 @@ const ed = $<RichTextElement>("ed");
 const json = $<HTMLTextAreaElement>("json");
 const status = $<HTMLSpanElement>("status");
 
-function saved(): RichText | string | null {
+function saved(): RichText | null {
   try { return JSON.parse(localStorage.getItem(KEY) ?? "null"); } catch { return null; }
 }
 
-function show(v: RichText | string | null, note: string) {
-  json.value = JSON.stringify(v, null, 2);
+// as the server writes it into the entry's file: one line per paragraph
+const oneLine = (v: unknown): string =>
+  Array.isArray(v) ? "[" + v.map(oneLine).join(", ") + "]"
+  : v && typeof v === "object" ? "{" + Object.entries(v).map(([k, e]) => JSON.stringify(k) + ": " + oneLine(e)).join(", ") + "}"
+  : JSON.stringify(v);
+const fileLayout = (v: RichText | null) =>
+  Array.isArray(v) ? (v.length ? "[\n" + v.map((b) => "  " + oneLine(b)).join(",\n") + "\n]" : "[]") : JSON.stringify(v);
+
+function show(v: RichText | null, note: string) {
+  json.value = fileLayout(v);
   $("plain").textContent = plainText(v);
   $("err").textContent = "";
   status.textContent = note;
@@ -45,7 +51,7 @@ $("sample").onclick = () => { ed.value = SAMPLE; show(ed.value, "Sample text loa
 $("empty").onclick = () => { ed.value = []; show(ed.value, "Empty (not saved)."); };
 $("load").onclick = () => {
   try {
-    const v = JSON.parse(json.value) as RichText | string;
+    const v = JSON.parse(json.value) as RichText;
     ed.value = v;
     show(ed.value, "Loaded from the JSON (not saved). Shown as the editor stores it.");
   } catch (e) {

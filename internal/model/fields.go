@@ -175,7 +175,11 @@ func (f *Field) validateSingle(v any) error {
 		if _, err := time.Parse(time.RFC3339, s); err != nil {
 			return bad("an RFC 3339 timestamp")
 		}
-	case FieldHID, FieldText, FieldMultiline, FieldRichText, FieldAttachment:
+	case FieldRichText:
+		if err := ValidateRichText("field "+f.ID, v); err != nil {
+			return err
+		}
+	case FieldHID, FieldText, FieldMultiline, FieldAttachment:
 		s, ok := v.(string)
 		if !ok {
 			return bad("a string")

@@ -10,8 +10,8 @@ import { schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar, type Palette } from "./toolbar";
 
 export interface EditorOptions {
-  /** The stored value; a plain string (an older value) is read as paragraphs. */
-  value?: RichText | string | null;
+  /** The stored value: plain text or paragraphs. */
+  value?: RichText | null;
   palette?: Palette;
   readonly?: boolean;
   /** Called after every change with the stored form. */
@@ -48,7 +48,7 @@ export class RichTextEditor {
   get value(): RichText { return toStorage(this.view.state.doc); }
 
   /** Replaces the text (and the undo history). */
-  set value(v: RichText | string | null) {
+  set value(v: RichText | null) {
     this.view.updateState(this.state(v));
     this.toolbar.update(this.view.state);
   }
@@ -61,7 +61,7 @@ export class RichTextEditor {
     this.view.focus();
   }
 
-  private state(value: RichText | string | null | undefined): EditorState {
+  private state(value: RichText | null | undefined): EditorState {
     const keys: Record<string, Command> = {
       "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
       "Mod-b": toggleFlag("bold"), "Mod-i": toggleFlag("italic"), "Mod-u": toggleFlag("underline"),

@@ -13,59 +13,74 @@ export interface Marks {
   size?: number;  // points
 }
 
-/** A piece of text with one formatting, or a line break inside a paragraph. */
-export type Run = { text: string; marks?: Marks } | { type: "break" };
+/** A piece of text with its formatting; "\n" in it is a line break within the paragraph. */
+export type Run = { text: string } & Marks;
 
-export type Block =
-  | { type: "paragraph"; align?: Exclude<Align, "left">; text: string | Run[] }
-  | { type: "list"; ordered?: true; items: { blocks: Block[] }[] };
+/** A paragraph; with list it is a list item (level 1 when absent). */
+export interface Block {
+  text: string | Run[];
+  align?: Exclude<Align, "left">;
+  list?: "ul" | "ol";
+  level?: number;
+}
 
-/** A rich-text value: a list of blocks. */
-export type RichText = Block[];
+/** A rich-text value: plain text (lines separated by "\n") or a list of paragraphs.
+ *  The server validates the same form (internal/model/richtext.go). */
+export type RichText = string | Block[];
 
-/** Reads a stored value; a plain string (an older value) becomes one paragraph per line. */
-export function fromStorage(value: RichText | string | null | undefined): Node {
+export const MAX_LEVEL = 9;
+
+/** Reads a stored value; plain text becomes one paragraph per line. */
+export function fromStorage(value: RichText | null | undefined): Node {
   if (typeof value === "string" || value == null) {
     const lines = (value ?? "").split("\n");
     return schema.node("doc", null, lines.map((l) => schema.node("paragraph", null, l ? schema.text(l) : undefined)));
   }
-  const blocks = value.map(blockNode).filter((n): n is Node => !!n);
-  return schema.node("doc", null, blocks.length ? blocks : [schema.node("paragraph")]);
-}
-
-function blockNode(b: Block): Node | null {
-  switch (b?.type) {
-    case "paragraph":
-      return schema.node("paragraph", { align: b.align ?? null }, inline(b.text));
-    case "list": {
-      const items = (b.items ?? []).map((it) => {
-        const inner = (it.blocks ?? []).map(blockNode).filter((n): n is Node => !!n);
-        // a list item starts with a paragraph
-        if (!inner.length || inner[0].type !== schema.nodes.paragraph) inner.unshift(schema.node("paragraph"));
-        return schema.node("list_item", null, inner);
-      });
-      return items.length ? schema.node(b.ordered ? "ordered_list" : "bullet_list", null, items) : null;
+  // flat paragraphs with list levels become the editor's nested lists
+  interface Open { kind: "ul" | "ol"; node: NodeTypeName; items: Node[][] } // items: each item's children
+  type NodeTypeName = "bullet_list" | "ordered_list";
+  const top: Node[] = [];
+  const stack: Open[] = [];
+  const close = (to: number) => {
+    while (stack.length > to) {
+      const l = stack.pop()!;
+      const list = schema.node(l.node, null, l.items.map((c) => schema.node("list_item", null, c)));
+      if (stack.length) stack[stack.length - 1].items[stack[stack.length - 1].items.length - 1].push(list);
+      else top.push(list);
     }
-    default:
-      return null; // unknown blocks are kept out rather than guessed at
+  };
+  for (const b of value) {
+    if (!b || typeof b !== "object") continue; // unknown entries are kept out rather than guessed at
+    const p = schema.node("paragraph", { align: b.align ?? null }, inline(b.text));
+    if (b.list !== "ul" && b.list !== "ol") {
+      close(0);
+      top.push(p);
+      continue;
+    }
+    const level = Math.min(Math.max(Math.trunc(b.level ?? 1), 1), stack.length + 1, MAX_LEVEL); // a level cannot be skipped
+    close(level);
+    if (stack.length === level && stack[level - 1].kind !== b.list) close(level - 1); // another kind of list starts
+    if (stack.length < level) stack.push({ kind: b.list, node: b.list === "ol" ? "ordered_list" : "bullet_list", items: [] });
+    stack[level - 1].items.push([p]);
   }
+  close(0);
+  return schema.node("doc", null, top.length ? top : [schema.node("paragraph")]);
 }
 
 function inline(text: string | Run[] | undefined): Fragment {
-  if (typeof text === "string") return text ? Fragment.from(schema.text(text)) : Fragment.empty;
   const out: Node[] = [];
-  for (const r of text ?? []) {
-    if ("type" in r) {
-      if (r.type === "break") out.push(schema.node("hard_break"));
-    } else if (r.text) {
-      out.push(schema.text(r.text, marksOf(r.marks)));
-    }
-  }
+  const add = (t: string, marks: Mark[]) => {
+    t.split("\n").forEach((part, i) => {
+      if (i > 0) out.push(schema.node("hard_break"));
+      if (part) out.push(schema.text(part, marks));
+    });
+  };
+  if (typeof text === "string") add(text, []);
+  else if (Array.isArray(text)) for (const r of text) if (r && typeof r.text === "string") add(r.text, marksOf(r));
   return Fragment.from(out);
 }
 
-function marksOf(m: Marks | undefined): Mark[] {
-  if (!m) return [];
+function marksOf(m: Marks): Mark[] {
   const out: Mark[] = [];
   for (const f of FLAGS) if (m[f]) out.push(schema.marks[f].create());
   for (const k of ["color", "bg", "font", "size"] as const) {
@@ -74,79 +89,86 @@ function marksOf(m: Marks | undefined): Mark[] {
   return out;
 }
 
-/** The stored form of the editor's document. */
+/** The stored form of the editor's document: plain text when nothing is formatted, else paragraphs. */
 export function toStorage(doc: Node): RichText {
-  const out: RichText = [];
-  doc.forEach((n) => { const b = storeBlock(n); if (b) out.push(b); });
+  const out: Block[] = [];
+  const walk = (n: Node, list: "ul" | "ol" | null, level: number) => {
+    if (n.type === schema.nodes.paragraph) {
+      const b: Block = { text: storeInline(n) };
+      if (n.attrs.align) b.align = n.attrs.align;
+      if (list) {
+        b.list = list;
+        if (level > 1) b.level = level;
+      }
+      out.push(b);
+    } else if (n.type === schema.nodes.bullet_list || n.type === schema.nodes.ordered_list) {
+      const kind = n.type === schema.nodes.ordered_list ? "ol" : "ul";
+      // the items' paragraphs are at this list's level, lists inside them one deeper;
+      // a further paragraph inside an item becomes an item of its own (lists are flat)
+      n.forEach((li) => li.forEach((c) => walk(c, kind, level + 1)));
+    }
+  };
+  doc.forEach((n) => walk(n, null, 0));
+  // nothing but unformatted lines: plain text, as a plain text field stores it
+  if (out.every((b) => typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list)) {
+    return out.map((b) => b.text).join("\n");
+  }
   return out;
-}
-
-function storeBlock(n: Node): Block | null {
-  if (n.type === schema.nodes.paragraph) {
-    const b: Block = { type: "paragraph", text: storeInline(n) };
-    if (n.attrs.align) b.align = n.attrs.align;
-    return b;
-  }
-  if (n.type === schema.nodes.bullet_list || n.type === schema.nodes.ordered_list) {
-    const items: { blocks: Block[] }[] = [];
-    n.forEach((li) => {
-      const blocks: Block[] = [];
-      li.forEach((c) => { const b = storeBlock(c); if (b) blocks.push(b); });
-      items.push({ blocks });
-    });
-    return n.type === schema.nodes.ordered_list ? { type: "list", ordered: true, items } : { type: "list", items };
-  }
-  return null;
 }
 
 /** A paragraph's text: a plain string when nothing is formatted, else runs. */
 function storeInline(p: Node): string | Run[] {
   const runs: Run[] = [];
   p.forEach((c) => {
-    if (c.type === schema.nodes.hard_break) { runs.push({ type: "break" }); return; }
+    const prev = runs[runs.length - 1];
+    if (c.type === schema.nodes.hard_break) {
+      // a line break joins the run before it
+      if (prev) prev.text += "\n";
+      else runs.push({ text: "\n" });
+      return;
+    }
     const marks: Marks = {};
     for (const m of c.marks) {
       if ((FLAGS as readonly string[]).includes(m.type.name)) (marks as Record<string, unknown>)[m.type.name] = true;
       else (marks as Record<string, unknown>)[m.type.name] = m.attrs.value;
     }
-    const prev = runs[runs.length - 1];
     const text = c.text ?? "";
     // neighbours with the same formatting are one run
-    if (prev && !("type" in prev) && sameMarks(prev.marks, marks)) prev.text += text;
-    else runs.push(Object.keys(marks).length ? { text, marks } : { text });
+    if (prev && sameMarks(prev, marks)) prev.text += text;
+    else runs.push({ text, ...marks });
   });
   if (!runs.length) return "";
-  if (runs.length === 1 && !("type" in runs[0]) && !runs[0].marks) return runs[0].text;
+  if (runs.length === 1 && Object.keys(runs[0]).length === 1) return runs[0].text;
   return runs;
 }
 
-function sameMarks(a: Marks | undefined, b: Marks): boolean {
-  const ka = Object.keys(a ?? {}), kb = Object.keys(b);
+function sameMarks(run: Run, b: Marks): boolean {
+  const { text: _, ...a } = run;
+  const ka = Object.keys(a), kb = Object.keys(b);
   return ka.length === kb.length && ka.every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k]);
 }
 
-/** The plain text of a value, as search sees it: paragraphs and list items on lines of their own,
- *  numbered lists numbered across levels as the editor shows them (1.2.3.). */
-export function plainText(value: RichText | string | null | undefined): string {
+/** The plain text of a value, as search sees it: one line per paragraph, list items with
+ *  their marker, numbered lists numbered across levels as the editor shows them (1.2.3.).
+ *  The server computes the same (RichTextPlain in internal/model/richtext.go). */
+export function plainText(value: RichText | null | undefined): string {
   if (typeof value === "string" || value == null) return value ?? "";
   const lines: string[] = [];
-  const text = (b: Extract<Block, { type: "paragraph" }>) =>
-    typeof b.text === "string" ? b.text : b.text.map((r) => ("type" in r ? "\n" : r.text)).join("");
-  // number: the numbers of the enclosing numbered items; indent: the depth of lists
-  const walk = (bs: Block[], number: number[], indent: string) => {
-    for (const b of bs) {
-      if (b.type === "paragraph") lines.push(indent + text(b));
-      else if (b.type === "list") {
-        b.items.forEach((it, i) => {
-          const n = b.ordered ? [...number, i + 1] : number;
-          const marker = b.ordered ? n.join(".") + ". " : "• ";
-          const [first, ...rest] = it.blocks;
-          if (first?.type === "paragraph") lines.push(indent + marker + text(first));
-          walk(first?.type === "paragraph" ? rest : it.blocks, n, indent + "  ");
-        });
-      }
+  const stack: { kind: "ul" | "ol"; count: number }[] = [];
+  for (const b of value) {
+    const text = typeof b.text === "string" ? b.text : b.text.map((r) => r.text).join("");
+    if (!b.list) {
+      stack.length = 0;
+      lines.push(text);
+      continue;
     }
-  };
-  walk(value, [], "");
+    const level = Math.min(Math.max(Math.trunc(b.level ?? 1), 1), stack.length + 1);
+    if (level < stack.length) stack.length = level;
+    if (level > stack.length) stack.push({ kind: b.list, count: 0 });
+    else if (stack[level - 1].kind !== b.list) stack[level - 1] = { kind: b.list, count: 0 };
+    stack[level - 1].count++;
+    const marker = b.list === "ol" ? stack.filter((l) => l.kind === "ol").map((l) => l.count).join(".") + ". " : "• ";
+    lines.push("  ".repeat(level - 1) + marker + text);
+  }
   return lines.join("\n");
 }

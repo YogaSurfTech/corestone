@@ -13,11 +13,11 @@ export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
 /** <cs-richtext>: set .value (and optionally .palette, readonly) and listen for "change" (detail: the value). */
 export class RichTextElement extends HTMLElement {
   private editor?: RichTextEditor;
-  private pending: RichText | string | null = null;
+  private pending: RichText | null = null;
   palette?: Palette;
 
-  get value(): RichText | string | null { return this.editor ? this.editor.value : this.pending; }
-  set value(v: RichText | string | null) {
+  get value(): RichText | null { return this.editor ? this.editor.value : this.pending; }
+  set value(v: RichText | null) {
     this.pending = v;
     if (this.editor) this.editor.value = v;
   }
