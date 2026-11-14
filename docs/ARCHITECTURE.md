@@ -71,7 +71,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 - `projection.go` — connection, DDL (`repo_state.processed_hash`, `artifacts` with an `ltree` path,
   `artifact_fields`, `artifact_refs`, `artifact_files`, `config_files`, `hid_history`,
-  `deleted_artifacts`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
+  `deleted_artifacts`, the history index `artifact_commits` and `relation_commits`; generated `hid_prefix`/`hid_num` columns for natural ID order and the
   ICU collation `corestone_natural`), status
   and maintenance mode (also advertised through `repo_state.maintenance` for other processes), the
   §10.1 publish mutex, ltree label encoding.
@@ -82,7 +82,12 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   commit per transaction (`ProjectCommit` + CAS advance); anything else triggers a rebuild. Also the
   configuration index, cached per processed revision, and its unresolved references.
 - `reindex.go` — the phased rebuild: identity (GUID → path), fields, full text (drop GIN index,
-  parallel workers stream text, recreate index), history scan (deletions, HID history, timestamps).
+  parallel workers stream text, recreate index), history scan (deletions, HID history, timestamps,
+  history index).
+- `history.go` — the history index: per commit the artifacts it touched with their file's path and
+  blob (`artifact_commits`), and the artifacts a changed link or comment pointed to before or after
+  it (`relation_commits`, old and new content), so a past version finds the links and comments of
+  its time, also those deleted or reassigned since. Live writes and the rebuild fill both alike.
 - `query.go` — locate, get, search (filters, states, fields, full text), folders, scopes, HID
   helpers, links/comments, attachments, configuration files, HID history, deleted artifacts,
   statistics.
@@ -107,6 +112,9 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   evaluation, relationship analysis (each link with its role as read from this artifact: the
   display name outgoing, the `reverseName` incoming), comments, documents embedding an entry, history across moves,
   tree, search, table query and row details (with related endpoints and subjects), status.
+- `version.go` — historic versions (blob viewed at a commit): history pages, the item and its
+  base chain, attachments, links, comments, endpoints and subject as they were then; configuration
+  and permissions are today's.
 
 ## internal/httpapi — transport
 

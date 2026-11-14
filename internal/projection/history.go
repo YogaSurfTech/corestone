@@ -18,7 +18,9 @@ import (
 // pathspec scan over the whole repository history. seq orders the commits
 // along the first-parent chain: a rebuild numbers the walked history 0, -1,
 // -2, … from the head backwards; every replayed or written commit after
-// that gets max(seq)+1.
+// that gets max(seq)+1. relation_commits adds, per commit, the artifacts a
+// changed link or comment pointed to before or after it (same seq), so a
+// version can show the links and comments of its time, deleted ones too.
 
 // HistoryGUIDs returns the artifacts whose history a changed path belongs
 // to: every GUID directory on the path (the artifact file, its attachments,
@@ -100,65 +102,97 @@ func commitRowsOf(sc *scanner.Scanner, commit string, seq int64, changes []gitx.
 	return rows
 }
 
-// linkRef is a link file a commit touched; its content names the endpoints.
-type linkRef struct {
-	commit string
-	seq    int64
-	sha    string // the new content, or the old one when the commit deleted the link
+// relRef is a link or comment file a commit touched: its old and new
+// content name what it pointed to before and after.
+type relRef struct {
+	owner, commit string
+	seq           int64
+	kind          model.Kind
+	shas          []string
 }
 
-// linkRefsOf lists the link files a commit added, changed or deleted.
-func linkRefsOf(sc *scanner.Scanner, commit string, seq int64, changes []gitx.Change) []linkRef {
-	var out []linkRef
+// relRefsOf lists the link and comment files a commit added, changed or
+// deleted, with the blobs before and after.
+func relRefsOf(sc *scanner.Scanner, commit string, seq int64, changes []gitx.Change) []relRef {
+	var out []relRef
 	for _, ch := range changes {
 		m := sc.Classify(ch.Path)
-		if m.Category != scanner.ConfigFile || m.ConfigKind != scanner.ConfigLinks {
+		if m.Category != scanner.ConfigFile || !model.IsGUID(m.Name) {
 			continue
 		}
-		sha := ch.SHA
-		if ch.Status == 'D' {
-			sha = ch.OldSHA
+		kind, ok := scanner.KindOf(m.ConfigKind)
+		if !ok || (kind != model.KindLink && kind != model.KindComment) {
+			continue
 		}
-		if sha != "" {
-			out = append(out, linkRef{commit: commit, seq: seq, sha: sha})
+		r := relRef{owner: strings.ToLower(m.Name), commit: commit, seq: seq, kind: kind}
+		if ch.OldSHA != "" && ch.Status != 'A' {
+			r.shas = append(r.shas, ch.OldSHA)
+		}
+		if ch.SHA != "" && ch.Status != 'D' && ch.SHA != ch.OldSHA {
+			r.shas = append(r.shas, ch.SHA)
+		}
+		if len(r.shas) > 0 {
+			out = append(out, r)
 		}
 	}
 	return out
 }
 
-// endpointRows puts link commits into the history of both endpoints: a
+// relRow says that a commit changed a link or comment (owner) that pointed
+// to guid before or after it: the link's endpoints, the comment's subject.
+type relRow struct {
+	guid, owner, commit string
+	seq                 int64
+}
+
+// relationRows reads what the touched links and comments pointed to. A
 // link's creation, change and deletion are part of what happened to the
-// artifacts it connects. The rows carry no file (the endpoint's own file is
-// untouched).
-func (p *DB) endpointRows(ctx context.Context, refs []linkRef) ([]commitRow, error) {
+// artifacts it connects, a comment's to the artifact it is on; reading the
+// old content too keeps a reassigned endpoint's or subject's history whole.
+func (p *DB) relationRows(ctx context.Context, refs []relRef) ([]relRow, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
-	shas := make([]string, len(refs))
-	for i, r := range refs {
-		shas[i] = r.sha
+	var shas []string
+	for _, r := range refs {
+		shas = append(shas, r.shas...)
 	}
 	blobs, err := p.repo.ReadBlobs(ctx, shas)
 	if err != nil {
 		return nil, err
 	}
-	var rows []commitRow
+	seen := map[relRow]bool{}
+	var rows []relRow
 	for _, r := range refs {
-		a, err := model.ParseArtifact(blobs[r.sha], model.KindLink)
-		if err != nil {
-			continue // a malformed link names no endpoints
-		}
-		for _, g := range []string{a.Source, a.Target} {
-			if g = strings.ToLower(g); model.IsGUID(g) {
-				rows = append(rows, commitRow{guid: g, commit: r.commit, seq: r.seq})
+		for _, sha := range r.shas {
+			a, err := model.ParseArtifact(blobs[sha], r.kind)
+			if err != nil {
+				continue // a malformed file points nowhere
+			}
+			for _, g := range []string{a.Source, a.Target, a.Subject} {
+				row := relRow{guid: strings.ToLower(g), owner: r.owner, commit: r.commit, seq: r.seq}
+				if model.IsGUID(row.guid) && !seen[row] {
+					seen[row] = true
+					rows = append(rows, row)
+				}
 			}
 		}
 	}
 	return rows, nil
 }
 
+func relArrays(rows []relRow) (guids, owners, commits []string, seqs []int64) {
+	for _, r := range rows {
+		guids = append(guids, r.guid)
+		owners = append(owners, r.owner)
+		commits = append(commits, r.commit)
+		seqs = append(seqs, r.seq)
+	}
+	return
+}
+
 // onConflict keeps a row's file when the same artifact and commit come in
-// twice (its own file changed and it is the endpoint of a changed link).
+// twice.
 const onConflict = `ON CONFLICT (guid, commit_sha) DO UPDATE SET
 	path = COALESCE(artifact_commits.path, EXCLUDED.path), blob = COALESCE(artifact_commits.blob, EXCLUDED.blob)`
 
@@ -166,20 +200,31 @@ const onConflict = `ON CONFLICT (guid, commit_sha) DO UPDATE SET
 func (p *DB) recordCommit(ctx context.Context, tx *sql.Tx, commit string, changes []gitx.Change) error {
 	sc := p.Scanner()
 	rows := commitRowsOf(sc, commit, 0, changes)
-	ends, err := p.endpointRows(ctx, linkRefsOf(sc, commit, 0, changes))
+	rels, err := p.relationRows(ctx, relRefsOf(sc, commit, 0, changes))
 	if err != nil {
 		return err
 	}
-	rows = append(rows, ends...)
 	if len(rows) == 0 {
 		return nil
 	}
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(max(seq), 0) + 1 FROM artifact_commits`).Scan(&seq); err != nil {
+		return unavailable(err)
+	}
 	guids, paths, blobs, files := rowArrays(rows)
-	_, err = tx.ExecContext(ctx, `INSERT INTO artifact_commits (guid, commit_sha, seq, path, blob)
-		SELECT g, $2, (SELECT COALESCE(max(seq), 0) + 1 FROM artifact_commits),
-			CASE WHEN f THEN p END, CASE WHEN f THEN b END
+	if _, err = tx.ExecContext(ctx, `INSERT INTO artifact_commits (guid, commit_sha, seq, path, blob)
+		SELECT g, $2, $6, CASE WHEN f THEN p END, CASE WHEN f THEN b END
 		FROM unnest($1::text[], $3::text[], $4::text[], $5::bool[]) AS t(g, p, b, f)
-		`+onConflict, pq.Array(guids), commit, pq.Array(paths), pq.Array(blobs), pq.Array(files))
+		`+onConflict, pq.Array(guids), commit, pq.Array(paths), pq.Array(blobs), pq.Array(files), seq); err != nil {
+		return unavailable(err)
+	}
+	if len(rels) == 0 {
+		return nil
+	}
+	g, o, _, _ := relArrays(rels)
+	_, err = tx.ExecContext(ctx, `INSERT INTO relation_commits (guid, owner, commit_sha, seq)
+		SELECT g, o, $3, $4 FROM unnest($1::text[], $2::text[]) AS t(g, o) ON CONFLICT DO NOTHING`,
+		pq.Array(g), pq.Array(o), commit, seq)
 	return unavailable(err)
 }
 
@@ -241,6 +286,17 @@ func (p *DB) insertCommitRows(ctx context.Context, rows []commitRow) error {
 	return unavailable(err)
 }
 
+func (p *DB) insertRelationRows(ctx context.Context, rows []relRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	guids, owners, commits, seqs := relArrays(rows)
+	_, err := p.sql.ExecContext(ctx, `INSERT INTO relation_commits (guid, owner, commit_sha, seq)
+		SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[]) ON CONFLICT DO NOTHING`,
+		pq.Array(guids), pq.Array(owners), pq.Array(commits), pq.Array(seqs))
+	return unavailable(err)
+}
+
 // HistoryEntry is one commit in an artifact's history with the blob of the
 // artifact's own file as of that commit ("" when it did not exist then).
 type HistoryEntry struct {
@@ -248,8 +304,8 @@ type HistoryEntry struct {
 	Blob   string
 }
 
-// HistoryPage lists the commits that touched an artifact or one of its
-// current comments, newest first: at most limit of them, older than the
+// HistoryPage lists the commits that touched an artifact or a link or
+// comment that pointed to it then (before or after the commit), newest first: at most limit of them, older than the
 // commit before when given. more reports whether older commits remain.
 func (p *DB) HistoryPage(ctx context.Context, guid string, limit int, before string) ([]HistoryEntry, bool, error) {
 	var beforeSeq any
@@ -268,8 +324,9 @@ func (p *DB) HistoryPage(ctx context.Context, guid string, limit int, before str
 		lim = limit + 1
 	}
 	rows, err := p.sql.QueryContext(ctx, `WITH c AS (
-			SELECT commit_sha, max(seq) AS seq FROM artifact_commits
-			WHERE guid = $1 OR guid IN (SELECT guid FROM artifacts WHERE kind = 'comment' AND subject = $1)
+			SELECT commit_sha, max(seq) AS seq FROM (
+				SELECT commit_sha, seq FROM artifact_commits WHERE guid = $1
+				UNION ALL SELECT commit_sha, seq FROM relation_commits WHERE guid = $1) h
 			GROUP BY commit_sha)
 		SELECT c.commit_sha, COALESCE((SELECT a.blob FROM artifact_commits a
 			WHERE a.guid = $1 AND a.seq <= c.seq AND a.path IS NOT NULL ORDER BY a.seq DESC LIMIT 1), '')
@@ -339,6 +396,26 @@ func (p *DB) CommitOfBlob(ctx context.Context, guid, blob string) (string, int64
 		return "", 0, false, unavailable(err)
 	}
 	return commit, seq, true, nil
+}
+
+// RelatedAt lists the links and comments that pointed to an artifact at
+// some point up to the index position seq; which of them still did then is
+// in their content as of seq.
+func (p *DB) RelatedAt(ctx context.Context, guid string, seq int64) ([]string, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT DISTINCT owner FROM relation_commits WHERE guid = $1 AND seq <= $2 ORDER BY owner`, guid, seq)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err != nil {
+			return nil, unavailable(err)
+		}
+		out = append(out, g)
+	}
+	return out, unavailable(rows.Err())
 }
 
 // FileRef is the path and blob of an artifact's own file.

@@ -124,6 +124,25 @@ type Version struct {
 	Workflows     []WorkflowState `json:"workflows"`
 	Relationships *Relationships  `json:"relationships"`
 	Comments      []CommentView   `json:"comments"`
+	// What a link or comment pointed to, as it was then (nil: it did not
+	// exist then).
+	Endpoints *VersionEndpoints `json:"endpoints,omitempty"`
+	Subject   *VersionSubject   `json:"subject,omitempty"`
+}
+
+// VersionEndpoints are a link version's endpoints as they were then.
+type VersionEndpoints struct {
+	Source *model.Summary `json:"source"`
+	Target *model.Summary `json:"target"`
+}
+
+// VersionSubject is what a comment version was on, as it was then; a link
+// comes with its endpoints and role name.
+type VersionSubject struct {
+	Meta   *model.Summary `json:"meta"`
+	Source *model.Summary `json:"source,omitempty"`
+	Target *model.Summary `json:"target,omitempty"`
+	Role   string         `json:"role,omitempty"`
 }
 
 // at is a resolved point in the history index.
@@ -332,25 +351,138 @@ func historicOverlay(a *model.Artifact, l *lookupAt) (*model.Overlay, error) {
 	return ov, nil
 }
 
-// historicSurroundings fills the links and comments as they were at seq:
-// those that exist today and existed then, read in their version of then.
-// Links and comments deleted since are not shown yet (TSK-22 follow-up).
+// historicSurroundings fills what surrounded the artifact at seq, everything
+// as it was then: the links and comments that pointed to it (also those
+// deleted or reassigned since), the other endpoint of each link, and for a
+// link or comment version what it pointed to. A comment shows the thread of
+// its subject.
 func (f *Foundation) historicSurroundings(ctx context.Context, sc *scanner.Scanner, cfg *model.ConfigIndex, v *Version, guid string, seq int64) error {
-	in, out, err := f.DB.LinksOf(ctx, guid)
+	meta := v.Meta
+	on := guid
+	if meta.Kind == model.KindComment {
+		on = meta.Subject
+	}
+	related, err := f.DB.RelatedAt(ctx, on, seq)
 	if err != nil {
 		return err
 	}
-	comments, err := f.DB.CommentsOf(ctx, guid)
+	then, err := f.summariesAt(ctx, sc, related, seq)
 	if err != nil {
 		return err
 	}
-	var guids []string
-	for _, l := range append(append(append([]*model.Summary{}, in...), out...), comments...) {
-		guids = append(guids, l.GUID)
+	var others []string
+	for _, g := range related {
+		if h := then[g]; h != nil && h.meta.Kind == model.KindLink {
+			others = append(others, h.meta.Source, h.meta.Target)
+		}
 	}
-	files, err := f.DB.FilesAt(ctx, guids, seq)
+	switch meta.Kind {
+	case model.KindLink:
+		others = append(others, meta.Source, meta.Target)
+	case model.KindComment:
+		others = append(others, meta.Subject)
+	}
+	ends, err := f.summariesAt(ctx, sc, others, seq)
 	if err != nil {
 		return err
+	}
+	// A comment on a link shows that link's endpoints as they were too.
+	if meta.Kind == model.KindComment {
+		if s := ends[meta.Subject]; s != nil && s.meta.Kind == model.KindLink {
+			more, err := f.summariesAt(ctx, sc, []string{s.meta.Source, s.meta.Target}, seq)
+			if err != nil {
+				return err
+			}
+			for g, h := range more {
+				ends[g] = h
+			}
+		}
+	}
+	endOf := func(g string) *model.Summary {
+		if h := ends[g]; h != nil {
+			return h.meta
+		}
+		return nil
+	}
+	other := func(g string) *model.Summary {
+		if s := endOf(g); s != nil {
+			return s
+		}
+		return &model.Summary{GUID: g, Title: "(missing)"}
+	}
+	link := func(l *model.Summary, incoming bool) LinkView {
+		role := l.Type
+		if s := cfg.Effective(l.Type, l.Folder); s != nil {
+			role = s.DisplayName
+			if incoming && s.ReverseName != "" {
+				role = s.ReverseName
+			}
+		}
+		o := l.Target
+		if incoming {
+			o = l.Source
+		}
+		return LinkView{Link: l, Other: other(o), Role: role}
+	}
+	for _, g := range related {
+		h := then[g]
+		if h == nil {
+			continue // not there then
+		}
+		switch h.meta.Kind {
+		case model.KindLink:
+			if meta.Kind == model.KindComment {
+				continue // the subject's links are not the comment's
+			}
+			if h.meta.Source == on {
+				v.Relationships.Outgoing = append(v.Relationships.Outgoing, link(h.meta, false))
+			}
+			if h.meta.Target == on {
+				v.Relationships.Incoming = append(v.Relationships.Incoming, link(h.meta, true))
+			}
+		case model.KindComment:
+			if h.meta.Subject == on {
+				v.Comments = append(v.Comments, CommentView{Meta: h.meta, Data: h.doc})
+			}
+		}
+	}
+	sort.SliceStable(v.Comments, func(i, j int) bool { return v.Comments[i].Meta.Created < v.Comments[j].Meta.Created })
+	switch meta.Kind {
+	case model.KindLink:
+		v.Endpoints = &VersionEndpoints{Source: endOf(meta.Source), Target: endOf(meta.Target)}
+	case model.KindComment:
+		if s := endOf(meta.Subject); s != nil {
+			v.Subject = &VersionSubject{Meta: s}
+			if s.Kind == model.KindLink {
+				v.Subject.Source, v.Subject.Target = endOf(s.Source), endOf(s.Target)
+				v.Subject.Role = link(s, false).Role
+			}
+		}
+	}
+	return nil
+}
+
+// historicItem is an artifact as it was at some index position.
+type historicItem struct {
+	meta *model.Summary
+	doc  *ojson.Object
+}
+
+// summariesAt reads artifacts as they were at seq; those that did not exist
+// then (or cannot be read) are left out.
+func (f *Foundation) summariesAt(ctx context.Context, sc *scanner.Scanner, guids []string, seq int64) (map[string]*historicItem, error) {
+	out := map[string]*historicItem{}
+	var want []string
+	seen := map[string]bool{}
+	for _, g := range guids {
+		if g != "" && !seen[g] {
+			seen[g] = true
+			want = append(want, g)
+		}
+	}
+	files, err := f.DB.FilesAt(ctx, want, seq)
+	if err != nil || len(files) == 0 {
+		return out, err
 	}
 	shas := make([]string, 0, len(files))
 	for _, fr := range files {
@@ -358,62 +490,18 @@ func (f *Foundation) historicSurroundings(ctx context.Context, sc *scanner.Scann
 	}
 	blobs, err := f.Repo.ReadBlobs(ctx, shas)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	then := func(g string) (*model.Summary, *ojson.Object) {
-		fr, ok := files[g]
-		if !ok {
-			return nil, nil
-		}
+	for g, fr := range files {
 		data, ok := blobs[fr.Blob]
 		if !ok {
-			return nil, nil
+			continue
 		}
-		_, meta, doc, err := historicArtifact(sc, fr, data)
-		if err != nil {
-			return nil, nil
-		}
-		return meta, doc
-	}
-	link := func(l *model.Summary, incoming bool) (LinkView, bool) {
-		hl, _ := then(l.GUID)
-		if hl == nil {
-			return LinkView{}, false
-		}
-		g := hl.Target
-		if incoming {
-			g = hl.Source
-		}
-		o, err := f.DB.Get(ctx, g)
-		if err != nil {
-			o = &model.Summary{GUID: g, Title: "(missing)"}
-		}
-		role := hl.Type
-		if s := cfg.Effective(hl.Type, hl.Folder); s != nil {
-			role = s.DisplayName
-			if incoming && s.ReverseName != "" {
-				role = s.ReverseName
-			}
-		}
-		return LinkView{Link: hl, Other: o, Role: role}, true
-	}
-	for _, l := range in {
-		if lv, ok := link(l, true); ok && lv.Link.Target == guid {
-			v.Relationships.Incoming = append(v.Relationships.Incoming, lv)
+		if _, meta, doc, err := historicArtifact(sc, fr, data); err == nil {
+			out[g] = &historicItem{meta: meta, doc: doc}
 		}
 	}
-	for _, l := range out {
-		if lv, ok := link(l, false); ok && lv.Link.Source == guid {
-			v.Relationships.Outgoing = append(v.Relationships.Outgoing, lv)
-		}
-	}
-	for _, c := range comments {
-		if meta, doc := then(c.GUID); meta != nil {
-			v.Comments = append(v.Comments, CommentView{Meta: meta, Data: doc})
-		}
-	}
-	sort.SliceStable(v.Comments, func(i, j int) bool { return v.Comments[i].Meta.Created < v.Comments[j].Meta.Created })
-	return nil
+	return out, nil
 }
 
 // VersionFile reads an attachment of an artifact version at its commit.

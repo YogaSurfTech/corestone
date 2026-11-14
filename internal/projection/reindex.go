@@ -124,7 +124,7 @@ func (p *DB) phaseIdentity(ctx context.Context, artifacts, attachments, configs 
 	// onto half-built tables.
 	for _, stmt := range []string{
 		`UPDATE repo_state SET processed_hash = '' WHERE id = 1`,
-		`TRUNCATE artifact_fields, artifact_refs, artifacts, artifact_files, config_files, hid_history, deleted_artifacts, file_issues, artifact_commits`,
+		`TRUNCATE artifact_fields, artifact_refs, artifacts, artifact_files, config_files, hid_history, deleted_artifacts, file_issues, artifact_commits, relation_commits`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return unavailable(err)
@@ -381,19 +381,23 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 	deleted := map[string]*delRow{}
 	var events []histEvent
 	var commitRows []commitRow
-	var linkRefs []linkRef
+	var relRefs []relRef
 	commits := 0
-	// flushCommitRows writes the buffered history rows, with the endpoint
-	// rows of the buffered link changes (their blobs read in one batch).
+	// flushCommitRows writes the buffered history rows, with the relation
+	// rows of the buffered link and comment changes (their blobs read in one
+	// batch).
 	flushCommitRows := func() error {
-		ends, err := p.endpointRows(ctx, linkRefs)
+		rels, err := p.relationRows(ctx, relRefs)
 		if err != nil {
 			return err
 		}
-		if err := p.insertCommitRows(ctx, append(commitRows, ends...)); err != nil {
+		if err := p.insertCommitRows(ctx, commitRows); err != nil {
 			return err
 		}
-		commitRows, linkRefs = commitRows[:0], linkRefs[:0]
+		if err := p.insertRelationRows(ctx, rels); err != nil {
+			return err
+		}
+		commitRows, relRefs = commitRows[:0], relRefs[:0]
 		return nil
 	}
 
@@ -591,8 +595,8 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 			p.setStatus(func(s *Status) { s.Progress = n })
 		}
 		commitRows = append(commitRows, commitRowsOf(sc, cd.SHA, int64(1-commits), cd.Changes)...)
-		linkRefs = append(linkRefs, linkRefsOf(sc, cd.SHA, int64(1-commits), cd.Changes)...)
-		if len(commitRows) >= 10*batchSize || len(linkRefs) >= batchSize {
+		relRefs = append(relRefs, relRefsOf(sc, cd.SHA, int64(1-commits), cd.Changes)...)
+		if len(commitRows) >= 10*batchSize || len(relRefs) >= batchSize {
 			if err := flushCommitRows(); err != nil {
 				return err
 			}

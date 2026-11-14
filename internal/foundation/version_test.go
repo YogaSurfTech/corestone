@@ -3,8 +3,10 @@ package foundation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/model"
 )
 
@@ -172,4 +174,109 @@ func TestVersions(t *testing.T) {
 	if err != nil || tv.Exists || tv.Meta.Title != "Cold boot" {
 		t.Fatalf("deleted version %+v %v", tv, err)
 	}
+}
+
+// TestVersionRelations covers links and comments over history: a version
+// shows those of its time, also when deleted or reassigned since, with what
+// they pointed to as it was then, and every artifact a link or comment ever
+// pointed to keeps that change in its history.
+func TestVersionRelations(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+
+	a := create(t, f, model.KindEntry, `{"path":"specs/a","type":"requirement","title":"Alpha","fields":{"priority":"high"}}`)
+	b := create(t, f, model.KindEntry, `{"path":"tests","type":"testcase","title":"Beta"}`)
+	c := create(t, f, model.KindEntry, `{"path":"specs/c","type":"requirement","title":"Gamma","fields":{"priority":"low"}}`)
+	l, err := f.CreateLink(ctx, obj(t, `{"type":"verifies","source":"`+b.Meta.GUID+`","target":"`+a.Meta.GUID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm, err := f.CreateComment(ctx, obj(t, `{"subject":"`+a.Meta.GUID+`","text":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ua, err := f.UpdateArtifact(ctx, a.Meta.GUID, "", obj(t, `{"title":"Alpha 2"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.UpdateArtifact(ctx, b.Meta.GUID, "", obj(t, `{"title":"Beta 2"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// An external push points the link at c instead of a.
+	head := mustHead(t, f)
+	raw, _, err := f.Repo.ReadPath(ctx, head, l.Meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := strings.Replace(string(raw), a.Meta.GUID, c.Meta.GUID, 1)
+	commit, err := f.Repo.BuildCommit(ctx, head, "reassign", []gitx.Op{{Path: l.Meta.Path, Content: []byte(moved)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Repo.Publish(ctx, head, commit); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, cm.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(label string) {
+		t.Helper()
+		page, err := f.HistoryPage(ctx, a.Meta.GUID, 0, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// create, link, comment, update, reassignment away, comment deletion
+		h := page.History
+		if len(h) != 6 || h[0].Blob != ua.ETag || h[1].Subject != "reassign" || h[2].Blob != ua.ETag || h[3].Blob != a.ETag {
+			t.Fatalf("%s: history of a %+v", label, h)
+		}
+		// When updated: the link and the comment, the other endpoint as it was.
+		ver, err := f.Version(ctx, a.Meta.GUID, ua.ETag, h[2].SHA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ver.Relationships.Incoming) != 1 || ver.Relationships.Incoming[0].Other.Title != "Beta" ||
+			ver.Relationships.Incoming[0].Other.ETag != b.ETag || ver.Relationships.Incoming[0].Role != "verified by" {
+			t.Fatalf("%s: links then %+v", label, ver.Relationships.Incoming)
+		}
+		if len(ver.Comments) != 1 || ver.Comments[0].Meta.GUID != cm.Meta.GUID {
+			t.Fatalf("%s: comments then %+v", label, ver.Comments)
+		}
+		// Today: neither.
+		ver, err = f.Version(ctx, a.Meta.GUID, ua.ETag, h[0].SHA)
+		if err != nil || len(ver.Relationships.Incoming) != 0 || len(ver.Comments) != 0 {
+			t.Fatalf("%s: surroundings now %+v %+v %v", label, ver.Relationships, ver.Comments, err)
+		}
+
+		// The new endpoint has the reassignment in its history and the link from then on.
+		ch, err := f.HistoryPage(ctx, c.Meta.GUID, 0, "")
+		if err != nil || len(ch.History) != 2 || ch.History[0].Subject != "reassign" {
+			t.Fatalf("%s: history of c %+v %v", label, ch, err)
+		}
+		cv, err := f.Version(ctx, c.Meta.GUID, c.ETag, ch.History[0].SHA)
+		if err != nil || len(cv.Relationships.Incoming) != 1 || cv.Relationships.Incoming[0].Other.Title != "Beta 2" {
+			t.Fatalf("%s: c after reassignment %+v %v", label, cv, err)
+		}
+		if cv, err = f.Version(ctx, c.Meta.GUID, c.ETag, ch.History[1].SHA); err != nil || len(cv.Relationships.Incoming) != 0 {
+			t.Fatalf("%s: c before reassignment %+v %v", label, cv, err)
+		}
+
+		// The link's version names its endpoints as they were.
+		lv, err := f.Version(ctx, l.Meta.GUID, l.ETag, "")
+		if err != nil || lv.Endpoints == nil || lv.Endpoints.Source.Title != "Beta" || lv.Endpoints.Target.Title != "Alpha" {
+			t.Fatalf("%s: link version %+v %v", label, lv, err)
+		}
+		// The deleted comment's version: its subject then and its thread.
+		cmv, err := f.Version(ctx, cm.Meta.GUID, cm.ETag, "")
+		if err != nil || cmv.Exists || cmv.Subject == nil || cmv.Subject.Meta.Title != "Alpha" || len(cmv.Comments) != 1 {
+			t.Fatalf("%s: comment version %+v %v", label, cmv, err)
+		}
+	}
+	check("maintained")
+	if err := f.DB.Reindex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check("rebuilt")
 }

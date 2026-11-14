@@ -372,6 +372,15 @@ var ddl = []string{
 	`ALTER TABLE artifact_commits ADD COLUMN IF NOT EXISTS path text`,
 	`ALTER TABLE artifact_commits ADD COLUMN IF NOT EXISTS blob text`,
 	`CREATE INDEX IF NOT EXISTS artifact_commits_blob ON artifact_commits (guid, blob) WHERE blob IS NOT NULL AND blob <> ''`,
+	// The artifacts a link or comment changed in that commit pointed to,
+	// before or after it: endpoints and subjects (see history.go).
+	`CREATE TABLE IF NOT EXISTS relation_commits (
+		guid text NOT NULL,
+		owner text NOT NULL,
+		commit_sha text NOT NULL,
+		seq bigint NOT NULL,
+		PRIMARY KEY (guid, commit_sha, owner))`,
+	`CREATE INDEX IF NOT EXISTS relation_commits_guid_seq ON relation_commits (guid, seq DESC)`,
 	`CREATE TABLE IF NOT EXISTS file_issues (
 		path text PRIMARY KEY,
 		guid text NOT NULL,
@@ -392,6 +401,7 @@ func (p *DB) migrate(ctx context.Context) error {
 	var hadTables bool
 	if err := p.sql.QueryRowContext(ctx, `SELECT to_regclass(quote_ident(current_schema()) || '.artifact_commits') IS NOT NULL
 		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL
+		AND to_regclass(quote_ident(current_schema()) || '.relation_commits') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
 			AND table_name = 'artifact_commits' AND column_name = 'path')`).Scan(&hadTables); err != nil {
 		return fmt.Errorf("projection schema: %w", err)
@@ -403,8 +413,8 @@ func (p *DB) migrate(ctx context.Context) error {
 	}
 	if !hadTables {
 		// A projection built before artifact_commits (with the file path and
-		// blob per commit) or artifact_refs existed lacks the history or
-		// reference index: force a rebuild, which backfills them from Git.
+		// blob per commit), relation_commits or artifact_refs existed lacks
+		// the history or reference index: force a rebuild, which backfills them from Git.
 		// Not '': that would equal the head of an empty repository and skip
 		// the rebuild, leaving the stale rows in place.
 		if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = 'rebuild' WHERE id = 1`); err != nil {
