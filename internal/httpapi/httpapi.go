@@ -550,17 +550,33 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 			req.AddComments = append(req.AddComments, o)
 		}
 	}
+	// A removed link is its GUID, or {guid, etag} with the version the user saw.
+	req.RemoveLinkETags = map[string]string{}
 	for _, v := range body.Array("removeLinks") {
-		if g, ok := v.(string); ok {
-			req.RemoveLinks = append(req.RemoveLinks, g)
+		switch x := v.(type) {
+		case string:
+			req.RemoveLinks = append(req.RemoveLinks, x)
+		case *ojson.Object:
+			if g := x.String("guid"); g != "" {
+				req.RemoveLinks = append(req.RemoveLinks, g)
+				req.RemoveLinkETags[g] = strings.Trim(x.String("etag"), `"`)
+			}
 		}
 	}
+	req.Overwrite = strings.Trim(body.String("overwrite"), `"`)
 	for _, v := range body.Array("removeFiles") {
 		if n, ok := v.(string); ok {
 			req.RemoveFiles = append(req.RemoveFiles, n)
 		}
 	}
 	v, err := s.F.Save(r.Context(), guid, ifMatch(r), req)
+	var conflict *foundation.SaveConflict
+	if errors.As(err, &conflict) {
+		// The overlapping changes, for the user to cancel or overwrite.
+		writeJSON(w, http.StatusPreconditionFailed, map[string]any{"error": "changed by someone else meanwhile",
+			"status": http.StatusPreconditionFailed, "etag": conflict.ETag, "conflicts": conflict.Conflicts})
+		return
+	}
 	if err != nil {
 		fail(w, err)
 		return

@@ -143,9 +143,10 @@ export class Dialogs extends LitElement {
   private confirm(d: Dialog) {
     return html`<h2>${d.title as string}</h2>
       <p>${d.text as string}</p>
+      ${d.body ?? nothing}
       <div class="foot"><button class="btn" data-test="dialog-cancel" @click=${() => this.dismiss()}>Cancel</button>
       ${d.altLabel ? html`<button class="btn" data-test="dialog-alt" @click=${() => { store.set({ dialog: null }); (d.onAlt as () => void)(); }}>${d.altLabel as string}</button>` : nothing}
-      <button class="btn ${(d.danger as boolean) ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => { store.set({ dialog: null }); (d.onConfirm as () => void)(); }}>${(d.confirmLabel as string) ?? "OK"}</button></div>`;
+      ${d.noConfirm ? nothing : html`<button class="btn ${(d.danger as boolean) ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => { store.set({ dialog: null }); (d.onConfirm as () => void)(); }}>${(d.confirmLabel as string) ?? "OK"}</button>`}</div>`;
   }
 }
 

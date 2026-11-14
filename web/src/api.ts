@@ -4,7 +4,8 @@ import type {
 } from "./types";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** body is the parsed error response, e.g. the conflicts of a refused save. */
+  constructor(public status: number, message: string, public body?: unknown) {
     super(message);
   }
 }
@@ -60,7 +61,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
   if (res.status === 401 && !path.startsWith("/auth")) onUnauthorized?.();
   if (!res.ok) {
     const msg = (parsed as { error?: string })?.error ?? res.statusText;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, parsed);
   }
   return parsed as T;
 }
@@ -80,10 +81,17 @@ export interface SaveChanges {
   patch?: Record<string, unknown>;
   transitions?: { workflow: string; to: string }[];
   addLinks?: { type: string; source: string; target: string }[];
-  removeLinks?: string[];
+  /** Each removed link with the version the user saw: a link changed since conflicts. */
+  removeLinks?: { guid: string; etag?: string }[];
   addComments?: { type: string | null; text: string; parent?: string; author: string }[];
   removeFiles?: string[];
+  /** The ETag of a conflict the user chose to overwrite. */
+  overwrite?: string;
 }
+
+/** One thing both the user and someone else changed (a refused save, 412). */
+export interface SaveConflictItem { key: string; author?: string; time?: string; base?: unknown; theirs?: unknown; mine?: unknown }
+export interface SaveConflict { etag: string; conflicts: SaveConflictItem[] }
 
 export const api = {
   auth: () => request<AuthState>("GET", "/auth"),

@@ -2,7 +2,9 @@ package foundation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/thomdehoog/corestone/internal/model"
@@ -19,6 +21,11 @@ type SaveRequest struct {
 	AddComments []*ojson.Object
 	PutFiles    []SaveFile
 	RemoveFiles []string
+	// RemoveLinkETags holds the version of each removed link the user saw;
+	// a link changed since conflicts.
+	RemoveLinkETags map[string]string
+	// Overwrite is the ETag of a SaveConflict the user chose to overwrite.
+	Overwrite string
 }
 
 type SaveTransition struct{ Workflow, To string }
@@ -29,7 +36,9 @@ type SaveFile struct {
 }
 
 // Save applies a SaveRequest to an artifact in one commit: either every
-// change is published or none is.
+// change is published or none is. ifMatch is the version the user started
+// from; changes made since are kept unless they overlap with the user's
+// (see merge).
 func (f *Foundation) Save(ctx context.Context, guid, ifMatch string, req *SaveRequest) (*View, error) {
 	if _, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.save(guid, ifMatch, req) }); err != nil {
 		return nil, err
@@ -42,8 +51,38 @@ func (t *txn) save(guid, ifMatch string, req *SaveRequest) (*changeset, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkETag(ifMatch, cur.ETag); err != nil {
-		return nil, err
+	// Changes made by others since the user's version stay; only overlaps
+	// are refused, unless the user saw them and chose to overwrite.
+	var conflicts []ConflictItem
+	if ifMatch != "" && ifMatch != "*" && ifMatch != cur.ETag {
+		if conflicts, err = t.merge(guid, ifMatch, cur, req); err != nil {
+			return nil, err
+		}
+	}
+	// The links to remove, as they are now; one deleted meanwhile is gone
+	// already, one changed since the user saw it overlaps.
+	var links []string
+	for _, lg := range req.RemoveLinks {
+		l, err := t.load(lg)
+		if errors.Is(err, model.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if l.Kind != model.KindLink || (l.Source != guid && l.Target != guid) {
+			return nil, model.Invalid("%s is not a link of %s", lg, label(cur.Artifact))
+		}
+		if c, err := t.linkConflict(l, req.RemoveLinkETags[lg]); err != nil {
+			return nil, err
+		} else if c != nil {
+			conflicts = append(conflicts, *c)
+		}
+		links = append(links, lg)
+	}
+	if len(conflicts) > 0 && req.Overwrite != cur.ETag {
+		sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].Key < conflicts[j].Key })
+		return nil, &SaveConflict{ETag: cur.ETag, Conflicts: conflicts}
 	}
 	// Comments on a comment are replies in its subject's thread.
 	subject := guid
@@ -73,14 +112,7 @@ func (t *txn) save(guid, ifMatch string, req *SaveRequest) (*changeset, error) {
 			return nil, err
 		}
 	}
-	for _, lg := range req.RemoveLinks {
-		l, err := t.load(lg)
-		if err != nil {
-			return nil, err
-		}
-		if l.Kind != model.KindLink || (l.Source != guid && l.Target != guid) {
-			return nil, model.Invalid("%s is not a link of %s", lg, label(cur.Artifact))
-		}
+	for _, lg := range links {
 		if err := step(t.remove(lg, "")); err != nil {
 			return nil, err
 		}

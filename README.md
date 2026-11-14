@@ -142,6 +142,15 @@ the whole save — and published as one commit (`Kind HID modified; dev open -> 
 added, …`; a single change keeps its usual subject). It returns the updated artifact and ETag.
 Each attachment may be up to 32 MiB, all of one save together up to 128 MiB.
 
+`If-Match` names the version the user started from. When the artifact has changed since, the save
+is merged: the user's changes are applied on top of the current version, and changes by others to
+anything else stay, without a warning. Only when both changed the same thing (a property, a field,
+a workflow, an attachment, or a link being removed — `removeLinks` entries may be `{guid, etag}`
+with the link version the user saw) is the save refused with `412` and
+`{etag, conflicts: [{key, author, time, base, theirs, mine}]}`. Sending the same save again with
+`overwrite: <that etag>` saves the user's values; a change made after that version conflicts again.
+A link deleted meanwhile counts as removed.
+
 A combined save commit carries `Corestone-Op: update`, the `Corestone-Guid` of `{guid}` and
 `Corestone-Changes` with the operations it combines (e.g. `update,transition,create,attachment`).
 Links and comments created in it get no `Corestone-Kind` trailer of their own: tools that read
