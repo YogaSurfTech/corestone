@@ -420,7 +420,7 @@ export class Detail extends LitElement {
       <th>${this.conflictLabel(it.key)}</th>
       <td>${fmt(it.theirs)}<div class="muted small">${it.author ?? "someone"}${it.time ? html` · ${fmtTime(it.time)}` : nothing}</div></td>
       <td>${fmt(it.mine)}</td></tr>`;
-    store.set({ dialog: { kind: "confirm", title: "Changed by someone else", danger: true, confirmLabel: "Overwrite",
+    store.set({ dialog: { kind: "confirm", title: "Changed by someone else", danger: true, confirmLabel: "Overwrite", resizable: "conflict",
       text: `While you were editing ${label(v.meta)}, someone else changed the same things. Your other changes merge without loss.`,
       body: html`<p><a href=${`/artifact/${v.meta.guid}`} target="_blank" rel="noopener" data-test="conflict-current">Open the current version in a new tab</a></p>
         <table class="base-diff conflict-table" data-test="conflicts"><thead><tr><th></th><th>Theirs (now)</th><th>Yours</th></tr></thead>

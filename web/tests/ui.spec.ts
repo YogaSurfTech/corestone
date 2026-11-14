@@ -125,10 +125,21 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
   await expect(rows.first()).toContainText("changed elsewhere");
   await expect(rows.first()).toContainText("my version");
   await expect(page.locator(".dialog [data-test=conflict-current]")).toHaveAttribute("target", "_blank");
+  // the dialog is resized by its corner grip and keeps that size
+  const dialog = page.locator(".dialog.resizable");
+  const before = (await dialog.boundingBox())!;
+  const grip = (await page.locator(".dialog [data-test=dialog-resize]").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 60, grip.y + 120, { steps: 5 });
+  await page.mouse.up();
+  const after = (await dialog.boundingBox())!;
+  expect(after.height).toBeGreaterThan(before.height + 80);
   await page.locator(".dialog [data-test=dialog-cancel]").click();
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");
   // Overwrite saves it over theirs
   await page.locator("[data-test=save]").click();
+  expect(Math.round((await dialog.boundingBox())!.height)).toBe(Math.round(after.height));
   await page.locator(".dialog [data-test=dialog-confirm]").click();
   await expect(page.locator(".toast.success").last()).toContainText("Saved");
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");

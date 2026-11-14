@@ -15,15 +15,17 @@ import "./account";
 /** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
 export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
 
-const PICKER_SIZE_KEY = "corestone.pickerSize";
+/** Where the size a dialog was last dragged to is kept: the picker, or a dialog by its resizable name. */
+const sizeKey = (name: string) => name === "picker" ? "corestone.pickerSize" : `corestone.dialogSize.${name}`;
 
-/** The picker size the user last dragged it to, if any. */
-function pickerSize(): { w: number; h: number } | null {
+/** The size the user last dragged a dialog to, if any. */
+function savedSize(name: string): { w: number; h: number } | null {
   try {
-    const v = JSON.parse(localStorage.getItem(PICKER_SIZE_KEY) ?? "null");
+    const v = JSON.parse(localStorage.getItem(sizeKey(name)) ?? "null");
     return v && v.w > 0 && v.h > 0 ? v : null;
   } catch { return null; }
 }
+const sizeStyle = (name: string) => { const sz = savedSize(name); return sz ? `width:${sz.w}px;height:${sz.h}px` : ""; };
 
 // Modal dialogs: the "+ New" flow (choose a type → empty schema-generated
 // form → create), the artifact picker, and confirmations.
@@ -52,8 +54,8 @@ export class Dialogs extends LitElement {
     (d?.onCancel as (() => void) | undefined)?.();
   }
 
-  /** Drags the picker's corner. The dialog is centered horizontally and
-   *  top-anchored, so its width changes twice as fast to keep the corner under the pointer. */
+  /** Drags a dialog's corner (the picker, or one opened with resizable). The dialog is centered
+   *  horizontally and top-anchored, so its width changes twice as fast to keep the corner under the pointer. */
   private startResize = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -75,7 +77,7 @@ export class Dialogs extends LitElement {
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", up);
       grip.removeEventListener("pointercancel", up);
-      try { localStorage.setItem(PICKER_SIZE_KEY, JSON.stringify(size)); } catch { /* storage unavailable */ }
+      try { localStorage.setItem(sizeKey(grip.dataset.size ?? "picker"), JSON.stringify(size)); } catch { /* storage unavailable */ }
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", up);
@@ -84,9 +86,10 @@ export class Dialogs extends LitElement {
 
   /** Double-clicking the grip goes back to the default size. */
   private resetSize = (e: Event) => {
-    const box = (e.currentTarget as HTMLElement).parentElement!;
+    const grip = e.currentTarget as HTMLElement;
+    const box = grip.parentElement!;
     box.style.width = box.style.height = "";
-    try { localStorage.removeItem(PICKER_SIZE_KEY); } catch { /* storage unavailable */ }
+    try { localStorage.removeItem(sizeKey(grip.dataset.size ?? "picker")); } catch { /* storage unavailable */ }
   };
 
   override updated() {
@@ -107,9 +110,12 @@ export class Dialogs extends LitElement {
       default: body = nothing;
     }
     return html`${d ? html`<div class="backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.dismiss(); }}>
-        <div class="dialog ${d.kind === "prompt" || d.kind === "account" ? d.kind : ""}" role="dialog" aria-modal="true">${body}</div></div>` : nothing}
+        <div class="dialog ${d.kind === "prompt" || d.kind === "account" ? d.kind : ""} ${d.resizable ? "resizable" : ""}" role="dialog" aria-modal="true"
+          style=${d.resizable ? sizeStyle(d.resizable as string) : ""}>${body}
+          ${d.resizable ? html`<div class="resize-grip" data-test="dialog-resize" data-size=${d.resizable as string} title="Drag to resize, double-click to reset"
+            @pointerdown=${this.startResize} @dblclick=${this.resetSize}></div>` : nothing}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) { const c = p.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); } }}>
-        <div class="dialog picker" role="dialog" aria-modal="true" style=${((sz) => sz ? `width:${sz.w}px;height:${sz.h}px` : "")(pickerSize())}>
+        <div class="dialog picker" role="dialog" aria-modal="true" style=${sizeStyle("picker")}>
           <corestone-picker .dialog=${p}></corestone-picker>
           <div class="resize-grip" data-test="picker-resize" title="Drag to resize, double-click to reset" @pointerdown=${this.startResize} @dblclick=${this.resetSize}></div></div></div>` : nothing}`;
   }
@@ -143,7 +149,7 @@ export class Dialogs extends LitElement {
   private confirm(d: Dialog) {
     return html`<h2>${d.title as string}</h2>
       <p>${d.text as string}</p>
-      ${d.body ?? nothing}
+      ${d.body ? html`<div class="dialog-body">${d.body}</div>` : nothing}
       <div class="foot"><button class="btn" data-test="dialog-cancel" @click=${() => this.dismiss()}>Cancel</button>
       ${d.altLabel ? html`<button class="btn" data-test="dialog-alt" @click=${() => { store.set({ dialog: null }); (d.onAlt as () => void)(); }}>${d.altLabel as string}</button>` : nothing}
       ${d.noConfirm ? nothing : html`<button class="btn ${(d.danger as boolean) ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => { store.set({ dialog: null }); (d.onConfirm as () => void)(); }}>${(d.confirmLabel as string) ?? "OK"}</button>`}</div>`;

@@ -336,6 +336,10 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }
+/* A dialog opened with resizable: dragged by its corner grip, its body scrolls. */
+.dialog.resizable { position: relative; display: flex; flex-direction: column; min-width: 360px; min-height: 220px; max-width: 96vw; max-height: 92vh; overflow: hidden; }
+.dialog.resizable .dialog-body { flex: 1; min-height: 0; overflow: auto; }
+table.conflict-table td { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The artifact picker: resizable from its corner; the result list takes the extra room. */
 .dialog.picker { position: relative; display: flex; flex-direction: column; height: min(560px, 86vh); min-width: 360px; min-height: 260px; max-width: 96vw; max-height: 92vh; overflow: hidden; }
 .dialog.picker corestone-picker { display: flex; flex-direction: column; flex: 1; min-height: 0; }
