@@ -144,6 +144,16 @@ export interface VersionView extends View {
   endpoints?: { source: Summary | null; target: Summary | null };
   /** What a comment was on, as it was then; a link comes with its endpoints and role name. */
   subject?: { meta: Summary; source?: Summary | null; target?: Summary | null; role?: string };
+  /** What this version's commit changed, compared with just before it. */
+  change?: VersionChange;
+}
+
+export interface VersionChange {
+  created?: boolean;
+  changed: string[];  // title, hid, text, …, fields.<id>, workflows.<id>
+  added: string[];    // links and comments that came to point here
+  removedLinks?: number;
+  removedComments?: number;
 }
 
 export interface FolderInfo { name: string; path: string; artifacts: number; direct: number; hasConfig: boolean }

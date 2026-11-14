@@ -43,6 +43,8 @@ export class FieldEditor extends LitElement {
   @state() private suggestionQuery = "";
   /** The field is stored but the type does not define it: shown read-only, may be removed. */
   @property({ type: Boolean }) undeclared = false;
+  /** In a historic version: the change shown modified this field. */
+  @property({ type: Boolean }) changed = false;
   @state() private used: string[] = [];
   @state() private globalUsed: string[] = [];
   private usedKey = "";
@@ -95,8 +97,8 @@ export class FieldEditor extends LitElement {
 
   override render() {
     const f = this.field;
-    return html`<div class="field ${this.disabled ? "locked" : ""}" data-field=${f.id}>
-      <label for=${"f-" + f.id}>${f.name || f.id}${f.required ? html`<span class="req" title="required">*</span>` : nothing}</label>
+    return html`<div class="field ${this.disabled ? "locked" : ""} ${this.changed ? "changed" : ""}" data-field=${f.id}>
+      <label for=${"f-" + f.id} title=${this.changed ? "Changed in this version" : nothing}>${f.name || f.id}${f.required ? html`<span class="req" title="required">*</span>` : nothing}</label>
       <div class="value">
         ${this.input()}
         ${f.description ? html`<div class="help">${f.description}</div>` : nothing}

@@ -40,7 +40,7 @@ test("the history opens read-only historic versions, also across a move", async 
   await expect(page.locator("#sec-relationships .actions button")).toHaveCount(0);
   await expect(page.locator(".workflow select")).toHaveCount(0);
   await expect(page.locator("[data-test=comment-text]")).toHaveCount(0);
-  await expect(page.locator("#sec-history [data-test=history-shown]")).toHaveCount(1);
+  await expect(page.locator("#sec-history .history-row.shown")).toHaveCount(1);
   await expect(page.locator("[data-test=title]")).not.toBeEditable();
   await expect(page.locator("[data-test=hid]")).not.toBeEditable();
   await expect(page.locator("#sec-fields input, #sec-fields textarea").first()).not.toBeEditable();
@@ -105,6 +105,18 @@ test("a version shows the links and comments of its time, the other side as it w
   await expect(page.locator("#sec-relationships")).toContainText(`Old name ${id}`);
   await expect(page.locator("#sec-relationships")).not.toContainText(`New name ${id}`);
   await expect(page.locator("#sec-comments")).toContainText(`Said then ${id}`);
+  await expect(page.locator("[data-test=title]")).toHaveClass(/changed/);
+  await expect(page.locator("#sec-relationships .added")).toHaveCount(0);
+
+  // What a commit changed is marked: added items, removed counts.
+  await rows.nth(3).locator("[data-test=history-version]").click();
+  await expect(page.locator("#sec-comments .added")).toContainText(`Said then ${id}`);
+  await expect(page.locator("[data-test=title]")).not.toHaveClass(/changed/);
+  await rows.nth(0).locator("[data-test=history-version]").click();
+  await expect(page.locator("#sec-relationships [data-test=change-badge]")).toHaveText("1 link removed");
+  await expect(page.locator("[data-test=toggle-relationships]")).toHaveAttribute("aria-expanded", "true"); // opened although empty
+  await rows.nth(2).locator("[data-test=history-version]").click();
+  await expect(page.locator("[data-test=title]")).toHaveValue(`Subject 2 ${id}`);
 
   // The other side opens as it was at the same commit.
   await page.locator("#sec-relationships").getByRole("link", { name: new RegExp(`Old name ${id}`) }).click();
