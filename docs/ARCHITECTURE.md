@@ -113,8 +113,9 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   display name outgoing, the `reverseName` incoming), comments, documents embedding an entry, history across moves,
   tree, search, table query and row details (with related endpoints and subjects), status.
 - `version.go` — historic versions (blob viewed at a commit): history pages, the item and its
-  base chain, attachments, links, comments, endpoints and subject as they were then; configuration
-  and permissions are today's.
+  base chain, attachments, links, comments, endpoints and subject as they were then, plus what that
+  commit changed (properties, added links/comments, counts of removed ones); configuration and
+  permissions are today's.
 
 ## internal/httpapi — transport
 
@@ -139,7 +140,7 @@ batches of 50 with a virtual window; a header click promotes that column to the 
 overview resolve row schemas and persist its layout. The picker loads all fields for each fetched
 batch so selection callbacks can use the complete summary (including document entry-card fields).
 `fields` (one input per field type), `detail` (entry sections; a historic version shows what
-surrounded it then, and its references open the other artifacts as of the same commit), `document`
+surrounded it then with the commit's changes highlighted, and its references open the other artifacts as of the same commit), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
 in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
 `node --test` (`npm run test:unit`).

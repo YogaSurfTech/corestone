@@ -250,6 +250,28 @@ func TestVersionRelations(t *testing.T) {
 			t.Fatalf("%s: surroundings now %+v %+v %v", label, ver.Relationships, ver.Comments, err)
 		}
 
+		// What each commit changed: the title, a link or comment added or removed, the creation.
+		if ver.Change.RemovedComments != 1 || ver.Change.RemovedLinks != 0 || len(ver.Change.Changed) != 0 {
+			t.Fatalf("%s: comment deletion %+v", label, ver.Change)
+		}
+		changes := map[int]func(c *VersionChange) bool{
+			1: func(c *VersionChange) bool { return c.RemovedLinks == 1 && c.RemovedComments == 0 },
+			2: func(c *VersionChange) bool {
+				return len(c.Changed) == 1 && c.Changed[0] == "title" && len(c.Added) == 0 && !c.Created
+			},
+			3: func(c *VersionChange) bool {
+				return len(c.Added) == 1 && c.Added[0] == cm.Meta.GUID && len(c.Changed) == 0
+			},
+			4: func(c *VersionChange) bool { return len(c.Added) == 1 && c.Added[0] == l.Meta.GUID },
+			5: func(c *VersionChange) bool { return c.Created },
+		}
+		for i, ok := range changes {
+			cv, err := f.Version(ctx, a.Meta.GUID, h[i].Blob, h[i].SHA)
+			if err != nil || !ok(cv.Change) {
+				t.Fatalf("%s: change of history entry %d %+v %v", label, i, cv.Change, err)
+			}
+		}
+
 		// The new endpoint has the reassignment in its history and the link from then on.
 		ch, err := f.HistoryPage(ctx, c.Meta.GUID, 0, "")
 		if err != nil || len(ch.History) != 2 || ch.History[0].Subject != "reassign" {

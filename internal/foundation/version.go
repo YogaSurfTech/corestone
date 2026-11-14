@@ -128,6 +128,21 @@ type Version struct {
 	// exist then).
 	Endpoints *VersionEndpoints `json:"endpoints,omitempty"`
 	Subject   *VersionSubject   `json:"subject,omitempty"`
+	Change    *VersionChange    `json:"change"`
+}
+
+// VersionChange is what the version's commit changed about the artifact,
+// compared with the state just before it.
+type VersionChange struct {
+	Created bool `json:"created,omitempty"` // the commit created the artifact
+	// Changed lists the stored properties that changed: top-level names
+	// (title, hid, text, …), fields and workflows as fields.<id> and
+	// workflows.<id>.
+	Changed []string `json:"changed"`
+	// Added are the links and comments that came to point to the artifact.
+	Added           []string `json:"added"`
+	RemovedLinks    int      `json:"removedLinks,omitempty"`
+	RemovedComments int      `json:"removedComments,omitempty"`
 }
 
 // VersionEndpoints are a link version's endpoints as they were then.
@@ -241,7 +256,7 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 	t := log[0].Time
 	meta.ModifiedAt = &t
 	v := &Version{View: View{Meta: meta, Data: doc, ETag: blob}, Commit: log[0], Exact: pt.exact,
-		Workflows: []WorkflowState{}, Comments: []CommentView{},
+		Workflows: []WorkflowState{}, Comments: []CommentView{}, Change: &VersionChange{Changed: []string{}, Added: []string{}},
 		Relationships: &Relationships{Incoming: []LinkView{}, Outgoing: []LinkView{}, AsSource: []*model.Schema{}, AsTarget: []*model.Schema{}}}
 
 	cfg, err := f.DB.Config(ctx)
@@ -262,6 +277,9 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		if v.Attachments, err = f.historicAttachments(ctx, sc, pt.commit, path.Dir(file.Path)); err != nil {
 			return nil, err
 		}
+	}
+	if err := f.ownChange(ctx, v.Change, guid, doc, blob, pt.seq); err != nil {
+		return nil, err
 	}
 	lookup := f.historicLookup(ctx, sc, pt.seq)
 	if v.Overlay, err = historicOverlay(a, lookup); err != nil {
@@ -293,6 +311,73 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		return nil, err
 	}
 	return v, nil
+}
+
+// ownChange compares the artifact's file with its state just before seq.
+func (f *Foundation) ownChange(ctx context.Context, c *VersionChange, guid string, doc *ojson.Object, blob string, seq int64) error {
+	_, prev, ok, err := f.DB.FileAt(ctx, guid, seq-1)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		c.Created = true
+		return nil
+	}
+	if prev == blob {
+		return nil
+	}
+	data, err := f.Repo.ReadBlob(ctx, prev)
+	if err != nil {
+		return nil //nolint:nilerr // an unreadable predecessor shows no changes
+	}
+	old, err := ojson.ParseObject(data)
+	if err != nil {
+		return nil //nolint:nilerr // a malformed predecessor shows no changes
+	}
+	c.Changed = changedProperties(old, doc)
+	return nil
+}
+
+// changedProperties lists the properties that differ between two versions
+// of a file; fields and workflows are compared one by one.
+func changedProperties(old, cur *ojson.Object) []string {
+	out := []string{}
+	diff := func(prefix string, a, b *ojson.Object) {
+		seen := map[string]bool{}
+		for _, o := range []*ojson.Object{a, b} {
+			if o == nil {
+				continue
+			}
+			for _, k := range o.Keys() {
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+				var x, y any
+				var okA, okB bool
+				if a != nil {
+					x, okA = a.Get(k)
+				}
+				if b != nil {
+					y, okB = b.Get(k)
+				}
+				if okA != okB || !ojson.Equal(x, y) {
+					out = append(out, prefix+k)
+				}
+			}
+		}
+	}
+	top := func(o *ojson.Object) *ojson.Object {
+		t := o.Clone()
+		t.Delete("fields")
+		t.Delete("workflows")
+		return t
+	}
+	diff("", top(old), top(cur))
+	diff("fields.", old.Object("fields"), cur.Object("fields"))
+	diff("workflows.", old.Object("workflows"), cur.Object("workflows"))
+	sort.Strings(out)
+	return out
 }
 
 // historicAttachments lists the files in an artifact directory at a commit.
@@ -369,6 +454,34 @@ func (f *Foundation) historicSurroundings(ctx context.Context, sc *scanner.Scann
 	then, err := f.summariesAt(ctx, sc, related, seq)
 	if err != nil {
 		return err
+	}
+	before, err := f.summariesAt(ctx, sc, related, seq-1)
+	if err != nil {
+		return err
+	}
+	// pointsHere says whether a link or comment was one of the artifact's then.
+	pointsHere := func(h *historicItem) bool {
+		if h == nil {
+			return false
+		}
+		switch h.meta.Kind {
+		case model.KindLink:
+			return meta.Kind != model.KindComment && (h.meta.Source == on || h.meta.Target == on)
+		case model.KindComment:
+			return h.meta.Subject == on
+		}
+		return false
+	}
+	for _, g := range related {
+		now, was := pointsHere(then[g]), pointsHere(before[g])
+		switch {
+		case now && !was:
+			v.Change.Added = append(v.Change.Added, g)
+		case was && !now && before[g].meta.Kind == model.KindLink:
+			v.Change.RemovedLinks++
+		case was && !now:
+			v.Change.RemovedComments++
+		}
 	}
 	var others []string
 	for _, g := range related {
