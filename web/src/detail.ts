@@ -42,6 +42,43 @@ function readOpenPrefs(): Record<string, boolean> {
   try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "{}") ?? {}; } catch { return {}; }
 }
 
+/** The height the user dragged a resizable area to (per name), if any. */
+const heightKey = (name: string) => `corestone.height.${name}`;
+function savedHeight(name: string): string {
+  try { const h = Number(localStorage.getItem(heightKey(name))); return h > 0 ? `height:${h}px` : ""; } catch { return ""; }
+}
+
+/** Drags the bottom edge of the area before the grip; double-click goes back to the default. */
+function heightGrip(name: string) {
+  const start = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    const area = grip.previousElementSibling as HTMLElement;
+    const h0 = area.getBoundingClientRect().height, y0 = e.clientY;
+    let h = h0;
+    grip.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => { h = Math.round(Math.max(60, h0 + m.clientY - y0)); area.style.height = `${h}px`; area.style.maxHeight = "none"; };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      try { localStorage.setItem(heightKey(name), String(h)); } catch { /* storage unavailable */ }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  };
+  const reset = (e: Event) => {
+    const area = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;
+    area.style.height = area.style.maxHeight = "";
+    try { localStorage.removeItem(heightKey(name)); } catch { /* storage unavailable */ }
+  };
+  return html`<div class="height-grip" data-test=${`${name}-resize`} title="Drag to resize, double-click to reset"
+    @pointerdown=${start} @dblclick=${reset}></div>`;
+}
+
+
 @customElement("corestone-detail")
 export class Detail extends LitElement {
   @property() guid = "";
@@ -1090,10 +1127,11 @@ export class Detail extends LitElement {
         : same ? html`<div class="muted small">This already is the base; nothing changes.</div>` : html`
         ${!c.to ? html`<label class="keep small"><input type="checkbox" data-test="keep-values" .checked=${c.keep}
           @change=${(e: Event) => { this.baseChange = { ...c, keep: (e.target as HTMLInputElement).checked }; }}> Keep the inherited values in this entry</label>` : nothing}
-        ${changed.length ? html`<table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
+        ${changed.length ? html`<div class="resizable-area"><div class="base-diff-wrap" data-test="base-diff-wrap" style=${savedHeight("baseDiff") ? savedHeight("baseDiff") + ";max-height:none" : ""}>
+          <table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
           <tbody>${changed.map((r) => html`<tr data-field=${r.id}><td>${r.name}</td>
             <td>${show(r.before)} ${r.beforeFrom ? html`<small class="muted">from ${r.beforeFrom}</small>` : nothing}</td>
-            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table>`
+            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table></div>${heightGrip("baseDiff")}</div>`
           : html`<div class="muted small" data-test="base-no-change">No effective value changes.</div>`}
         <div class="muted small">${ownCount === 1 ? "1 value set in this entry stays" : `${ownCount} values set in this entry stay`} as ${ownCount === 1 ? "it is" : "they are"}.${
           overlays ? ` ${overlays === 1 ? "Its overlay inherits" : `Its ${overlays} overlays inherit`} the new values too.` : ""}</div>`}
