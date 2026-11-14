@@ -125,6 +125,7 @@ func (f *Foundation) Watch(ctx context.Context, every time.Duration) {
 // changeset is everything one logical operation wants to publish.
 type changeset struct {
 	subject  string
+	note     string // short form for a combined commit subject
 	trailers [][2]string
 	ops      []gitx.Op
 	event    Event
@@ -156,6 +157,18 @@ type txn struct {
 	// Artifacts created earlier in this transaction: load and exists find
 	// them, so a write can create one artifact and reference it in another.
 	created map[string]*loaded
+	// Links deleted and created earlier in this transaction, which the
+	// projection does not know yet: duplicate and cardinality checks count them.
+	droppedLinks map[string]*model.Artifact
+	newLinks     []*model.Artifact
+}
+
+// put stages a changeset's file operations, so later steps of the same
+// transaction read the files as they will be committed.
+func (t *txn) put(cs *changeset) {
+	for _, op := range cs.ops {
+		t.ops[op.Path] = op
+	}
 }
 
 // stage makes an artifact created in this transaction visible to load and exists.
@@ -314,6 +327,12 @@ func (t *txn) load(guid string) (*loaded, error) {
 		return nil, err
 	}
 	data, sha, err := t.f.Repo.ReadPath(t.ctx, t.head, loc.FilePath)
+	if op, ok := t.ops[loc.FilePath]; ok {
+		if op.Delete {
+			return nil, fmt.Errorf("%w: %s is deleted in this change", model.ErrNotFound, guid)
+		}
+		data, sha, err = op.Content, gitx.BlobSHA(op.Content), nil
+	}
 	if errors.Is(err, gitx.ErrNotFound) {
 		return nil, fmt.Errorf("%w: projection and repository disagree about %s", model.ErrConflict, guid)
 	}

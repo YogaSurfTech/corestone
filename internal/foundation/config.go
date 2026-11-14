@@ -199,26 +199,31 @@ func (f *Foundation) PutAttachment(ctx context.Context, guid, name string, conte
 	if err := ValidateAttachmentName(name); err != nil {
 		return err
 	}
-	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		cur, err := t.load(guid)
-		if err != nil {
-			return nil, err
-		}
-		if !cur.Kind.IsFolderKind() {
-			return nil, model.Invalid("only entries and documents can hold attachments")
-		}
-		path := model.ArtifactDir(cur.Loc.Folder, guid) + "/" + name
-		if old, _, err := t.f.Repo.ReadPath(t.ctx, t.head, path); err == nil && bytes.Equal(old, content) {
-			return &changeset{}, nil
-		}
-		cs := &changeset{subject: fmt.Sprintf("Attachment %s of %s stored", name, label(cur.Artifact))}
-		cs.trailer("Corestone-Op", "attachment")
-		cs.trailer("Corestone-Guid", guid)
-		cs.ops = []gitx.Op{{Path: path, Content: content}}
-		cs.event = Event{Op: "attachment", GUID: guid, Kind: string(cur.Kind)}
-		return cs, nil
-	})
+	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.putFile(guid, name, content) })
 	return err
+}
+
+func (t *txn) putFile(guid, name string, content []byte) (*changeset, error) {
+	if err := ValidateAttachmentName(name); err != nil {
+		return nil, err
+	}
+	cur, err := t.load(guid)
+	if err != nil {
+		return nil, err
+	}
+	if !cur.Kind.IsFolderKind() {
+		return nil, model.Invalid("only entries and documents can hold attachments")
+	}
+	path := model.ArtifactDir(cur.Loc.Folder, guid) + "/" + name
+	if old, _, err := t.f.Repo.ReadPath(t.ctx, t.head, path); err == nil && bytes.Equal(old, content) {
+		return &changeset{}, nil
+	}
+	cs := &changeset{subject: fmt.Sprintf("Attachment %s of %s stored", name, label(cur.Artifact))}
+	cs.trailer("Corestone-Op", "attachment")
+	cs.trailer("Corestone-Guid", guid)
+	cs.ops = []gitx.Op{{Path: path, Content: content}}
+	cs.event = Event{Op: "attachment", GUID: guid, Kind: string(cur.Kind)}
+	return cs, nil
 }
 
 // DeleteAttachment removes a file from an artifact's GUID directory.
@@ -226,26 +231,31 @@ func (f *Foundation) DeleteAttachment(ctx context.Context, guid, name string) er
 	if err := ValidateAttachmentName(name); err != nil {
 		return err
 	}
-	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		cur, err := t.load(guid)
-		if err != nil {
-			return nil, err
-		}
-		path := model.ArtifactDir(cur.Loc.Folder, guid) + "/" + name
-		if _, _, err := t.f.Repo.ReadPath(t.ctx, t.head, path); err != nil {
-			if errors.Is(err, gitx.ErrNotFound) {
-				return nil, fmt.Errorf("%w: attachment %s", model.ErrNotFound, name)
-			}
-			return nil, err
-		}
-		cs := &changeset{subject: fmt.Sprintf("Attachment %s of %s removed", name, label(cur.Artifact))}
-		cs.trailer("Corestone-Op", "attachment")
-		cs.trailer("Corestone-Guid", guid)
-		cs.ops = []gitx.Op{{Path: path, Delete: true}}
-		cs.event = Event{Op: "attachment", GUID: guid, Kind: string(cur.Kind)}
-		return cs, nil
-	})
+	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.deleteFile(guid, name) })
 	return err
+}
+
+func (t *txn) deleteFile(guid, name string) (*changeset, error) {
+	if err := ValidateAttachmentName(name); err != nil {
+		return nil, err
+	}
+	cur, err := t.load(guid)
+	if err != nil {
+		return nil, err
+	}
+	path := model.ArtifactDir(cur.Loc.Folder, guid) + "/" + name
+	if _, _, err := t.f.Repo.ReadPath(t.ctx, t.head, path); err != nil {
+		if errors.Is(err, gitx.ErrNotFound) {
+			return nil, fmt.Errorf("%w: attachment %s", model.ErrNotFound, name)
+		}
+		return nil, err
+	}
+	cs := &changeset{subject: fmt.Sprintf("Attachment %s of %s removed", name, label(cur.Artifact))}
+	cs.trailer("Corestone-Op", "attachment")
+	cs.trailer("Corestone-Guid", guid)
+	cs.ops = []gitx.Op{{Path: path, Delete: true}}
+	cs.event = Event{Op: "attachment", GUID: guid, Kind: string(cur.Kind)}
+	return cs, nil
 }
 
 // Attachment reads a file from an artifact's GUID directory.

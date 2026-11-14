@@ -15,90 +15,98 @@ import (
 // type, source, target, fields. When a link schema for the type is visible
 // from the source artifact its endpoint types and cardinality are enforced.
 func (f *Foundation) CreateLink(ctx context.Context, req *ojson.Object) (*View, error) {
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		typ := strings.TrimSpace(req.String("type"))
-		src, err := model.NormalizeGUID(req.String("source"))
-		if err != nil {
-			return nil, fmt.Errorf("source: %w", err)
-		}
-		tgt, err := model.NormalizeGUID(req.String("target"))
-		if err != nil {
-			return nil, fmt.Errorf("target: %w", err)
-		}
-		if src == tgt {
-			return nil, model.Invalid("a link cannot connect an artifact to itself")
-		}
-		srcLoc, err := t.exists(src)
-		if err != nil {
-			return nil, err
-		}
-		tgtLoc, err := t.exists(tgt)
-		if err != nil {
-			return nil, err
-		}
-		guid := model.NewGUID()
-		doc := model.NewDoc(model.KindLink, guid, typ)
-		doc.Set("source", src)
-		doc.Set("target", tgt)
-		fields := req.Object("fields")
-		if fields == nil {
-			fields = ojson.NewObject()
-		}
-		doc.Set("fields", fields.Clone())
-		a, err := model.ArtifactFromDoc(doc, model.KindLink)
-		if err != nil {
-			return nil, err
-		}
-		if err := a.Validate(); err != nil {
-			return nil, err
-		}
-		if dup, err := t.f.DB.FindLink(t.ctx, typ, src, tgt); err != nil {
-			return nil, err
-		} else if dup != "" {
-			return nil, fmt.Errorf("%w: link %s already exists (%s)", model.ErrConflict, typ, dup)
-		}
-		eff, err := t.effective(a, srcLoc.Folder)
-		if err != nil {
-			return nil, err
-		}
-		if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Kind, srcLoc.Type) {
-			return nil, model.Invalid("link type %q does not allow %q as source", typ, srcLoc.Type)
-		}
-		if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Kind, tgtLoc.Type) {
-			return nil, model.Invalid("link type %q does not allow %q as target", typ, tgtLoc.Type)
-		}
-		if err := t.checkCardinality(eff, typ, src, tgt); err != nil {
-			return nil, err
-		}
-		if err := t.validateTyped(a, srcLoc.Folder, nil); err != nil {
-			return nil, err
-		}
-		scope, err := t.f.DB.NearestScope(t.ctx, srcLoc.Folder)
-		if err != nil {
-			return nil, err
-		}
-		path := model.MetadataPath(scope, scanner.ConfigLinks, guid)
-		content := encode(doc, ojson.DefaultStyle)
-		srcL, tgtL := src, tgt
-		if s, err := t.load(src); err == nil {
-			srcL = label(s.Artifact)
-		}
-		if s, err := t.load(tgt); err == nil {
-			tgtL = label(s.Artifact)
-		}
-		cs := &changeset{subject: fmt.Sprintf("Link %s from %s to %s created", typ, srcL, tgtL)}
-		cs.trailer("Corestone-Op", "create")
-		cs.trailer("Corestone-Guid", guid)
-		cs.trailer("Corestone-Kind", "link")
-		cs.ops = []gitx.Op{{Path: path, Content: content}}
-		cs.event = Event{Op: "create", GUID: guid, Kind: "link", Subject: src}
-		cs.result = &View{Meta: summarize(a, scope, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-		return cs, nil
-	})
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.createLink(req) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
+}
+
+func (t *txn) createLink(req *ojson.Object) (*changeset, error) {
+	typ := strings.TrimSpace(req.String("type"))
+	src, err := model.NormalizeGUID(req.String("source"))
+	if err != nil {
+		return nil, fmt.Errorf("source: %w", err)
+	}
+	tgt, err := model.NormalizeGUID(req.String("target"))
+	if err != nil {
+		return nil, fmt.Errorf("target: %w", err)
+	}
+	if src == tgt {
+		return nil, model.Invalid("a link cannot connect an artifact to itself")
+	}
+	srcLoc, err := t.exists(src)
+	if err != nil {
+		return nil, err
+	}
+	tgtLoc, err := t.exists(tgt)
+	if err != nil {
+		return nil, err
+	}
+	guid := model.NewGUID()
+	doc := model.NewDoc(model.KindLink, guid, typ)
+	doc.Set("source", src)
+	doc.Set("target", tgt)
+	fields := req.Object("fields")
+	if fields == nil {
+		fields = ojson.NewObject()
+	}
+	doc.Set("fields", fields.Clone())
+	a, err := model.ArtifactFromDoc(doc, model.KindLink)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
+	if dup, err := t.f.DB.FindLink(t.ctx, typ, src, tgt); err != nil {
+		return nil, err
+	} else if dup != "" && t.droppedLinks[dup] == nil {
+		return nil, fmt.Errorf("%w: link %s already exists (%s)", model.ErrConflict, typ, dup)
+	}
+	for _, l := range t.newLinks {
+		if l.Type == typ && l.Source == src && l.Target == tgt {
+			return nil, fmt.Errorf("%w: link %s is added twice", model.ErrConflict, typ)
+		}
+	}
+	eff, err := t.effective(a, srcLoc.Folder)
+	if err != nil {
+		return nil, err
+	}
+	if !model.AllowsEndpoint(eff.SourceTypes, srcLoc.Kind, srcLoc.Type) {
+		return nil, model.Invalid("link type %q does not allow %q as source", typ, srcLoc.Type)
+	}
+	if !model.AllowsEndpoint(eff.TargetTypes, tgtLoc.Kind, tgtLoc.Type) {
+		return nil, model.Invalid("link type %q does not allow %q as target", typ, tgtLoc.Type)
+	}
+	if err := t.checkCardinality(eff, typ, src, tgt); err != nil {
+		return nil, err
+	}
+	if err := t.validateTyped(a, srcLoc.Folder, nil); err != nil {
+		return nil, err
+	}
+	scope, err := t.f.DB.NearestScope(t.ctx, srcLoc.Folder)
+	if err != nil {
+		return nil, err
+	}
+	path := model.MetadataPath(scope, scanner.ConfigLinks, guid)
+	content := encode(doc, ojson.DefaultStyle)
+	srcL, tgtL := src, tgt
+	if s, err := t.load(src); err == nil {
+		srcL = label(s.Artifact)
+	}
+	if s, err := t.load(tgt); err == nil {
+		tgtL = label(s.Artifact)
+	}
+	cs := &changeset{subject: fmt.Sprintf("Link %s from %s to %s created", typ, srcL, tgtL)}
+	cs.trailer("Corestone-Op", "create")
+	cs.trailer("Corestone-Guid", guid)
+	cs.trailer("Corestone-Kind", "link")
+	cs.ops = []gitx.Op{{Path: path, Content: content}}
+	cs.event = Event{Op: "create", GUID: guid, Kind: "link", Subject: src}
+	cs.result = &View{Meta: summarize(a, scope, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
+	t.newLinks = append(t.newLinks, a)
+	return cs, nil
 }
 
 func (t *txn) checkCardinality(eff *model.Schema, typ, src, tgt string) error {
@@ -109,6 +117,23 @@ func (t *txn) checkCardinality(eff *model.Schema, typ, src, tgt string) error {
 	toTgt, err := t.f.DB.CountLinks(t.ctx, typ, "", tgt)
 	if err != nil {
 		return err
+	}
+	// The projection does not see links deleted or created earlier in this transaction.
+	for _, l := range t.droppedLinks {
+		if l.Type == typ && l.Source == src {
+			fromSrc--
+		}
+		if l.Type == typ && l.Target == tgt {
+			toTgt--
+		}
+	}
+	for _, l := range t.newLinks {
+		if l.Type == typ && l.Source == src {
+			fromSrc++
+		}
+		if l.Type == typ && l.Target == tgt {
+			toTgt++
+		}
 	}
 	switch eff.Cardinality {
 	case model.OneToOne:
@@ -174,140 +199,145 @@ func (t *txn) validateTyped(a *model.Artifact, folder string, prev *ojson.Object
 // CreateComment attaches a comment to any artifact. Request properties:
 // subject, parent, text, author, type (default "comment"), anchor, fields.
 func (f *Foundation) CreateComment(ctx context.Context, req *ojson.Object) (*View, error) {
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		subject, err := model.NormalizeGUID(req.String("subject"))
-		if err != nil {
-			return nil, fmt.Errorf("subject: %w", err)
-		}
-		subjLoc, err := t.exists(subject)
-		if err != nil {
-			return nil, err
-		}
-		typ := strings.TrimSpace(req.String("type"))
-		if typ == "" {
-			typ = "comment"
-		}
-		guid := model.NewGUID()
-		doc := model.NewDoc(model.KindComment, guid, typ)
-		doc.Set("subject", subject)
-		if p := req.String("parent"); p != "" {
-			parent, err := model.NormalizeGUID(p)
-			if err != nil {
-				return nil, fmt.Errorf("parent: %w", err)
-			}
-			pl, err := t.load(parent)
-			if err != nil {
-				return nil, err
-			}
-			if pl.Kind != model.KindComment || pl.Subject != subject {
-				return nil, model.Invalid("parent must be a comment on the same subject")
-			}
-			doc.Set("parent", parent)
-		}
-		author := strings.TrimSpace(req.String("author"))
-		if author == "" {
-			author = "anonymous"
-		}
-		doc.Set("author", author)
-		doc.Set("created", model.Now())
-		doc.Set("text", strings.TrimSpace(req.String("text")))
-		if anchor := req.Object("anchor"); anchor != nil {
-			doc.Set("anchor", anchor.Clone())
-		}
-		if fields := req.Object("fields"); fields != nil && fields.Len() > 0 {
-			doc.Set("fields", fields.Clone())
-		}
-		a, err := model.ArtifactFromDoc(doc, model.KindComment)
-		if err != nil {
-			return nil, err
-		}
-		if err := a.Validate(); err != nil {
-			return nil, err
-		}
-		if err := t.validateTyped(a, subjLoc.Folder, nil); err != nil {
-			return nil, err
-		}
-		scope, err := t.f.DB.NearestScope(t.ctx, subjLoc.Folder)
-		if err != nil {
-			return nil, err
-		}
-		path := model.MetadataPath(scope, scanner.ConfigComments, guid)
-		content := encode(doc, ojson.DefaultStyle)
-		subjL := subject
-		if s, err := t.load(subject); err == nil {
-			subjL = label(s.Artifact)
-		}
-		cs := &changeset{subject: fmt.Sprintf("Comment added to %s", subjL)}
-		cs.trailer("Corestone-Op", "create")
-		cs.trailer("Corestone-Guid", guid)
-		cs.trailer("Corestone-Kind", "comment")
-		cs.ops = []gitx.Op{{Path: path, Content: content}}
-		cs.event = Event{Op: "create", GUID: guid, Kind: "comment", Subject: subject}
-		cs.result = &View{Meta: summarize(a, scope, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-		return cs, nil
-	})
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.createComment(req) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
 }
 
-// Transition moves one of an artifact's workflows to a new state (by
-// target state id or by transition id).
-func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch string) (*View, error) {
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		cur, err := t.load(guid)
+func (t *txn) createComment(req *ojson.Object) (*changeset, error) {
+	subject, err := model.NormalizeGUID(req.String("subject"))
+	if err != nil {
+		return nil, fmt.Errorf("subject: %w", err)
+	}
+	subjLoc, err := t.exists(subject)
+	if err != nil {
+		return nil, err
+	}
+	typ := strings.TrimSpace(req.String("type"))
+	if typ == "" {
+		typ = "comment"
+	}
+	guid := model.NewGUID()
+	doc := model.NewDoc(model.KindComment, guid, typ)
+	doc.Set("subject", subject)
+	if p := req.String("parent"); p != "" {
+		parent, err := model.NormalizeGUID(p)
+		if err != nil {
+			return nil, fmt.Errorf("parent: %w", err)
+		}
+		pl, err := t.load(parent)
 		if err != nil {
 			return nil, err
 		}
-		if err := checkETag(ifMatch, cur.ETag); err != nil {
-			return nil, err
+		if pl.Kind != model.KindComment || pl.Subject != subject {
+			return nil, model.Invalid("parent must be a comment on the same subject")
 		}
-		folder := t.typeFolder(cur)
-		eff := t.cfg.Effective(cur.Type, folder)
-		if eff == nil {
-			return nil, model.Invalid("type %q is not defined in %s, so it has no workflows", cur.Type, folderName(folder))
-		}
-		assigned := false
-		for _, w := range eff.AllWorkflows() {
-			if w == workflow {
-				assigned = true
-			}
-		}
-		if !assigned {
-			return nil, model.Invalid("workflow %q is not assigned to type %q", workflow, cur.Type)
-		}
-		def := t.cfg.Workflow(cur.Type, workflow, folder)
-		if def == nil {
-			return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(folder))
-		}
-		from, ok := cur.Workflows[workflow]
-		if !ok || from == "" {
-			from = def.Initial
-		}
-		tr, ok := def.Find(from, to)
-		if !ok {
-			return nil, model.Invalid("no transition from %q to %q in workflow %q", from, to, workflow)
-		}
-		doc := cur.Doc.Clone()
-		a, _ := model.ArtifactFromDoc(doc, cur.Kind)
-		a.SetWorkflowState(workflow, tr.To)
-		content := encode(doc, cur.Style)
-		view := &View{Meta: summarize(a, cur.Loc.Folder, cur.Loc.FilePath, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-		if from == tr.To {
-			return &changeset{result: view}, nil
-		}
-		cs := &changeset{subject: fmt.Sprintf("Workflow %s: %s transitioned from %s to %s", workflow, label(cur.Artifact), from, tr.To)}
-		cs.trailer("Corestone-Op", "transition")
-		cs.trailer("Corestone-Guid", guid)
-		cs.trailer("Corestone-Workflow", workflow)
-		cs.ops = []gitx.Op{{Path: cur.Loc.FilePath, Content: content}}
-		cs.event = Event{Op: "transition", GUID: guid, Kind: string(cur.Kind)}
-		cs.result = view
-		return cs, nil
-	})
+		doc.Set("parent", parent)
+	}
+	author := strings.TrimSpace(req.String("author"))
+	if author == "" {
+		author = "anonymous"
+	}
+	doc.Set("author", author)
+	doc.Set("created", model.Now())
+	doc.Set("text", strings.TrimSpace(req.String("text")))
+	if anchor := req.Object("anchor"); anchor != nil {
+		doc.Set("anchor", anchor.Clone())
+	}
+	if fields := req.Object("fields"); fields != nil && fields.Len() > 0 {
+		doc.Set("fields", fields.Clone())
+	}
+	a, err := model.ArtifactFromDoc(doc, model.KindComment)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
+	if err := t.validateTyped(a, subjLoc.Folder, nil); err != nil {
+		return nil, err
+	}
+	scope, err := t.f.DB.NearestScope(t.ctx, subjLoc.Folder)
+	if err != nil {
+		return nil, err
+	}
+	path := model.MetadataPath(scope, scanner.ConfigComments, guid)
+	content := encode(doc, ojson.DefaultStyle)
+	subjL := subject
+	if s, err := t.load(subject); err == nil {
+		subjL = label(s.Artifact)
+	}
+	cs := &changeset{subject: fmt.Sprintf("Comment added to %s", subjL)}
+	cs.trailer("Corestone-Op", "create")
+	cs.trailer("Corestone-Guid", guid)
+	cs.trailer("Corestone-Kind", "comment")
+	cs.ops = []gitx.Op{{Path: path, Content: content}}
+	cs.event = Event{Op: "create", GUID: guid, Kind: "comment", Subject: subject}
+	cs.result = &View{Meta: summarize(a, scope, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
+	return cs, nil
+}
+
+// Transition moves one of an artifact's workflows to a new state (by
+// target state id or by transition id).
+func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch string) (*View, error) {
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.transition(guid, workflow, to, ifMatch) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
+}
+
+func (t *txn) transition(guid, workflow, to, ifMatch string) (*changeset, error) {
+	cur, err := t.load(guid)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkETag(ifMatch, cur.ETag); err != nil {
+		return nil, err
+	}
+	folder := t.typeFolder(cur)
+	eff := t.cfg.Effective(cur.Type, folder)
+	if eff == nil {
+		return nil, model.Invalid("type %q is not defined in %s, so it has no workflows", cur.Type, folderName(folder))
+	}
+	assigned := false
+	for _, w := range eff.AllWorkflows() {
+		if w == workflow {
+			assigned = true
+		}
+	}
+	if !assigned {
+		return nil, model.Invalid("workflow %q is not assigned to type %q", workflow, cur.Type)
+	}
+	def := t.cfg.Workflow(cur.Type, workflow, folder)
+	if def == nil {
+		return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(folder))
+	}
+	from, ok := cur.Workflows[workflow]
+	if !ok || from == "" {
+		from = def.Initial
+	}
+	tr, ok := def.Find(from, to)
+	if !ok {
+		return nil, model.Invalid("no transition from %q to %q in workflow %q", from, to, workflow)
+	}
+	doc := cur.Doc.Clone()
+	a, _ := model.ArtifactFromDoc(doc, cur.Kind)
+	a.SetWorkflowState(workflow, tr.To)
+	content := encode(doc, cur.Style)
+	view := &View{Meta: summarize(a, cur.Loc.Folder, cur.Loc.FilePath, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
+	if from == tr.To {
+		return &changeset{result: view}, nil
+	}
+	cs := &changeset{subject: fmt.Sprintf("Workflow %s: %s transitioned from %s to %s", workflow, label(cur.Artifact), from, tr.To)}
+	cs.trailer("Corestone-Op", "transition")
+	cs.trailer("Corestone-Guid", guid)
+	cs.trailer("Corestone-Workflow", workflow)
+	cs.note = fmt.Sprintf("%s %s -> %s", workflow, from, tr.To)
+	cs.ops = []gitx.Op{{Path: cur.Loc.FilePath, Content: content}}
+	cs.event = Event{Op: "transition", GUID: guid, Kind: string(cur.Kind)}
+	cs.result = view
+	return cs, nil
 }
