@@ -181,7 +181,11 @@ test("attachments: upload, list, use in an attachment field, open, delete", asyn
   await page.locator(".quicklinks a", { hasText: "Attachments" }).click();
   await expect(page.locator("#sec-attachments")).toContainText("Files stored in");
   await page.locator("#sec-attachments input[type=file]").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello attachment") });
-  await expect(page.locator(".toast.success")).toContainText("Attached notes.txt");
+  // the upload waits for Save
+  await expect(page.locator("#sec-attachments .attach-row.pending-add")).toContainText("notes.txt");
+  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("1 attachment added");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   const row = page.locator("#sec-attachments .attach-row");
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("notes.txt");
@@ -201,6 +205,8 @@ test("attachments: upload, list, use in an attachment field, open, delete", asyn
   await expect(page.locator("#sec-history .history-row", { hasText: "Attachment notes.txt" })).toHaveCount(1);
   // delete it: the field now shows it as missing
   await row.locator("button").click();
+  await expect(row).toHaveClass(/pending-remove/);
+  await page.locator("[data-test=save]").click();
   await expect(page.locator("#sec-attachments .attach-row")).toHaveCount(0);
   await expect(page.locator("[data-field=file] select option[selected]")).toContainText("missing");
   const after = await get<{ attachments: unknown[] }>(`/entries/${e.meta.guid}`);

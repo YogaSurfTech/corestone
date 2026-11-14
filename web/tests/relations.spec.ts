@@ -17,13 +17,21 @@ test("two independent workflows on one artifact, with diagram and rework", async
   const pub = page.locator(".workflow[data-workflow=publish]");
   await expect(dev.locator(".pill.state")).toHaveText("open");
   await expect(pub.locator(".pill.state")).toHaveText("draft");
+  // both transitions wait for Save and are published in one commit
   await pub.locator("select").selectOption("release");
-  await expect(pub.locator(".pill.state")).toHaveText("released");
+  await expect(pub.locator("[data-test=pending-state-publish]")).toHaveText("released");
   await expect(dev.locator(".pill.state")).toHaveText("open"); // untouched
   await dev.locator("select").selectOption("submit");
+  await expect(dev.locator("[data-test=pending-state-dev]")).toHaveText("review");
+  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 transitions");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(pub.locator(".pill.state")).toHaveText("released");
   await expect(dev.locator(".pill.state")).toHaveText("review");
   await expect(dev.locator("select option")).toHaveCount(3); // placeholder + approve + rework
   await dev.locator("select").selectOption("rework");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   await expect(dev.locator(".pill.state")).toHaveText("open");
   await dev.locator("button", { hasText: "diagram" }).click();
   await expect(dev.locator(".wf-state")).toHaveCount(3);
@@ -55,15 +63,22 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   await rel.locator(".actions button", { hasText: "relates to" }).click();
   await page.locator("corestone-picker input").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
+  await expect(rel.locator(".link-row.pending-add")).toHaveCount(2);
+  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 links added");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   await expect(rel.locator(".link-row")).toHaveCount(2);
+  await expect(rel.locator(".link-row.pending-add")).toHaveCount(0);
   await expect(rel.locator(".link-row", { hasText: "relates to" }).locator(".arrow")).toHaveText("→");
   // the other side sees it incoming; social column counts links
   await page.goto(`/artifact/${r2.meta.guid}`);
   await expect(page.locator("#sec-relationships .link-row", { hasText: "is related to" }).locator(".arrow")).toHaveText("←");
   await expect(page.locator("#sec-relationships .link-row .type")).toHaveText("is related to");
   await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 1");
-  // removing a link
+  // removing a link waits for Save too; ↺ would keep it
   await page.locator("#sec-relationships .link-row button").click();
+  await expect(page.locator("#sec-relationships .link-row.pending-remove")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
   await expect(page.locator("#sec-relationships .link-row")).toHaveCount(0);
   await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Req B ${id}` }).locator(".social")).toContainText("⇄ 0");
   // endpoint rule violation surfaces as a toast, not a silent failure
