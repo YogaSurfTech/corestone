@@ -32,6 +32,7 @@ test("the history opens read-only historic versions, also across a move", async 
   await expect(page).toHaveURL(new RegExp(`/artifact/${guid}\\?.*version=[0-9a-f]{40}.*at=[0-9a-f]{40}`));
   await expect(detail).toHaveClass(/historic/);
   await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
+  await expect(page.locator("[data-test=historic-created]")).toBeVisible();
   await expect(page.locator("[data-test=title]")).toHaveValue(`First ${id}`);
   await expect(page.locator("[data-test=title]")).toHaveAttribute("readonly", "");
   await expect(page.locator(".dh-crumbs a").last()).toHaveText(folder);
@@ -50,6 +51,7 @@ test("the history opens read-only historic versions, also across a move", async 
   await page.locator("#sec-history .history-row").nth(1).locator("[data-test=history-version]").click();
   await expect(page.locator("[data-test=title]")).toHaveValue(`Second ${id}`);
   await expect(page.locator(".dh-crumbs a").last()).toHaveText("moved");
+  await expect(page.locator("[data-test=historic-created]")).toHaveCount(0);
   await expect(page.locator("#sec-relationships")).toContainText(`Checker ${id}`);
   await expect(page.locator("#sec-relationships")).toContainText("verified by");
 

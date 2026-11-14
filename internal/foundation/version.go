@@ -134,7 +134,8 @@ type Version struct {
 // VersionChange is what the version's commit changed about the artifact,
 // compared with the state just before it.
 type VersionChange struct {
-	Created bool `json:"created,omitempty"` // the commit created the artifact
+	Created  bool `json:"created,omitempty"`  // the commit created the artifact
+	Restored bool `json:"restored,omitempty"` // the commit brought back the deleted artifact
 	// Changed lists the stored properties that changed: top-level names
 	// (title, hid, text, …), fields and workflows as fields.<id> and
 	// workflows.<id>.
@@ -320,7 +321,11 @@ func (f *Foundation) ownChange(ctx context.Context, c *VersionChange, guid strin
 		return err
 	}
 	if !ok {
-		c.Created = true
+		existed, err := f.DB.ExistedBefore(ctx, guid, seq)
+		if err != nil {
+			return err
+		}
+		c.Created, c.Restored = !existed, existed
 		return nil
 	}
 	if prev == blob {

@@ -388,3 +388,32 @@ func TestConfigCacheSurvivesCancelledRequest(t *testing.T) {
 		t.Fatal("workflow missing after a cancelled request")
 	}
 }
+
+func TestSelfLinkIsReported(t *testing.T) {
+	p, repo := testDB(t)
+	ctx := context.Background()
+	e, l := model.NewGUID(), model.NewGUID()
+	commit(t, repo, "self-link",
+		gitx.Op{Path: "specs/" + e + "/.corestone.json", Content: []byte(fmt.Sprintf(`{"guid":%q,"kind":"entry","type":"req","title":"Alone"}`, e))},
+		gitx.Op{Path: "specs/.corestone/links/" + l + ".json", Content: []byte(fmt.Sprintf(`{"guid":%q,"kind":"link","type":"refines","source":%q,"target":%q}`, l, e, e))},
+	)
+	if err := p.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := p.Validate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, i := range issues {
+		if i.Code == "self-link" {
+			n++
+			if i.GUID != l || i.Severity != "error" {
+				t.Fatalf("self-link issue %+v", i)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("issues %+v", issues)
+	}
+}

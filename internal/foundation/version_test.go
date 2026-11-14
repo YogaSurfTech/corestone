@@ -302,3 +302,48 @@ func TestVersionRelations(t *testing.T) {
 	}
 	check("rebuilt")
 }
+
+func TestVersionRestored(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+
+	a := create(t, f, model.KindEntry, `{"path":"specs/a","type":"requirement","title":"Alpha","fields":{"priority":"high"}}`)
+	raw, _, err := f.Repo.ReadPath(ctx, mustHead(t, f), a.Meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, a.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Corestone has no restore; a Git push brings the file back.
+	head := mustHead(t, f)
+	commit, err := f.Repo.BuildCommit(ctx, head, "restore", []gitx.Op{{Path: a.Meta.Path, Content: raw}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Repo.Publish(ctx, head, commit); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(label string) {
+		t.Helper()
+		page, err := f.HistoryPage(ctx, a.Meta.GUID, 0, "")
+		if err != nil || len(page.History) != 3 || page.History[0].Subject != "restore" {
+			t.Fatalf("%s: history %+v %v", label, page, err)
+		}
+		restored, err := f.Version(ctx, a.Meta.GUID, a.ETag, page.History[0].SHA)
+		if err != nil || !restored.Change.Restored || restored.Change.Created {
+			t.Fatalf("%s: restore %+v %v", label, restored.Change, err)
+		}
+		created, err := f.Version(ctx, a.Meta.GUID, a.ETag, page.History[2].SHA)
+		if err != nil || !created.Change.Created || created.Change.Restored {
+			t.Fatalf("%s: creation %+v %v", label, created.Change, err)
+		}
+	}
+	check("maintained")
+	if err := f.DB.Reindex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check("rebuilt")
+}

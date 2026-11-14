@@ -382,6 +382,18 @@ func (p *DB) FileAt(ctx context.Context, guid string, seq int64) (path, blob str
 	return path, blob, path != "", nil
 }
 
+// ExistedBefore reports whether an artifact had a file at some index
+// position before seq: a version without a predecessor brings it back
+// rather than creating it.
+func (p *DB) ExistedBefore(ctx context.Context, guid string, seq int64) (bool, error) {
+	var ok bool
+	if err := p.sql.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM artifact_commits
+		WHERE guid = $1 AND seq < $2 AND path IS NOT NULL AND path <> '')`, guid, seq).Scan(&ok); err != nil {
+		return false, unavailable(err)
+	}
+	return ok, nil
+}
+
 // CommitOfBlob finds the commit that first gave an artifact's file the
 // content blob, with its index position.
 func (p *DB) CommitOfBlob(ctx context.Context, guid, blob string) (string, int64, bool, error) {

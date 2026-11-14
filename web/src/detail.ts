@@ -340,6 +340,7 @@ export class Detail extends LitElement {
     const back = () => navigate({ version: "", at: "" });
     return html`<div class="historic-banner" role="status" data-test="historic-banner">
       <span class="hb-label">Historic version</span>
+      ${h.change?.created ? html`<span class="pill" data-test="historic-created">Created</span>` : h.change?.restored ? html`<span class="pill" data-test="historic-restored">Restored</span>` : nothing}
       <span>${fmtTime(h.commit.time)} · ${h.commit.author} · <span title=${h.commit.body ?? ""}>${h.commit.subject}</span></span>
       <span class="mono muted small" title="Content blob ${h.etag} at commit ${h.commit.sha}">${h.etag.slice(0, 8)} @ ${h.commit.sha.slice(0, 8)}</span>
       ${h.exact ? nothing : html`<span class="small" data-test="historic-inexact">The requested commit is unknown; shown at the commit that introduced this version.</span>`}

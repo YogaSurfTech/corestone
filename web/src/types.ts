@@ -150,6 +150,7 @@ export interface VersionView extends View {
 
 export interface VersionChange {
   created?: boolean;
+  restored?: boolean; // brought back after a deletion
   changed: string[];  // title, hid, text, …, fields.<id>, workflows.<id>
   added: string[];    // links and comments that came to point here
   removedLinks?: number;
