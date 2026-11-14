@@ -395,6 +395,12 @@ var ddl = []string{
 		last_path text NOT NULL,
 		deleted_commit text NOT NULL,
 		deleted_at timestamptz)`,
+	// What a deleted link or comment pointed to: a new link with the same
+	// type and endpoints is shown as re-creating it.
+	`ALTER TABLE deleted_artifacts ADD COLUMN IF NOT EXISTS source text`,
+	`ALTER TABLE deleted_artifacts ADD COLUMN IF NOT EXISTS target text`,
+	`ALTER TABLE deleted_artifacts ADD COLUMN IF NOT EXISTS subject text`,
+	`CREATE INDEX IF NOT EXISTS deleted_artifacts_link ON deleted_artifacts (type, source, target) WHERE kind = 'link'`,
 }
 
 func (p *DB) migrate(ctx context.Context) error {
@@ -403,7 +409,9 @@ func (p *DB) migrate(ctx context.Context) error {
 		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL
 		AND to_regclass(quote_ident(current_schema()) || '.relation_commits') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
-			AND table_name = 'artifact_commits' AND column_name = 'path')`).Scan(&hadTables); err != nil {
+			AND table_name = 'artifact_commits' AND column_name = 'path')
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+			AND table_name = 'deleted_artifacts' AND column_name = 'source')`).Scan(&hadTables); err != nil {
 		return fmt.Errorf("projection schema: %w", err)
 	}
 	for _, stmt := range ddl {
@@ -413,8 +421,9 @@ func (p *DB) migrate(ctx context.Context) error {
 	}
 	if !hadTables {
 		// A projection built before artifact_commits (with the file path and
-		// blob per commit), relation_commits or artifact_refs existed lacks
-		// the history or reference index: force a rebuild, which backfills them from Git.
+		// blob per commit), relation_commits, artifact_refs or the endpoints
+		// of deleted links existed lacks the history or reference index:
+		// force a rebuild, which backfills them from Git.
 		// Not '': that would equal the head of an empty repository and skip
 		// the rebuild, leaving the stale rows in place.
 		if _, err := p.sql.ExecContext(ctx, `UPDATE repo_state SET processed_hash = 'rebuild' WHERE id = 1`); err != nil {

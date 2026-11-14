@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -29,6 +30,9 @@ import (
 const (
 	maxBody       = 4 << 20
 	maxAttachment = 32 << 20
+	// maxSave bounds the attachments of one Save together; each file is
+	// also bounded by maxAttachment on its own.
+	maxSave = 128 << 20
 )
 
 // Server serves the API for one Foundation.
@@ -482,7 +486,7 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 	var body *ojson.Object
 	var files []foundation.SaveFile
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		r.Body = http.MaxBytesReader(w, r.Body, maxAttachment+maxBody)
+		r.Body = http.MaxBytesReader(w, r.Body, maxSave+maxBody)
 		mr, err := r.MultipartReader()
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "malformed multipart body: "+err.Error())
@@ -494,12 +498,24 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			if err != nil {
-				writeError(w, http.StatusRequestEntityTooLarge, "request body too large or unreadable")
+				writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the save is larger than %d MiB in total or unreadable", maxSave>>20))
 				return
 			}
-			data, err := io.ReadAll(part)
+			limit := int64(maxAttachment)
+			if part.FormName() == "changes" {
+				limit = maxBody
+			}
+			data, err := io.ReadAll(io.LimitReader(part, limit+1))
 			if err != nil {
-				writeError(w, http.StatusRequestEntityTooLarge, "request body too large or unreadable")
+				writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the save is larger than %d MiB in total or unreadable", maxSave>>20))
+				return
+			}
+			if int64(len(data)) > limit {
+				if part.FormName() == "changes" {
+					writeError(w, http.StatusRequestEntityTooLarge, "the changes are too large")
+				} else {
+					writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("attachment %q is larger than %d MiB", part.FileName(), maxAttachment>>20))
+				}
 				return
 			}
 			switch part.FormName() {

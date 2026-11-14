@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -380,6 +381,71 @@ func (p *DB) FileAt(ctx context.Context, guid string, seq int64) (path, blob str
 		return "", "", false, unavailable(err)
 	}
 	return path, blob, path != "", nil
+}
+
+// Recreated is a link created in a commit with the same type and
+// endpoints as an earlier link that had been deleted.
+type Recreated struct {
+	Commit        string // where the new link was created
+	Link          string // the new link
+	Prior         string // the deleted link it repeats
+	DeletedCommit string
+	DeletedAt     time.Time
+}
+
+// RecreatedLinks finds, among the given commits of an artifact's history,
+// the links created there that repeat a link deleted before (the latest
+// such deletion for each).
+func (p *DB) RecreatedLinks(ctx context.Context, guid string, commits []string) ([]Recreated, error) {
+	if len(commits) == 0 {
+		return nil, nil
+	}
+	rows, err := p.sql.QueryContext(ctx, `WITH touched AS (
+			SELECT owner AS link, commit_sha, seq FROM relation_commits WHERE guid = $1 AND commit_sha = ANY($2)
+			UNION SELECT guid, commit_sha, seq FROM artifact_commits WHERE guid = $1 AND commit_sha = ANY($2)
+		), created AS (
+			SELECT t.* FROM touched t WHERE t.seq = (SELECT min(seq) FROM artifact_commits c
+				WHERE c.guid = t.link AND c.path IS NOT NULL AND c.path <> '')
+		), ends AS (
+			SELECT c.link, c.commit_sha, c.seq, COALESCE(a.type, d.type) AS typ,
+				COALESCE(a.source, d.source) AS src, COALESCE(a.target, d.target) AS tgt
+			FROM created c
+			LEFT JOIN artifacts a ON a.guid = c.link AND a.kind = 'link'
+			LEFT JOIN deleted_artifacts d ON d.guid = c.link AND d.kind = 'link'
+			WHERE a.guid IS NOT NULL OR d.guid IS NOT NULL
+		)
+		SELECT DISTINCT ON (e.commit_sha, e.link) e.commit_sha, e.link, d.guid, d.deleted_commit, d.deleted_at
+		FROM ends e
+		JOIN deleted_artifacts d ON d.kind = 'link' AND d.type = e.typ AND d.source = e.src AND d.target = e.tgt AND d.guid <> e.link
+		JOIN LATERAL (SELECT seq FROM artifact_commits WHERE commit_sha = d.deleted_commit LIMIT 1) ds ON ds.seq < e.seq
+		ORDER BY e.commit_sha, e.link, ds.seq DESC`, guid, pq.Array(commits))
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	var out []Recreated
+	for rows.Next() {
+		var r Recreated
+		var at sql.NullTime
+		if err := rows.Scan(&r.Commit, &r.Link, &r.Prior, &r.DeletedCommit, &at); err != nil {
+			return nil, unavailable(err)
+		}
+		r.DeletedAt = at.Time
+		out = append(out, r)
+	}
+	return out, unavailable(rows.Err())
+}
+
+// ExistedBefore reports whether an artifact had a file at some index
+// position before seq: a version without a predecessor brings it back
+// rather than creating it.
+func (p *DB) ExistedBefore(ctx context.Context, guid string, seq int64) (bool, error) {
+	var ok bool
+	if err := p.sql.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM artifact_commits
+		WHERE guid = $1 AND seq < $2 AND path IS NOT NULL AND path <> '')`, guid, seq).Scan(&ok); err != nil {
+		return false, unavailable(err)
+	}
+	return ok, nil
 }
 
 // CommitOfBlob finds the commit that first gave an artifact's file the

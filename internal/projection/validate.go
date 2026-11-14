@@ -119,6 +119,21 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 		}
 	}
 
+	// a link from an artifact to itself: the API refuses it, a direct push may not
+	rows, err = p.sql.QueryContext(ctx, `SELECT guid, file_path, source FROM artifacts WHERE kind = 'link' AND source = target ORDER BY file_path`)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	for rows.Next() {
+		var g, path, ref string
+		_ = rows.Scan(&g, &path, &ref)
+		add("error", "self-link", g, path, "the link connects "+ref+" to itself")
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, unavailable(err)
+	}
+
 	// overlay cycles
 	rows, err = p.sql.QueryContext(ctx, `SELECT guid, base FROM artifacts WHERE base IS NOT NULL`)
 	if err != nil {

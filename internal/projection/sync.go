@@ -313,12 +313,6 @@ func (p *DB) upsertRecord(ctx context.Context, tx *sql.Tx, r *record, commit str
 	if r.HID != "" {
 		hid = r.HID
 	}
-	nullable := func(s string) any {
-		if s == "" {
-			return nil
-		}
-		return s
-	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO artifacts (guid, kind, type, title, hid, folder, path, file_path, blob_sha,
 			base, source, target, subject, parent, author, created, states, fields, search_text, valid, error,
 			created_at, modified_at, created_commit, modified_commit, excerpt)
@@ -398,15 +392,19 @@ func insertRefs(ctx context.Context, tx *sql.Tx, r *record) error {
 }
 
 func (p *DB) deleteByPath(ctx context.Context, tx *sql.Tx, path, guid, commit string, when time.Time) error {
-	rows, err := tx.QueryContext(ctx, `SELECT guid, kind, type, title, COALESCE(hid,''), file_path FROM artifacts WHERE file_path = $1 OR guid = $2`, path, guid)
+	rows, err := tx.QueryContext(ctx, `SELECT guid, kind, type, title, COALESCE(hid,''), file_path, source, target, subject
+		FROM artifacts WHERE file_path = $1 OR guid = $2`, path, guid)
 	if err != nil {
 		return unavailable(err)
 	}
-	type gone struct{ guid, kind, typ, title, hid, path string }
+	type gone struct {
+		guid, kind, typ, title, hid, path string
+		source, target, subject           sql.NullString
+	}
 	var victims []gone
 	for rows.Next() {
 		var g gone
-		if err := rows.Scan(&g.guid, &g.kind, &g.typ, &g.title, &g.hid, &g.path); err != nil {
+		if err := rows.Scan(&g.guid, &g.kind, &g.typ, &g.title, &g.hid, &g.path, &g.source, &g.target, &g.subject); err != nil {
 			rows.Close()
 			return unavailable(err)
 		}
@@ -433,10 +431,11 @@ func (p *DB) deleteByPath(ctx context.Context, tx *sql.Tx, path, guid, commit st
 		if g.hid != "" {
 			hid = g.hid
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_artifacts (guid, kind, type, title, hid, last_path, deleted_commit, deleted_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (guid) DO UPDATE SET kind = EXCLUDED.kind, type = EXCLUDED.type, title = EXCLUDED.title,
-			hid = EXCLUDED.hid, last_path = EXCLUDED.last_path, deleted_commit = EXCLUDED.deleted_commit, deleted_at = EXCLUDED.deleted_at`,
-			g.guid, g.kind, g.typ, g.title, hid, g.path, commit, when); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_artifacts (guid, kind, type, title, hid, last_path, deleted_commit, deleted_at, source, target, subject)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (guid) DO UPDATE SET kind = EXCLUDED.kind, type = EXCLUDED.type, title = EXCLUDED.title,
+			hid = EXCLUDED.hid, last_path = EXCLUDED.last_path, deleted_commit = EXCLUDED.deleted_commit, deleted_at = EXCLUDED.deleted_at,
+			source = EXCLUDED.source, target = EXCLUDED.target, subject = EXCLUDED.subject`,
+			g.guid, g.kind, g.typ, g.title, hid, g.path, commit, when, g.source, g.target, g.subject); err != nil {
 			return unavailable(err)
 		}
 	}
@@ -584,4 +583,12 @@ func (p *DB) config(ctx context.Context) (*configCache, error) {
 	p.cache = c
 	p.cacheMu.Unlock()
 	return c, nil
+}
+
+// nullable stores an empty reference as NULL.
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

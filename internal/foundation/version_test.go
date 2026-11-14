@@ -302,3 +302,112 @@ func TestVersionRelations(t *testing.T) {
 	}
 	check("rebuilt")
 }
+
+func TestVersionRestored(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+
+	a := create(t, f, model.KindEntry, `{"path":"specs/a","type":"requirement","title":"Alpha","fields":{"priority":"high"}}`)
+	raw, _, err := f.Repo.ReadPath(ctx, mustHead(t, f), a.Meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, a.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Corestone has no restore; a Git push brings the file back.
+	head := mustHead(t, f)
+	commit, err := f.Repo.BuildCommit(ctx, head, "restore", []gitx.Op{{Path: a.Meta.Path, Content: raw}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Repo.Publish(ctx, head, commit); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(label string) {
+		t.Helper()
+		page, err := f.HistoryPage(ctx, a.Meta.GUID, 0, "")
+		if err != nil || len(page.History) != 3 || page.History[0].Subject != "restore" {
+			t.Fatalf("%s: history %+v %v", label, page, err)
+		}
+		restored, err := f.Version(ctx, a.Meta.GUID, a.ETag, page.History[0].SHA)
+		if err != nil || !restored.Change.Restored || restored.Change.Created {
+			t.Fatalf("%s: restore %+v %v", label, restored.Change, err)
+		}
+		created, err := f.Version(ctx, a.Meta.GUID, a.ETag, page.History[2].SHA)
+		if err != nil || !created.Change.Created || created.Change.Restored {
+			t.Fatalf("%s: creation %+v %v", label, created.Change, err)
+		}
+	}
+	check("maintained")
+	if err := f.DB.Reindex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check("rebuilt")
+}
+
+func TestRecreatedLinkAndDeleteSubjects(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+	a := create(t, f, model.KindEntry, `{"path":"specs/a","type":"requirement","title":"Alpha","fields":{"priority":"high"}}`)
+	b := create(t, f, model.KindEntry, `{"path":"tests","type":"testcase","title":"Beta"}`)
+	link := `{"type":"verifies","source":"` + b.Meta.GUID + `","target":"` + a.Meta.GUID + `"}`
+	l1, err := f.CreateLink(ctx, obj(t, link))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm, err := f.CreateComment(ctx, obj(t, `{"subject":"`+a.Meta.GUID+`","text":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, l1.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, cm.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := f.CreateLink(ctx, obj(t, link))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(label string) {
+		t.Helper()
+		page, err := f.HistoryPage(ctx, a.Meta.GUID, 0, "")
+		if err != nil || len(page.History) < 3 {
+			t.Fatalf("%s: history %+v %v", label, page, err)
+		}
+		// The deletions are named like the creations.
+		if s := page.History[1].Subject; s != "Comment on REQ-1 deleted" {
+			t.Fatalf("%s: comment deletion %q", label, s)
+		}
+		if s := page.History[2].Subject; s != "Link verifies from TC-001 to REQ-1 deleted" {
+			t.Fatalf("%s: link deletion %q", label, s)
+		}
+		// The new link repeats the deleted one, which opens at its last version.
+		for _, g := range []string{a.Meta.GUID, l2.Meta.GUID} {
+			p, err := f.HistoryPage(ctx, g, 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			rc := p.History[0].Recreates
+			if len(rc) != 1 || rc[0].Link != l2.Meta.GUID || rc[0].Prior != l1.Meta.GUID || rc[0].Blob != l1.ETag || rc[0].At == "" || rc[0].DeletedBy == "" {
+				t.Fatalf("%s: recreates in the history of %s: %+v", label, g, rc)
+			}
+		}
+		// The first link was a plain creation.
+		for _, h := range page.History[3:] {
+			if len(h.Recreates) != 0 {
+				t.Fatalf("%s: %q marked as re-created", label, h.Subject)
+			}
+		}
+	}
+	check("maintained")
+	if err := f.DB.Reindex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check("rebuilt")
+}

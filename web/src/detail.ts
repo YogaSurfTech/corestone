@@ -340,6 +340,7 @@ export class Detail extends LitElement {
     const back = () => navigate({ version: "", at: "" });
     return html`<div class="historic-banner" role="status" data-test="historic-banner">
       <span class="hb-label">Historic version</span>
+      ${h.change?.created ? html`<span class="pill" data-test="historic-created">Created</span>` : h.change?.restored ? html`<span class="pill" data-test="historic-restored">Restored</span>` : nothing}
       <span>${fmtTime(h.commit.time)} · ${h.commit.author} · <span title=${h.commit.body ?? ""}>${h.commit.subject}</span></span>
       <span class="mono muted small" title="Content blob ${h.etag} at commit ${h.commit.sha}">${h.etag.slice(0, 8)} @ ${h.commit.sha.slice(0, 8)}</span>
       ${h.exact ? nothing : html`<span class="small" data-test="historic-inexact">The requested commit is unknown; shown at the commit that introduced this version.</span>`}
@@ -1097,7 +1098,10 @@ export class Detail extends LitElement {
         { id: "change", name: "Change", value: (h) => h.subject, render: (h) => html`${linkable(h)
           ? html`<a href=${`/artifact/${this.guid}?version=${h.blob}&at=${h.sha}`} data-test="history-version" title="Show the artifact as it was after this change"
               @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); open(h); }}>${h.subject}</a>`
-          : h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}` },
+          : h.subject}${h.trailers?.["Corestone-Op"] ? html` <span class="pill">${h.trailers["Corestone-Op"]}</span>` : nothing}
+          ${(h.recreates ?? []).map((r) => html`<div class="muted small" data-test="history-recreates">Same link as one deleted
+            ${r.deletedAt ? fmtTime(r.deletedAt) : ""}${r.deletedBy ? ` by ${r.deletedBy}` : ""}${r.blob ? html` · <a href=${`/artifact/${r.prior}?version=${r.blob}${r.at ? `&at=${r.at}` : ""}`}
+              data-test="history-recreates-prior" @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate({ guid: r.prior, version: r.blob!, at: r.at ?? "" }); }}>show it</a>` : nothing}</div>`)}` },
         { id: "author", name: "Author", width: 130, value: (h) => h.author, render: (h) => html`<span class="muted small">${h.author}</span>` },
         { id: "commit", name: "Commit", width: 100, value: (h) => h.sha, render: (h) => html`<span class="mono muted">${h.sha.slice(0, 8)}</span>` },
       ] satisfies TableColumn<HistoryEntry>[]} @row-click=${(e: CustomEvent<HistoryEntry>) => open(e.detail)}></corestone-table>`}

@@ -608,3 +608,31 @@ func TestSaveEndpoint(t *testing.T) {
 		t.Fatalf("history: %s", h.raw)
 	}
 }
+
+func TestSaveUploadLimits(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	r := a.ok("POST", "/api/entries", `{"path":"reqs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201)
+	g := meta(r, "guid")
+	upload := func(sizes map[string]int) (string, string) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		_ = mw.WriteField("changes", `{}`)
+		for name, n := range sizes {
+			fw, _ := mw.CreateFormFile("file", name)
+			_, _ = fw.Write(bytes.Repeat([]byte{'x'}, n))
+		}
+		_ = mw.Close()
+		return body.String(), mw.FormDataContentType()
+	}
+
+	// Several files may together exceed the limit of one attachment.
+	b, ct := upload(map[string]int{"a.bin": 20 << 20, "b.bin": 20 << 20})
+	a.ok("POST", "/api/artifacts/"+g+"/save", b, 200, "Content-Type", ct)
+
+	// A single file over the limit is named.
+	b, ct = upload(map[string]int{"huge.bin": maxAttachment + 1})
+	if res := a.ok("POST", "/api/artifacts/"+g+"/save", b, 413, "Content-Type", ct); !strings.Contains(string(res.raw), "huge.bin") {
+		t.Fatalf("too large: %s", res.raw)
+	}
+}

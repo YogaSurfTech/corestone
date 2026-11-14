@@ -140,6 +140,12 @@ object in a `changes` part plus one `file` part per attachment to store. Links m
 at `{guid}`; comments are attached to it. All steps are validated together — any failure rejects
 the whole save — and published as one commit (`Kind HID modified; dev open -> review, 1 link
 added, …`; a single change keeps its usual subject). It returns the updated artifact and ETag.
+Each attachment may be up to 32 MiB, all of one save together up to 128 MiB.
+
+A combined save commit carries `Corestone-Op: update`, the `Corestone-Guid` of `{guid}` and
+`Corestone-Changes` with the operations it combines (e.g. `update,transition,create,attachment`).
+Links and comments created in it get no `Corestone-Kind` trailer of their own: tools that read
+trailers find them by their files, as the history index does.
 
 Service APIs:
 
@@ -150,14 +156,16 @@ GET  /api/repository/tree?path=&subtree=  folders and artifacts
 GET  /api/repository/search?q=&kind=&type=&path=&subtree=&hid=&field.<id>=&state.<wf>=&sort=&limit=&offset=
 GET  /api/repository/types?path=          effective schemas visible at a folder
 GET  /api/repository/values?type=&field=&path=   field values in use, most frequent first
-GET  /api/repository/validate             repository invariants: dangling refs, duplicate HIDs, cycles, misplaced metadata, …
+GET  /api/repository/validate             repository invariants: dangling refs, self-links, duplicate HIDs, cycles, misplaced metadata, …
 POST /api/repository/reindex              full phased rebuild (202; progress in status and over WebSocket)
 POST /api/repository/folders/move         {from, to} — moves artifacts, attachments, configuration and metadata
 POST /api/repository/maintenance/relocate-metadata     restore metadata locality after direct Git edits
 GET  /api/repository/hids/{hid}           current and historical owners of a HID
 GET  /api/repository/deleted?guid=        deleted artifacts with their deletion commit
 GET  /api/artifacts/{guid}/schema | overlay | workflows | relationships | comments | history
-GET  /api/artifacts/{guid}/versions/{blob}?commit=   a historic version: links, comments, endpoints and subject as they were then
+                                          (history entries name links that repeat a deleted link: same type and endpoints)
+GET  /api/artifacts/{guid}/versions/{blob}?commit=   a historic version: links, comments, endpoints and subject as they were then,
+                                          and what the commit changed (created, restored after a deletion, properties, links, comments)
 POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifacts/{guid}/move  {path}
 GET  /api/config?scope=[&path=]           a folder's configuration files, or one file (ETag)
 PUT  DELETE /api/config?scope=&path=      write or remove a file (If-Match); returns unresolved references as warnings

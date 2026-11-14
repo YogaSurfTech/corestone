@@ -452,7 +452,7 @@ func (t *txn) remove(guid string, ifMatch string) (*changeset, error) {
 			comments++
 		}
 	}
-	cs.subject = fmt.Sprintf("%s %s deleted", kindName(cur.Kind), label(cur.Artifact))
+	cs.subject = t.deletedSubject(cur)
 	if links+comments > 0 {
 		cs.subject += fmt.Sprintf(" (with %d links, %d comments)", links, comments)
 	}
@@ -460,6 +460,24 @@ func (t *txn) remove(guid string, ifMatch string) (*changeset, error) {
 	cs.trailer("Corestone-Guid", guid)
 	cs.event = Event{Op: "delete", GUID: guid, Kind: string(cur.Kind), Subject: cur.Subject}
 	return cs, nil
+}
+
+// deletedSubject names what a delete removes as its creation did: a link
+// by its type and endpoints, a comment by its subject.
+func (t *txn) deletedSubject(cur *loaded) string {
+	name := func(g string) string {
+		if a, err := t.load(g); err == nil {
+			return label(a.Artifact)
+		}
+		return g
+	}
+	switch cur.Kind {
+	case model.KindLink:
+		return fmt.Sprintf("Link %s from %s to %s deleted", cur.Type, name(cur.Source), name(cur.Target))
+	case model.KindComment:
+		return fmt.Sprintf("Comment on %s deleted", name(cur.Subject))
+	}
+	return fmt.Sprintf("%s %s deleted", kindName(cur.Kind), label(cur.Artifact))
 }
 
 // cascade collects links/comments attached to the GUIDs, recursively
