@@ -22,7 +22,7 @@ for (const choice of ["cancel", "alt", "confirm"] as const) {
   test(`opening history protects unsaved work: ${choice}`, async ({ page }) => {
     const original = `History ${choice} ${id}`;
     const edited = `${original} edited`;
-    const entry = await post("/entries", { path: folder, type: "req", title: original });
+    const entry = await post("/entries", { path: folder, type: "req", title: original, fields: { priority: "low" } });
     const guid = entry.meta.guid;
     await page.goto(`/artifact/${guid}?folder=${folder}&tab=history`);
     const currentURL = page.url();
@@ -55,7 +55,7 @@ for (const choice of ["cancel", "alt", "confirm"] as const) {
 test("browser back and forward to history protect edits of the same artifact", async ({ page }) => {
   const original = `History browser ${id}`;
   const edited = `${original} edited`;
-  const entry = await post("/entries", { path: folder, type: "req", title: original });
+  const entry = await post("/entries", { path: folder, type: "req", title: original, fields: { priority: "low" } });
   const guid = entry.meta.guid;
   await page.goto(`/artifact/${guid}?folder=${folder}&tab=history`);
   await page.locator("#sec-history [data-test=history-version]").first().click();
