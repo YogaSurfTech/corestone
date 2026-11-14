@@ -1,4 +1,4 @@
-import { api, expect, get, post, put, seedDomain, stamp, test } from "./fixtures";
+import { api, del, expect, get, post, put, seedDomain, stamp, test } from "./fixtures";
 
 // Historic versions (TSK-22): the history list opens an artifact as it was
 // after each change, read-only and marked historic, across moves.
@@ -81,4 +81,34 @@ test("the history comes in batches; versions are only served for the artifact's 
   const ok = await fetch(`${api}/artifacts/${guid}/versions/${e.etag}?commit=${rest.history[0].sha}`);
   expect(ok.status).toBe(200);
   expect((await ok.json()).exact).toBe(true);
+});
+
+test("a version shows the links and comments of its time, the other side as it was then", async ({ page }) => {
+  const e = await post("/entries", { path: folder, type: "req", title: `Subject ${id}`, fields: { priority: "low" } });
+  const guid = e.meta.guid;
+  const tc = await post("/entries", { path: folder, type: "tc", title: `Old name ${id}` });
+  const link = await post("/links", { type: "verifies", source: tc.meta.guid, target: guid });
+  const comment = await post("/comments", { subject: guid, text: `Said then ${id}` });
+  await put(`/artifacts/${guid}`, { title: `Subject 2 ${id}` });
+  await put(`/artifacts/${tc.meta.guid}`, { title: `New name ${id}` });
+  await del(`/artifacts/${comment.meta.guid}`);
+  await del(`/artifacts/${link.meta.guid}`);
+
+  await page.goto(`/artifact/${guid}?tab=history`);
+  const rows = page.locator("#sec-history .history-row");
+  await expect(rows).toHaveCount(6); // link deleted, comment deleted, update, comment, link, create
+  await expect(page.locator("#sec-relationships")).not.toContainText(`Old name ${id}`);
+
+  // After the update: the link and the comment deleted since, the test case under its old name.
+  await rows.nth(2).locator("[data-test=history-version]").click();
+  await expect(page.locator("[data-test=title]")).toHaveValue(`Subject 2 ${id}`);
+  await expect(page.locator("#sec-relationships")).toContainText(`Old name ${id}`);
+  await expect(page.locator("#sec-relationships")).not.toContainText(`New name ${id}`);
+  await expect(page.locator("#sec-comments")).toContainText(`Said then ${id}`);
+
+  // The other side opens as it was at the same commit.
+  await page.locator("#sec-relationships").getByRole("link", { name: new RegExp(`Old name ${id}`) }).click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${tc.meta.guid}\\?.*version=${tc.etag}`));
+  await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
+  await expect(page.locator("[data-test=title]")).toHaveValue(`Old name ${id}`);
 });

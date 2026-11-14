@@ -140,6 +140,10 @@ export interface VersionView extends View {
   workflows: WorkflowEval[];
   relationships: Relationships;
   comments: CommentView[];
+  /** A link's endpoints as they were then (null: did not exist then). */
+  endpoints?: { source: Summary | null; target: Summary | null };
+  /** What a comment was on, as it was then; a link comes with its endpoints and role name. */
+  subject?: { meta: Summary; source?: Summary | null; target?: Summary | null; role?: string };
 }
 
 export interface FolderInfo { name: string; path: string; artifacts: number; direct: number; hasConfig: boolean }

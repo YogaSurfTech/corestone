@@ -2,7 +2,7 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { store, type State } from "./store";
+import { store, type Route, type State } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, label, undeclaredField } from "./util";
@@ -222,21 +222,16 @@ export class Detail extends LitElement {
   private async loadVersion(guid: string, stale: () => boolean) {
     const v = await api.version(guid, this.version, this.at);
     if (stale()) return;
-    // A link's endpoints and a comment's subject are other artifacts: shown as they are now.
-    const endpoint = (g?: string) => g ? api.get(g).then((e) => e.meta).catch(() => null) : Promise.resolve(null);
-    const [endpoints, subject, history] = await Promise.all([
-      v.meta.kind === "link" ? Promise.all([endpoint(v.meta.source), endpoint(v.meta.target)]) : Promise.resolve(null),
-      v.meta.kind === "comment" ? endpoint(v.meta.subject).then((meta) => (meta ? { meta } : null)) : Promise.resolve(null),
-      this.isOpen("history") ? api.history(guid).catch(() => ({ history: [], more: false })) : Promise.resolve(null),
-    ]);
+    const history = this.isOpen("history") ? await api.history(guid).catch(() => ({ history: [], more: false })) : null;
     if (stale()) return;
     this.historic = v;
     this.view = v;
     this.schema = v.schema ?? null;
     this.workflows = v.workflows;
     this.rel = v.meta.kind === "link" || v.meta.kind === "comment" ? null : v.relationships;
-    this.endpoints = endpoints ? { source: endpoints[0], target: endpoints[1] } : null;
-    this.subject = subject;
+    // A link's endpoints and a comment's subject come as they were then.
+    this.endpoints = v.endpoints ?? null;
+    this.subject = v.subject ?? null;
     this.comments = v.comments;
     this.overlay = v.overlay ? { ...v.overlay, overlays: [] } : null;
     this.baseOverlay = v.baseOverlay ? { ...v.baseOverlay, overlays: [] } : null;
@@ -606,17 +601,32 @@ export class Detail extends LitElement {
       </div>`)}`);
   }
 
+  /**
+   * Where a reference to another artifact leads: in a historic version to that artifact as it was
+   * at the same commit (documents have no version view), otherwise to it as it is now.
+   */
+  private refRoute(guid: string, s?: Summary | null): Partial<Route> {
+    const h = this.historic;
+    return h && s?.etag && s.kind !== "document" ? { guid, version: s.etag, at: h.commit.sha } : { guid };
+  }
+
+  private refHref(r: Partial<Route>) {
+    return "/artifact/" + r.guid + (r.version ? `?version=${r.version}&at=${r.at}` : "");
+  }
+
   /** An artifact reference: type icon, HID and title, opening it; a missing one shows its GUID. */
   private artifactRef(guid: string | undefined, s: Summary | null | undefined) {
-    return !guid ? html`<span class="muted">—</span>`
-      : !s ? html`<span class="muted mono" title="This artifact no longer exists">${guid}</span>`
-      : html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
-        <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid, tab: "" }); }}>${label(s)}</a></span>`;
+    if (!guid) return html`<span class="muted">—</span>`;
+    if (!s) return html`<span class="muted mono" title=${this.historic ? "This artifact did not exist then" : "This artifact no longer exists"}>${guid}</span>`;
+    const to = this.refRoute(guid, s);
+    return html`<span class="endpoint"><corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span>` : nothing}
+        <a href=${this.refHref(to)} @click=${(e: Event) => { e.preventDefault(); navigate({ ...to, tab: "" }); }}>${label(s)}</a></span>`;
   }
 
   /** An artifact cell opening it; the row click does the same. */
   private openCell(s: Summary, tab?: string) {
-    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}<a href=${"/artifact/" + s.guid} @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate(tab === undefined ? { guid: s.guid } : { guid: s.guid, tab }); }}>${label(s)}</a>`;
+    const to = this.refRoute(s.guid, s);
+    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}<a href=${this.refHref(to)} @click=${(e: Event) => { e.preventDefault(); e.stopPropagation(); navigate(tab === undefined ? to : { ...to, tab }); }}>${label(s)}</a>`;
   }
 
   /** A link's own relation: From → role → To, each endpoint opening that artifact. */
@@ -637,14 +647,14 @@ export class Detail extends LitElement {
     const on = !sub ? this.artifactRef(v.meta.subject, null)
       : sub.meta.kind !== "link" ? this.artifactRef(sub.meta.guid, sub.meta)
       : html`${this.artifactRef(sub.meta.source, sub.source)}
-        <a class="muted" href=${"/artifact/" + sub.meta.guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: sub.meta.guid, tab: "" }); }}>→ ${sub.role ?? sub.meta.type} →</a>
+        <a class="muted" href=${this.refHref(this.refRoute(sub.meta.guid, sub.meta))} @click=${(e: Event) => { e.preventDefault(); navigate({ ...this.refRoute(sub.meta.guid, sub.meta), tab: "" }); }}>→ ${sub.role ?? sub.meta.type} →</a>
         ${this.artifactRef(sub.meta.target, sub.target)}`;
     return this.section("comment", () => html`
       <div class="comment-on" data-test="comment-subject">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.schema}></corestone-type-icon>
         <span class="muted">on</span><div class="link-row">${on}</div></div>
       ${parent ? html`<div class="small muted" data-test="comment-parent" style="margin-top:6px">Reply to
-        <a href=${"/artifact/" + parent} @click=${(e: Event) => { e.preventDefault(); navigate({ guid: parent, tab: "" }); }}>${answered ? `${answered.meta.author || "anonymous"}'s comment` : "a comment"}</a></div>` : nothing}
+        <a href=${this.refHref(this.refRoute(parent, answered?.meta))} @click=${(e: Event) => { e.preventDefault(); navigate({ ...this.refRoute(parent, answered?.meta), tab: "" }); }}>${answered ? `${answered.meta.author || "anonymous"}'s comment` : "a comment"}</a></div>` : nothing}
       <div class="comment" data-test="comment-own">
         <div class="who"><b>${v.meta.author || "anonymous"}</b> · ${fmtTime(v.meta.created)}</div>
         <div class="text">${String(v.data.text ?? "")}</div>
@@ -669,7 +679,7 @@ export class Detail extends LitElement {
         ${rel && !rel.allowedAsSource.length && !rel.allowedAsTarget.length ? html`<span class="muted small" data-test="no-link-types">No link type here allows ${this.view?.meta.type ?? "this type"} as an endpoint.</span>` : nothing}`;
     return this.section("relationships", () => html`
       ${!rows.length ? html`<div class="muted small">No links yet.</div>` : html`<corestone-table class="detail-table" .items=${rows} .columns=${columns}
-        .rowKey=${(r: Row) => r.link.guid} .rowClass=${() => "link-row open-row"} @row-click=${(e: CustomEvent<Row>) => navigate({ guid: e.detail.other.guid })}></corestone-table>`}`, actions);
+        .rowKey=${(r: Row) => r.link.guid} .rowClass=${() => "link-row open-row"} @row-click=${(e: CustomEvent<Row>) => navigate(this.refRoute(e.detail.other.guid, e.detail.other))}></corestone-table>`}`, actions);
   }
 
   private commentSection() {

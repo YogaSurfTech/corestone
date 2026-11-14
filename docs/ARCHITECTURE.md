@@ -138,7 +138,8 @@ batches of 50 with a virtual window; a header click promotes that column to the 
 (relationships, documents, attachments, history) all use it; `rows-load` and `widths-change` let the
 overview resolve row schemas and persist its layout. The picker loads all fields for each fetched
 batch so selection callbacks can use the complete summary (including document entry-card fields).
-`fields` (one input per field type), `detail` (entry sections), `document`
+`fields` (one input per field type), `detail` (entry sections; a historic version shows what
+surrounded it then, and its references open the other artifacts as of the same commit), `document`
 (block editor + sidebars), `toast`. Components observe the store and never talk to each other. Tests
 in `web/tests` drive the built client in Chromium against a live server; `*.unit.mjs` run with
 `node --test` (`npm run test:unit`).
