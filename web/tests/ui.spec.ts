@@ -18,6 +18,12 @@ async function post(path: string, body: unknown): Promise<{ meta: { guid: string
   return res.json();
 }
 
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(api + path);
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
 test.beforeAll(async () => {
   await defineWorkflow(folder, ["entries"], "dev", { initial: "open", states: ["open", "review", "done"],
     transitions: [{ id: "submit", name: "Submit for review", from: "open", to: "review" }, { id: "approve", from: "review", to: "done" }] });
@@ -130,7 +136,10 @@ test("workflow transitions from the detail view", async ({ page }) => {
   await expect(wf.locator(".pill.state")).toHaveText("open");
   await expect(wf.locator("select option")).toHaveCount(2); // placeholder + submit
   await wf.locator("select").selectOption("submit");
-  await expect(page.locator(".toast.success")).toContainText("now review");
+  // the transition waits for Save
+  await expect(wf.locator("[data-test=pending-state-dev]")).toHaveText("review");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   await expect(wf.locator(".pill.state")).toHaveText("review");
   await wf.locator("button", { hasText: "diagram" }).click();
   await expect(wf.locator(".wf-state.current")).toHaveText("review");
@@ -144,7 +153,9 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
   await page.locator("corestone-picker input").fill(`Linked requirement ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Linked requirement ${stamp}` }).click();
-  await expect(page.locator(".toast.success")).toContainText("Link created");
+  await expect(page.locator("#sec-relationships .link-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
   const row = page.locator("#sec-relationships .link-row");
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("verifies");
@@ -153,6 +164,33 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   await expect(page.locator("#sec-relationships .link-row")).toContainText(`Linked test ${stamp}`);
   await expect(page.locator("#sec-relationships .link-row .type")).toHaveText("verified by"); // read from the target
   void r;
+});
+
+test("one Save publishes edits, a transition, a link and a comment as a single commit", async ({ page }) => {
+  const other = await post("/entries", { path: folder, type: "req", title: `Batch target ${stamp}`, fields: { priority: "low" } });
+  const e = await post("/entries", { path: folder, type: "req", title: `Batch ${stamp}`, fields: { priority: "low" } });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  await page.locator("[data-test=title]").fill(`Batch edited ${stamp}`);
+  await page.locator(".workflow[data-workflow=dev] select").selectOption("submit");
+  await page.locator("#sec-relationships .actions button", { hasText: "related" }).click();
+  await page.locator("corestone-picker input").fill(`Batch target ${stamp}`);
+  await page.locator(".picker-results .row", { hasText: `Batch target ${stamp}` }).click();
+  await page.locator("[data-test=comment-add]").click();
+  await page.locator("[data-test=comment-text]").fill("staged remark");
+  await page.locator("[data-test=comment-send]").click();
+  await expect(page.locator("#sec-comments .comment.pending-add")).toHaveCount(1);
+  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("1 transition, 1 link added, 1 comment");
+  // nothing was written yet
+  const before = await get<{ history: unknown[] }>(`/artifacts/${e.meta.guid}/history`);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator(".workflow[data-workflow=dev] .pill.state")).toHaveText("review");
+  await expect(page.locator("#sec-relationships .link-row")).toHaveCount(1);
+  await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
+  const after = await get<{ history: { subject: string }[] }>(`/artifacts/${e.meta.guid}/history`);
+  expect(after.history.length).toBe(before.history.length + 1);
+  expect(after.history[0].subject).toContain("open -> review, 1 link added, 1 comment added");
+  void other;
 });
 
 test("comments are threaded", async ({ page }) => {

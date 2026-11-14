@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -576,4 +577,34 @@ func TestTableQueryAndDetails(t *testing.T) {
 	}
 	many := `"` + strings.Repeat(reqs[0]+`","`, 500) + reqs[0] + `"`
 	a.ok("POST", "/api/artifacts/details", `{"ids":[`+many+`]}`, 400)
+}
+
+func TestSaveEndpoint(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	r := a.ok("POST", "/api/entries", `{"path":"reqs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201)
+	g, etag := meta(r, "guid"), r.hdr.Get("ETag")
+	tc := meta(a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201), "guid")
+
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"}}`, 412, "If-Match", `"stale"`)
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"},"transitions":[{"workflow":"dev","to":"done"}]}`, 400, "If-Match", etag)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("changes", `{"patch":{"title":"Saved"},"transitions":[{"workflow":"dev","to":"submit"}],
+		"addLinks":[{"type":"verifies","source":"`+tc+`","target":"`+g+`"}],"addComments":[{"author":"ann","text":"hi"}]}`)
+	fw, _ := mw.CreateFormFile("file", "notes.txt")
+	_, _ = fw.Write([]byte("hello"))
+	_ = mw.Close()
+	s := a.ok("POST", "/api/artifacts/"+g+"/save", body.String(), 200, "If-Match", etag, "Content-Type", mw.FormDataContentType())
+	if s.hdr.Get("ETag") == etag || s.body["data"].(map[string]any)["title"] != "Saved" {
+		t.Fatalf("save: %s", s.raw)
+	}
+	if f := a.ok("GET", "/api/artifacts/"+g+"/files/notes.txt", "", 200); string(f.raw) != "hello" {
+		t.Fatalf("attachment %q", f.raw)
+	}
+	h := a.ok("GET", "/api/artifacts/"+g+"/history", "", 200)
+	if !strings.Contains(string(h.raw), "1 link added, 1 comment added, 1 attachment stored") {
+		t.Fatalf("history: %s", h.raw)
+	}
 }

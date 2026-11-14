@@ -105,6 +105,11 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   reference validation, workflow initialization, cascading deletes, folder moves with metadata
   relocation and maintenance mode for large operations, the relocate-metadata maintenance job.
 - `metadata.go` — links (endpoint rules, cardinality, duplicates), comments (threads), transitions.
+- `save.go` — the detail form's Save: patch, transitions, link removals and additions, comments and
+  attachments composed in one `write`. Each operation is a txn builder (`t.update`, `t.transition`,
+  `t.createLink`, …) that stages its ops into the txn, so later steps read earlier ones
+  (`t.load` honours staged ops; duplicate and cardinality checks count links dropped or added in
+  the same save); the parts are combined into one commit with one event.
 - `config.go` — configuration files (read, write with warnings for unresolved references, delete),
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.

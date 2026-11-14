@@ -12,6 +12,11 @@ export function label(s: Summary | undefined | null): string {
   return s.title || s.hid || s.guid.slice(0, 8);
 }
 
+/** "HID – title" where both exist, else the plain label. */
+export function hidLabel(s: Summary | undefined | null): string {
+  return s?.hid && s.title ? `${s.hid} – ${s.title}` : label(s);
+}
+
 export function kindIcon(kind: Kind, title: string = kindLabel[kind]): TemplateResult {
   const letter = { entry: "E", document: "D", link: "L", comment: "C" }[kind];
   return html`<span class="kind-icon ${kind}" title=${title}>${letter}</span>`;

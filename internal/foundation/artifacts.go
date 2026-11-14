@@ -298,158 +298,168 @@ func (t *txn) generateHID(cfg *model.HIDConfig) (string, error) {
 // "fields" is merged key by key (null deletes a field); "content" and
 // "text" replace. ifMatch is the expected ETag ("" or "*" to skip).
 func (f *Foundation) UpdateArtifact(ctx context.Context, guid string, ifMatch string, patch *ojson.Object) (*View, error) {
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		cur, err := t.load(guid)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkETag(ifMatch, cur.ETag); err != nil {
-			return nil, err
-		}
-		doc := cur.Doc.Clone()
-		for _, k := range patch.Keys() {
-			v, _ := patch.Get(k)
-			switch k {
-			case "title", "hid", "base", "type", "text", "author", "anchor":
-				if v == nil || v == "" {
-					doc.Delete(k)
-				} else {
-					if s, ok := v.(string); ok {
-						v = strings.TrimSpace(s)
-					}
-					doc.Set(k, v)
-				}
-			case "fields":
-				pf, _ := v.(*ojson.Object)
-				if pf == nil {
-					continue
-				}
-				fields := doc.Object("fields")
-				if fields == nil {
-					fields = ojson.NewObject()
-					doc.Set("fields", fields)
-				}
-				for _, fk := range pf.Keys() {
-					fv, _ := pf.Get(fk)
-					if fv == nil {
-						fields.Delete(fk)
-					} else {
-						fields.Set(fk, ojson.Clone(fv))
-					}
-				}
-			case "content":
-				if arr, ok := v.([]any); ok {
-					doc.Set("content", ojson.Clone(arr))
-				}
-			case "workflows":
-				return nil, model.Invalid("workflow states change through transitions")
-			case "guid", "kind":
-				if v != doc.String(k) {
-					return nil, model.Invalid("%s is immutable", k)
-				}
-			default:
-				doc.Set(k, ojson.Clone(v)) // application-level properties pass through
-			}
-		}
-		a, err := model.ArtifactFromDoc(doc, cur.Kind)
-		if err != nil {
-			return nil, err
-		}
-		if a.Kind != cur.Kind {
-			return nil, model.Invalid("kind is immutable")
-		}
-		switch a.Kind {
-		case model.KindEntry, model.KindDocument:
-			if err := t.validateArtifact(a, cur.Loc.Folder, cur.Artifact, false); err != nil {
-				return nil, err
-			}
-		case model.KindLink:
-			if a.Source != cur.Source || a.Target != cur.Target || a.Type != cur.Type {
-				return nil, model.Invalid("link endpoints and type are immutable; create a new link instead")
-			}
-			if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
-				return nil, err
-			}
-		case model.KindComment:
-			if a.Subject != cur.Subject || a.Parent != cur.Parent {
-				return nil, model.Invalid("comment subject and parent are immutable")
-			}
-			if err := a.Validate(); err != nil {
-				return nil, err
-			}
-			if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
-				return nil, err
-			}
-		}
-		content := encode(doc, cur.Style)
-		view := &View{Meta: summarize(a, cur.Loc.Folder, cur.Loc.FilePath, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-		if bytes.Equal(content, cur.Bytes) {
-			return &changeset{result: view}, nil // no logical change: no commit
-		}
-		cs := &changeset{subject: fmt.Sprintf("%s %s modified", kindName(a.Kind), label(a))}
-		cs.trailer("Corestone-Op", "update")
-		cs.trailer("Corestone-Guid", guid)
-		if cur.HID != a.HID {
-			cs.subject = fmt.Sprintf("%s %s renamed to %s", kindName(a.Kind), label(cur.Artifact), label(a))
-			cs.trailer("Corestone-Hid-Previous", cur.HID)
-		}
-		cs.ops = []gitx.Op{{Path: cur.Loc.FilePath, Content: content}}
-		cs.event = Event{Op: "update", GUID: guid, Kind: string(a.Kind), Subject: a.Subject}
-		cs.result = view
-		return cs, nil
-	})
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.update(guid, ifMatch, patch) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
 }
 
+func (t *txn) update(guid string, ifMatch string, patch *ojson.Object) (*changeset, error) {
+	cur, err := t.load(guid)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkETag(ifMatch, cur.ETag); err != nil {
+		return nil, err
+	}
+	doc := cur.Doc.Clone()
+	for _, k := range patch.Keys() {
+		v, _ := patch.Get(k)
+		switch k {
+		case "title", "hid", "base", "type", "text", "author", "anchor":
+			if v == nil || v == "" {
+				doc.Delete(k)
+			} else {
+				if s, ok := v.(string); ok {
+					v = strings.TrimSpace(s)
+				}
+				doc.Set(k, v)
+			}
+		case "fields":
+			pf, _ := v.(*ojson.Object)
+			if pf == nil {
+				continue
+			}
+			fields := doc.Object("fields")
+			if fields == nil {
+				fields = ojson.NewObject()
+				doc.Set("fields", fields)
+			}
+			for _, fk := range pf.Keys() {
+				fv, _ := pf.Get(fk)
+				if fv == nil {
+					fields.Delete(fk)
+				} else {
+					fields.Set(fk, ojson.Clone(fv))
+				}
+			}
+		case "content":
+			if arr, ok := v.([]any); ok {
+				doc.Set("content", ojson.Clone(arr))
+			}
+		case "workflows":
+			return nil, model.Invalid("workflow states change through transitions")
+		case "guid", "kind":
+			if v != doc.String(k) {
+				return nil, model.Invalid("%s is immutable", k)
+			}
+		default:
+			doc.Set(k, ojson.Clone(v)) // application-level properties pass through
+		}
+	}
+	a, err := model.ArtifactFromDoc(doc, cur.Kind)
+	if err != nil {
+		return nil, err
+	}
+	if a.Kind != cur.Kind {
+		return nil, model.Invalid("kind is immutable")
+	}
+	switch a.Kind {
+	case model.KindEntry, model.KindDocument:
+		if err := t.validateArtifact(a, cur.Loc.Folder, cur.Artifact, false); err != nil {
+			return nil, err
+		}
+	case model.KindLink:
+		if a.Source != cur.Source || a.Target != cur.Target || a.Type != cur.Type {
+			return nil, model.Invalid("link endpoints and type are immutable; create a new link instead")
+		}
+		if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
+			return nil, err
+		}
+	case model.KindComment:
+		if a.Subject != cur.Subject || a.Parent != cur.Parent {
+			return nil, model.Invalid("comment subject and parent are immutable")
+		}
+		if err := a.Validate(); err != nil {
+			return nil, err
+		}
+		if err := t.validateTyped(a, t.typeFolder(cur), cur.Fields); err != nil {
+			return nil, err
+		}
+	}
+	content := encode(doc, cur.Style)
+	view := &View{Meta: summarize(a, cur.Loc.Folder, cur.Loc.FilePath, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
+	if bytes.Equal(content, cur.Bytes) {
+		return &changeset{result: view}, nil // no logical change: no commit
+	}
+	cs := &changeset{subject: fmt.Sprintf("%s %s modified", kindName(a.Kind), label(a))}
+	cs.trailer("Corestone-Op", "update")
+	cs.trailer("Corestone-Guid", guid)
+	if cur.HID != a.HID {
+		cs.subject = fmt.Sprintf("%s %s renamed to %s", kindName(a.Kind), label(cur.Artifact), label(a))
+		cs.trailer("Corestone-Hid-Previous", cur.HID)
+	}
+	cs.ops = []gitx.Op{{Path: cur.Loc.FilePath, Content: content}}
+	cs.event = Event{Op: "update", GUID: guid, Kind: string(a.Kind), Subject: a.Subject}
+	cs.result = view
+	return cs, nil
+}
+
 // DeleteArtifact removes an artifact of any kind together with the links
 // and comments attached to it (and replies to those comments), and every
 // file in its GUID directory, in one commit.
 func (f *Foundation) DeleteArtifact(ctx context.Context, guid string, ifMatch string) error {
-	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		cur, err := t.load(guid)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkETag(ifMatch, cur.ETag); err != nil {
-			return nil, err
-		}
-		cs := &changeset{}
-		cs.ops = append(cs.ops, gitx.Op{Path: cur.Loc.FilePath, Delete: true})
-		if cur.Kind.IsFolderKind() {
-			att, err := t.f.DB.Attachments(t.ctx, guid)
-			if err != nil {
-				return nil, err
-			}
-			for _, a := range att {
-				cs.ops = append(cs.ops, gitx.Op{Path: a.Path, Delete: true})
-			}
-		}
-		cascade, err := t.cascade([]string{guid})
-		if err != nil {
-			return nil, err
-		}
-		links, comments := 0, 0
-		for _, m := range cascade {
-			cs.ops = append(cs.ops, gitx.Op{Path: m.Path, Delete: true})
-			if m.Kind == model.KindLink {
-				links++
-			} else {
-				comments++
-			}
-		}
-		cs.subject = fmt.Sprintf("%s %s deleted", kindName(cur.Kind), label(cur.Artifact))
-		if links+comments > 0 {
-			cs.subject += fmt.Sprintf(" (with %d links, %d comments)", links, comments)
-		}
-		cs.trailer("Corestone-Op", "delete")
-		cs.trailer("Corestone-Guid", guid)
-		cs.event = Event{Op: "delete", GUID: guid, Kind: string(cur.Kind), Subject: cur.Subject}
-		return cs, nil
-	})
+	_, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.remove(guid, ifMatch) })
 	return err
+}
+
+func (t *txn) remove(guid string, ifMatch string) (*changeset, error) {
+	cur, err := t.load(guid)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkETag(ifMatch, cur.ETag); err != nil {
+		return nil, err
+	}
+	if cur.Kind == model.KindLink {
+		if t.droppedLinks == nil {
+			t.droppedLinks = map[string]*model.Artifact{}
+		}
+		t.droppedLinks[guid] = cur.Artifact
+	}
+	cs := &changeset{}
+	cs.ops = append(cs.ops, gitx.Op{Path: cur.Loc.FilePath, Delete: true})
+	if cur.Kind.IsFolderKind() {
+		att, err := t.f.DB.Attachments(t.ctx, guid)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range att {
+			cs.ops = append(cs.ops, gitx.Op{Path: a.Path, Delete: true})
+		}
+	}
+	cascade, err := t.cascade([]string{guid})
+	if err != nil {
+		return nil, err
+	}
+	links, comments := 0, 0
+	for _, m := range cascade {
+		cs.ops = append(cs.ops, gitx.Op{Path: m.Path, Delete: true})
+		if m.Kind == model.KindLink {
+			links++
+		} else {
+			comments++
+		}
+	}
+	cs.subject = fmt.Sprintf("%s %s deleted", kindName(cur.Kind), label(cur.Artifact))
+	if links+comments > 0 {
+		cs.subject += fmt.Sprintf(" (with %d links, %d comments)", links, comments)
+	}
+	cs.trailer("Corestone-Op", "delete")
+	cs.trailer("Corestone-Guid", guid)
+	cs.event = Event{Op: "delete", GUID: guid, Kind: string(cur.Kind), Subject: cur.Subject}
+	return cs, nil
 }
 
 // cascade collects links/comments attached to the GUIDs, recursively

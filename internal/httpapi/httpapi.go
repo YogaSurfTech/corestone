@@ -127,6 +127,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/artifacts/{guid}/documents", s.documents)
 	m.HandleFunc("GET /api/artifacts/{guid}/workflows", s.workflows)
 	m.HandleFunc("POST /api/artifacts/{guid}/transition", s.transition)
+	m.HandleFunc("POST /api/artifacts/{guid}/save", s.save)
 	m.HandleFunc("GET /api/artifacts/{guid}/relationships", s.relationships)
 	m.HandleFunc("GET /api/artifacts/{guid}/comments", s.comments)
 	m.HandleFunc("GET /api/artifacts/{guid}/history", s.history)
@@ -462,6 +463,88 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, err := s.F.Transition(r.Context(), guid, body.String("workflow"), body.String("to"), ifMatch(r))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	setETag(w, v.ETag)
+	writeJSON(w, http.StatusOK, v)
+}
+
+// save publishes everything the detail form changed as one commit. The
+// body is the JSON change set, or multipart/form-data with that JSON in a
+// "changes" part and one "file" part per attachment to store.
+func (s *Server) save(w http.ResponseWriter, r *http.Request) {
+	guid, ok := guidParam(w, r)
+	if !ok {
+		return
+	}
+	var body *ojson.Object
+	var files []foundation.SaveFile
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, maxAttachment+maxBody)
+		mr, err := r.MultipartReader()
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "malformed multipart body: "+err.Error())
+			return
+		}
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				writeError(w, http.StatusRequestEntityTooLarge, "request body too large or unreadable")
+				return
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				writeError(w, http.StatusRequestEntityTooLarge, "request body too large or unreadable")
+				return
+			}
+			switch part.FormName() {
+			case "changes":
+				if body, err = ojson.ParseObject(data); err != nil {
+					writeError(w, http.StatusBadRequest, "changes must be a JSON object: "+err.Error())
+					return
+				}
+			case "file":
+				files = append(files, foundation.SaveFile{Name: part.FileName(), Content: data})
+			}
+		}
+		if body == nil {
+			body = ojson.NewObject()
+		}
+	} else if body, ok = readObject(w, r); !ok {
+		return
+	}
+	req := &foundation.SaveRequest{Patch: body.Object("patch"), PutFiles: files}
+	for _, v := range body.Array("transitions") {
+		if o, ok := v.(*ojson.Object); ok {
+			req.Transitions = append(req.Transitions, foundation.SaveTransition{Workflow: o.String("workflow"), To: o.String("to")})
+		}
+	}
+	for _, v := range body.Array("addLinks") {
+		if o, ok := v.(*ojson.Object); ok {
+			req.AddLinks = append(req.AddLinks, o)
+		}
+	}
+	for _, v := range body.Array("addComments") {
+		if o, ok := v.(*ojson.Object); ok {
+			req.AddComments = append(req.AddComments, o)
+		}
+	}
+	for _, v := range body.Array("removeLinks") {
+		if g, ok := v.(string); ok {
+			req.RemoveLinks = append(req.RemoveLinks, g)
+		}
+	}
+	for _, v := range body.Array("removeFiles") {
+		if n, ok := v.(string); ok {
+			req.RemoveFiles = append(req.RemoveFiles, n)
+		}
+	}
+	v, err := s.F.Save(r.Context(), guid, ifMatch(r), req)
 	if err != nil {
 		fail(w, err)
 		return

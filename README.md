@@ -112,8 +112,11 @@ deep link), a REST client and a WebSocket session client. It contains no domain 
 - **Entry detail** — one scrollable page with quick links: general, fields, workflows (state
   dropdown with available transitions and a diagram), relationships (with allowed link types),
   threaded comments, attachments, overlay composition (chain and per-field origin), history, and
-  pass-through metadata. Saves use `If-Match`; concurrent edits are announced over the session
-  channel and rejected with 412 rather than silently overwritten.
+  pass-through metadata. Field edits, transitions, added or removed links, comments and
+  attachments are staged (shown as unsaved) and published together by **Save** as a single
+  commit; a comment posted with nothing else pending is published right away. Saves use
+  `If-Match`; concurrent edits are announced over the session channel and rejected with 412
+  rather than silently overwritten.
 - **Document view** — a distraction-free block editor (sections, paragraphs, entry reference cards,
   lists, code, images) with optional sidebars: properties, current entry, relationships, comments,
   versions.
@@ -128,7 +131,15 @@ POST /api/links                           {type, source, target, fields?}
 POST /api/comments                        {subject, text, parent?, author?, type?, anchor?, fields?}
 GET  PUT  DELETE /api/{entries|documents|links|comments|artifacts}/{guid}   ETag / If-Match
 GET  PUT  DELETE /api/artifacts/{guid}/files/{name}                          attachments
+POST /api/artifacts/{guid}/save           If-Match; one commit for all changes (see below)
 ```
+
+`POST /api/artifacts/{guid}/save` takes `{patch?, transitions?: [{workflow, to}], addLinks?,
+removeLinks?: [guid], addComments?, removeFiles?: [name]}` as JSON, or as multipart with that
+object in a `changes` part plus one `file` part per attachment to store. Links must start or end
+at `{guid}`; comments are attached to it. All steps are validated together — any failure rejects
+the whole save — and published as one commit (`Kind HID modified; dev open -> review, 1 link
+added, …`; a single change keeps its usual subject). It returns the updated artifact and ETag.
 
 Service APIs:
 

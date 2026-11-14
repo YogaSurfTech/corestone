@@ -52,6 +52,7 @@ test("live updates: creations, transitions and deletions show up in the other se
   await expect(a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` })).toHaveCount(1);
   // b transitions; a's table shows the new state
   await b.locator(".workflow[data-workflow=dev] select").selectOption("submit");
+  await b.locator("[data-test=save]").click();
   await expect(a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` }).locator(".pill.state").first()).toHaveText("review");
   // a opens it, b deletes it: a lands on "not available"
   await a.locator("corestone-overview table.grid tbody tr", { hasText: `Live ${id}` }).click();
