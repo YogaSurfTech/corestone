@@ -271,6 +271,12 @@ div.history-row { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10p
 .base-change .underlay-title { display: flex; flex-direction: column; gap: 4px; }
 .base-change .underlay-fields { display: flex; flex-direction: column; gap: 4px; }
 .base-change .underlay-fields label { display: flex; align-items: baseline; gap: 6px; }
+/* The comparison scrolls inside an area the user can drag taller or shorter. */
+.base-diff-wrap { overflow: auto; max-height: 320px; min-height: 60px; border: 1px solid var(--border); border-radius: 6px 6px 0 0; }
+.height-grip { position: relative; height: 10px; cursor: ns-resize; touch-action: none; border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px;
+  background: repeating-linear-gradient(90deg, transparent 0 46%, var(--muted) 46% 54%, transparent 54%) center / 28px 2px no-repeat, var(--panel); opacity: .7; }
+.height-grip:hover { opacity: 1; }
+.base-diff-wrap table.base-diff td { white-space: pre-wrap; overflow-wrap: anywhere; }
 .base-change .buttons { display: flex; justify-content: flex-end; gap: 6px; }
 table.base-diff { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--panel); }
 table.base-diff th, table.base-diff td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -336,6 +342,10 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }
+/* A dialog opened with resizable: dragged by its corner grip, its body scrolls. */
+.dialog.resizable { position: relative; display: flex; flex-direction: column; min-width: 360px; min-height: 220px; max-width: 96vw; max-height: 92vh; overflow: hidden; }
+.dialog.resizable .dialog-body { flex: 1; min-height: 0; overflow: auto; }
+table.conflict-table td { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The artifact picker: resizable from its corner; the result list takes the extra room. */
 .dialog.picker { position: relative; display: flex; flex-direction: column; height: min(560px, 86vh); min-width: 360px; min-height: 260px; max-width: 96vw; max-height: 92vh; overflow: hidden; }
 .dialog.picker corestone-picker { display: flex; flex-direction: column; flex: 1; min-height: 0; }

@@ -110,6 +110,9 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   `t.createLink`, …) that stages its ops into the txn, so later steps read earlier ones
   (`t.load` honours staged ops; duplicate and cardinality checks count links dropped or added in
   the same save); the parts are combined into one commit with one event.
+- `merge.go` — a save from an older version: what the user and others both changed since that
+  version (properties, fields, workflows, attachments, removed links), with who changed it; only
+  such overlaps refuse the save (`SaveConflict`), everything else merges.
 - `config.go` — configuration files (read, write with warnings for unresolved references, delete),
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
   after moves; no new or changed undefined fields — sits in `artifacts.go` and `metadata.go`.

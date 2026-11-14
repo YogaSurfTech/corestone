@@ -112,18 +112,38 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
   await expect(page.locator(".toast.success")).toContainText("Saved");
   await expect(page.locator(".savebar")).toHaveCount(0);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Editable (v2)");
-  // while a draft is being edited, a concurrent change elsewhere is announced,
-  // and saving is rejected (412) without losing the draft
+  // a concurrent change of the same property: Save names it; Cancel keeps the draft
   await page.locator("[data-test=title]").fill("my version");
   const res = await fetch(`${api}/artifacts/${e.meta.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "changed elsewhere" }) });
   expect(res.ok).toBeTruthy();
-  await expect(page.locator(".toast.error").first()).toContainText("changed by someone else");
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");
+  await expect(page.locator(".toast.error")).toHaveCount(0); // no warning before anything is lost
   await page.locator("[data-test=save]").click();
-  await expect(page.locator(".notice.error")).toContainText("modified");
+  const rows = page.locator(".dialog [data-test=conflict-row]");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("Title");
+  await expect(rows.first()).toContainText("changed elsewhere");
+  await expect(rows.first()).toContainText("my version");
+  await expect(page.locator(".dialog [data-test=conflict-current]")).toHaveAttribute("target", "_blank");
+  // the dialog is resized by its corner grip and keeps that size
+  const dialog = page.locator(".dialog.resizable");
+  const before = (await dialog.boundingBox())!;
+  const grip = (await page.locator(".dialog [data-test=dialog-resize]").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 60, grip.y + 120, { steps: 5 });
+  await page.mouse.up();
+  const after = (await dialog.boundingBox())!;
+  expect(after.height).toBeGreaterThan(before.height + 80);
+  await page.locator(".dialog [data-test=dialog-cancel]").click();
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");
-  await page.locator(".notice.error .btn", { hasText: "Reload" }).click();
-  await expect(page.locator("[data-test=title]")).toHaveValue("changed elsewhere");
+  // Overwrite saves it over theirs
+  await page.locator("[data-test=save]").click();
+  expect(Math.round((await dialog.boundingBox())!.height)).toBe(Math.round(after.height));
+  await page.locator(".dialog [data-test=dialog-confirm]").click();
+  await expect(page.locator(".toast.success").last()).toContainText("Saved");
+  await expect(page.locator("[data-test=title]")).toHaveValue("my version");
+  expect((await (await fetch(`${api}/artifacts/${e.meta.guid}`)).json()).data.title).toBe("my version");
   await page.locator(".quicklinks a", { hasText: "History" }).click();
   await expect(page.locator("#sec-history .history-row").first()).toContainText("modified");
   await expect(page.locator("#sec-history .history-row").last()).toContainText("created");

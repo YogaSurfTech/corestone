@@ -1,6 +1,6 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { api, ApiError, type SaveChanges } from "./api";
+import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type Route, type State } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
@@ -41,6 +41,43 @@ const OPEN_KEY = "corestone.detail.sections";
 function readOpenPrefs(): Record<string, boolean> {
   try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "{}") ?? {}; } catch { return {}; }
 }
+
+/** The height the user dragged a resizable area to (per name), if any. */
+const heightKey = (name: string) => `corestone.height.${name}`;
+function savedHeight(name: string): string {
+  try { const h = Number(localStorage.getItem(heightKey(name))); return h > 0 ? `height:${h}px` : ""; } catch { return ""; }
+}
+
+/** Drags the bottom edge of the area before the grip; double-click goes back to the default. */
+function heightGrip(name: string) {
+  const start = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    const area = grip.previousElementSibling as HTMLElement;
+    const h0 = area.getBoundingClientRect().height, y0 = e.clientY;
+    let h = h0;
+    grip.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => { h = Math.round(Math.max(60, h0 + m.clientY - y0)); area.style.height = `${h}px`; area.style.maxHeight = "none"; };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      try { localStorage.setItem(heightKey(name), String(h)); } catch { /* storage unavailable */ }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  };
+  const reset = (e: Event) => {
+    const area = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;
+    area.style.height = area.style.maxHeight = "";
+    try { localStorage.removeItem(heightKey(name)); } catch { /* storage unavailable */ }
+  };
+  return html`<div class="height-grip" data-test=${`${name}-resize`} title="Drag to resize, double-click to reset"
+    @pointerdown=${start} @dblclick=${reset}></div>`;
+}
+
 
 @customElement("corestone-detail")
 export class Detail extends LitElement {
@@ -94,7 +131,6 @@ export class Detail extends LitElement {
   private loadSeq = 0;
   private softInFlight = false;
   private softPending = false;
-  private warnedEtag = "";
 
   override createRenderRoot() { return this; }
   /** Asked by the router before leaving this artifact with unsaved changes. */
@@ -228,12 +264,8 @@ export class Detail extends LitElement {
       // await: typing that happened during the fetches must survive.
       const wasDirty = this.dirty;
       if (soft && wasDirty && view.etag !== this.view?.etag) {
-        // Keep the draft and the ETag we started from: saving will be
-        // rejected (412) instead of silently overwriting the other change.
-        if (this.warnedEtag !== view.etag) {
-          this.warnedEtag = view.etag;
-          store.toast("This artifact was changed by someone else while you were editing.", "error", { label: "Reload", run: () => { this.draft = null; this.reload(false); } });
-        }
+        // Keep the draft and the version it started from: Save merges the
+        // edits into the newer version and asks only if both changed the same thing.
         this.loading = false;
         return;
       }
@@ -363,7 +395,7 @@ export class Detail extends LitElement {
     if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
   }
 
-  private async save() {
+  private async save(overwrite?: string) {
     if (!this.view || !this.draft || this.busy) return;
     this.busy = true;
     this.error = "";
@@ -381,9 +413,10 @@ export class Detail extends LitElement {
       patch,
       transitions: Object.entries(p.transitions).map(([workflow, t]) => ({ workflow, to: t.to })),
       addLinks: p.links.map(({ type, source, target }) => ({ type, source, target })),
-      removeLinks: p.removedLinks,
+      removeLinks: p.removedLinks.map((guid) => ({ guid, etag: this.linkEtag(guid) })),
       addComments: p.comments.map((c) => ({ ...c, author: this.s.user })),
       removeFiles: p.removedFiles,
+      ...(overwrite ? { overwrite } : {}),
     };
     try {
       this.view = await api.save(this.guid, changes, p.files, this.view.etag);
@@ -394,13 +427,56 @@ export class Detail extends LitElement {
       this.reload(true);
       store.refresh();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 412) {
+      const conflict = e instanceof ApiError && e.status === 412 ? (e.body as Partial<SaveConflict>) : null;
+      if (conflict?.conflicts?.length && conflict.etag) {
+        this.conflictDialog(conflict as SaveConflict);
+      } else if (e instanceof ApiError && e.status === 412) {
         this.error = "Someone else modified this artifact in the meantime. Reload to see their changes; your edits stay in the form until you do.";
+      } else if (e instanceof ApiError && e.status === 404) {
+        store.set({ dialog: { kind: "confirm", title: "Deleted meanwhile", noConfirm: true,
+          text: `${label(this.view.meta)} was deleted by someone else while you were editing. Your changes cannot be saved; they stay in the form until you leave.` } });
       } else {
         this.error = e instanceof ApiError ? e.message : String(e);
       }
     } finally {
       this.busy = false;
+    }
+  }
+
+  /** The version of a link as the user saw it, for removing it. */
+  private linkEtag(guid: string): string | undefined {
+    return [...(this.rel?.incoming ?? []), ...(this.rel?.outgoing ?? [])].find((r) => r.link.guid === guid)?.link.etag;
+  }
+
+  /** Both changed the same things: name them, then cancel or overwrite exactly that version. */
+  private conflictDialog(c: SaveConflict) {
+    const v = this.view!;
+    const fmt = (x: unknown) => x === undefined || x === null || x === "" ? html`<span class="muted">empty</span>`
+      : typeof x === "object" ? JSON.stringify(x) : String(x);
+    const row = (it: SaveConflictItem) => html`<tr data-test="conflict-row">
+      <th>${this.conflictLabel(it.key)}</th>
+      <td>${fmt(it.theirs)}<div class="muted small">${it.author ?? "someone"}${it.time ? html` · ${fmtTime(it.time)}` : nothing}</div></td>
+      <td>${fmt(it.mine)}</td></tr>`;
+    store.set({ dialog: { kind: "confirm", title: "Changed by someone else", danger: true, confirmLabel: "Overwrite", resizable: "conflict",
+      text: `While you were editing ${label(v.meta)}, someone else changed the same things. Your other changes merge without loss.`,
+      body: html`<p><a href=${`/artifact/${v.meta.guid}`} target="_blank" rel="noopener" data-test="conflict-current">Open the current version in a new tab</a></p>
+        <table class="base-diff conflict-table" data-test="conflicts"><thead><tr><th></th><th>Theirs (now)</th><th>Yours</th></tr></thead>
+        <tbody>${c.conflicts.map(row)}</tbody></table>`,
+      onConfirm: () => void this.save(c.etag) } });
+  }
+
+  private conflictLabel(key: string): string {
+    const [kind, ...rest] = key.split(".");
+    const id = rest.join(".");
+    switch (kind) {
+      case "fields": return this.schema?.fields?.find((f) => f.id === id)?.name ?? id;
+      case "workflows": { const w = this.workflows.find((x) => x.id === id); return `${w?.definition.name ?? id} (state)`; }
+      case "files": return `Attachment ${id}`;
+      case "links": {
+        const r = [...(this.rel?.incoming ?? []), ...(this.rel?.outgoing ?? [])].find((x) => x.link.guid === id);
+        return r ? `Link ${r.role ?? r.link.type ?? ""} ${hidLabel(r.other)}` : "Link";
+      }
+      default: return key === "hid" ? "HID" : key.charAt(0).toUpperCase() + key.slice(1);
     }
   }
 
@@ -1051,10 +1127,11 @@ export class Detail extends LitElement {
         : same ? html`<div class="muted small">This already is the base; nothing changes.</div>` : html`
         ${!c.to ? html`<label class="keep small"><input type="checkbox" data-test="keep-values" .checked=${c.keep}
           @change=${(e: Event) => { this.baseChange = { ...c, keep: (e.target as HTMLInputElement).checked }; }}> Keep the inherited values in this entry</label>` : nothing}
-        ${changed.length ? html`<table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
+        ${changed.length ? html`<div class="resizable-area"><div class="base-diff-wrap" data-test="base-diff-wrap" style=${savedHeight("baseDiff") ? savedHeight("baseDiff") + ";max-height:none" : ""}>
+          <table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
           <tbody>${changed.map((r) => html`<tr data-field=${r.id}><td>${r.name}</td>
             <td>${show(r.before)} ${r.beforeFrom ? html`<small class="muted">from ${r.beforeFrom}</small>` : nothing}</td>
-            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table>`
+            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table></div>${heightGrip("baseDiff")}</div>`
           : html`<div class="muted small" data-test="base-no-change">No effective value changes.</div>`}
         <div class="muted small">${ownCount === 1 ? "1 value set in this entry stays" : `${ownCount} values set in this entry stay`} as ${ownCount === 1 ? "it is" : "they are"}.${
           overlays ? ` ${overlays === 1 ? "Its overlay inherits" : `Its ${overlays} overlays inherit`} the new values too.` : ""}</div>`}

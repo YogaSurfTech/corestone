@@ -436,6 +436,32 @@ func (p *DB) RecreatedLinks(ctx context.Context, guid string, commits []string) 
 	return out, unavailable(rows.Err())
 }
 
+// CommitRow is one commit that touched an artifact: its own file (Path and
+// Blob, both empty when the file was untouched) or something beside it.
+type CommitRow struct {
+	Commit, Path, Blob string
+}
+
+// CommitsSince lists the commits that touched an artifact after the index
+// position seq, oldest first.
+func (p *DB) CommitsSince(ctx context.Context, guid string, seq int64) ([]CommitRow, error) {
+	rows, err := p.sql.QueryContext(ctx, `SELECT commit_sha, COALESCE(path, ''), COALESCE(blob, '') FROM artifact_commits
+		WHERE guid = $1 AND seq > $2 ORDER BY seq`, guid, seq)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	defer rows.Close()
+	var out []CommitRow
+	for rows.Next() {
+		var r CommitRow
+		if err := rows.Scan(&r.Commit, &r.Path, &r.Blob); err != nil {
+			return nil, unavailable(err)
+		}
+		out = append(out, r)
+	}
+	return out, unavailable(rows.Err())
+}
+
 // ExistedBefore reports whether an artifact had a file at some index
 // position before seq: a version without a predecessor brings it back
 // rather than creating it.

@@ -1,4 +1,4 @@
-import { test, expect, post, seedDomain, stamp } from "./fixtures";
+import { test, expect, get, post, seedDomain, stamp } from "./fixtures";
 
 // Two users in two browser contexts: presence, live updates over the
 // session channel, and conflict handling in both views.
@@ -66,7 +66,30 @@ test("live updates: creations, transitions and deletions show up in the other se
   await c2.close();
 });
 
-test("conflicting edits: the second writer is told, keeps the draft, and can reload", async ({ browser }) => {
+test("parallel edits of different fields merge without a word", async ({ browser }) => {
+  const e = await post("/entries", { path: folder, type: "req", title: `Parallel ${id}`, fields: { priority: "low", rationale: "original" } });
+  const c1 = await browser.newContext();
+  const c2 = await browser.newContext();
+  const a = await c1.newPage();
+  const b = await c2.newPage();
+  await a.goto(`/artifact/${e.meta.guid}`);
+  await b.goto(`/artifact/${e.meta.guid}`);
+  await a.locator("[data-field=effort] input").fill("8");
+  await b.locator("[data-field=rationale] textarea").fill("b's reason");
+  await a.locator("[data-test=save]").click();
+  await expect(a.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  await b.locator("[data-test=save]").click();
+  await expect(b.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  await expect(b.locator(".dialog")).toHaveCount(0);
+  await expect(b.locator(".toast.error")).toHaveCount(0);
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
+  expect(stored.data.fields.effort).toBe(8);
+  expect(stored.data.fields.rationale).toBe("b's reason");
+  await c1.close();
+  await c2.close();
+});
+
+test("conflicting edits: the second writer is told what overlaps, keeps the draft, and can overwrite", async ({ browser }) => {
   const e = await post("/entries", { path: folder, type: "req", title: `Conflict ${id}`, fields: { priority: "low", rationale: "original" } });
   const c1 = await browser.newContext();
   const c2 = await browser.newContext();
@@ -78,12 +101,19 @@ test("conflicting edits: the second writer is told, keeps the draft, and can rel
   await b.locator("[data-field=rationale] textarea").fill("b's version");
   await a.locator("[data-test=save]").click();
   await expect(a.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
-  await expect(b.locator(".toast.error").first()).toContainText("changed by someone else");
   await expect(b.locator("[data-field=rationale] textarea")).toHaveValue("b's version");
   await b.locator("[data-test=save]").click();
-  await expect(b.locator(".notice.error")).toContainText("modified");
-  await b.locator(".notice.error button", { hasText: "Reload" }).click();
-  await expect(b.locator("[data-field=rationale] textarea")).toHaveValue("a's version");
+  const row = b.locator(".dialog [data-test=conflict-row]");
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("a's version");
+  await expect(row).toContainText("b's version");
+  await b.locator(".dialog [data-test=dialog-cancel]").click();
+  await expect(b.locator("[data-field=rationale] textarea")).toHaveValue("b's version");
+  await b.locator("[data-test=save]").click();
+  await b.locator(".dialog [data-test=dialog-confirm]").click();
+  await expect(b.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
+  expect(stored.data.fields.rationale).toBe("b's version");
   await c1.close();
   await c2.close();
 });

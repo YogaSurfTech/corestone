@@ -636,3 +636,32 @@ func TestSaveUploadLimits(t *testing.T) {
 		t.Fatalf("too large: %s", res.raw)
 	}
 }
+
+func TestSaveMergesAndReportsConflicts(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	r := a.ok("POST", "/api/entries", `{"path":"reqs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201)
+	g, base := meta(r, "guid"), r.hdr.Get("ETag")
+	a.ok("PUT", "/api/artifacts/"+g, `{"title":"Theirs"}`, 200)
+
+	// Different things: merged.
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"fields":{"rationale":"why"}}}`, 200, "If-Match", base)
+	// The same thing: 412 with what overlaps; overwriting that version saves.
+	c := a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"Mine"}}`, 412, "If-Match", base)
+	conflicts, _ := c.body["conflicts"].([]any)
+	if len(conflicts) != 1 || conflicts[0].(map[string]any)["key"] != "title" || conflicts[0].(map[string]any)["theirs"] != "Theirs" {
+		t.Fatalf("conflict: %s", c.raw)
+	}
+	s := a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"Mine"},"overwrite":"`+c.body["etag"].(string)+`"}`, 200, "If-Match", base)
+	if s.body["data"].(map[string]any)["title"] != "Mine" {
+		t.Fatalf("overwrite: %s", s.raw)
+	}
+
+	// A removed link is checked against the version the client saw.
+	tc := meta(a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201), "guid")
+	l := a.ok("POST", "/api/links", `{"type":"verifies","source":"`+tc+`","target":"`+g+`"}`, 201)
+	lg, le := meta(l, "guid"), strings.Trim(l.hdr.Get("ETag"), `"`)
+	a.ok("PUT", "/api/artifacts/"+lg, `{"note":"changed"}`, 200)
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":[{"guid":"`+lg+`","etag":"`+le+`"}]}`, 412)
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":["`+lg+`"]}`, 200)
+}

@@ -191,6 +191,21 @@ test("change or remove an entry's base with a preview of the effective values", 
   await expect(diff.locator("tr[data-field=priority]")).toContainText(`low from ${b.meta.hid}`);
   await expect(diff.locator("tr[data-field=rationale]")).toContainText("from B");
   await expect(diff.locator("tr[data-field=effort]")).toHaveCount(0);
+  // the comparison is dragged taller at its bottom edge and keeps that height
+  const wrap = preview.locator("[data-test=base-diff-wrap]");
+  await preview.locator("[data-test=baseDiff-resize]").scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 200); // room below the grip to drag into
+  const box = (await wrap.boundingBox())!;
+  const grip = (await preview.locator("[data-test=baseDiff-resize]").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2 + 120, { steps: 5 });
+  await page.mouse.up();
+  const tall = (await wrap.boundingBox())!.height;
+  expect(tall).toBeGreaterThan(box.height + 80);
+  await preview.locator("[data-test=cancel-base]").click();
+  await pick(`Base B ${id}`);
+  await expect.poll(async () => Math.round((await wrap.boundingBox())!.height)).toBe(Math.round(tall));
   await expect(preview).toContainText("1 value set in this entry stays");
   await expect(preview).toContainText("Its overlay inherits the new values too");
   await preview.locator("[data-test=apply-base]").click();
