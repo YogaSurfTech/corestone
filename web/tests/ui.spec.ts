@@ -172,7 +172,7 @@ test("one Save publishes edits, a transition, a link and a comment as a single c
   await page.goto(`/artifact/${e.meta.guid}`);
   await page.locator("[data-test=title]").fill(`Batch edited ${stamp}`);
   await page.locator(".workflow[data-workflow=dev] select").selectOption("submit");
-  await page.locator("#sec-relationships .actions button", { hasText: "relates to" }).click();
+  await page.locator("#sec-relationships .actions button", { hasText: "related" }).click();
   await page.locator("corestone-picker input").fill(`Batch target ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Batch target ${stamp}` }).click();
   await page.locator("[data-test=comment-add]").click();
