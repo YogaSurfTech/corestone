@@ -1,0 +1,35 @@
+// Toolbar icons (24×24 line drawings), from the design demo page.
+const ICONS: Record<string, string> = {
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  clear: '<path d="M4 7V4h12v3"/><path d="M10 4v12"/><path d="m14 21 7-7-3-3-7 7 3 3z"/><path d="m16 16-3-3"/>',
+  bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
+  italic: '<path d="M10 5h8M6 19h8M14 5l-4 14"/>',
+  underline: '<path d="M7 4v7a5 5 0 0 0 10 0V4"/><path d="M5 20h14"/>',
+  strike: '<path d="M4 12h16"/><path d="M16 7a4 3 0 0 0-8 0c0 4 8 3 8 7a4 3 0 0 1-8 1"/>',
+  sub: '<path d="m4 6 8 10M12 6l-8 10"/><path d="M15 15a2 2 0 1 1 4 0c0 1.5-4 2.5-4 5h4"/>',
+  sup: '<path d="m4 8 8 10M12 8l-8 10"/><path d="M15 6a2 2 0 1 1 4 0c0 1.5-4 2.5-4 5h4"/>',
+  fcolor: '<path d="m7 16 5-12 5 12M9 12h6"/>',
+  bcolor: '<path d="m4 15 7-7 5 5-7 7H4z"/><path d="m11 8 3-3 5 5-3 3"/>',
+  ul: '<circle cx="5" cy="7" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="17" r="1"/><path d="M9 7h11M9 12h11M9 17h11"/>',
+  ol: '<path d="M4 5h1v4M4 9h2M4 14a1 1 0 1 1 2 0l-2 3h2"/><path d="M9 7h11M9 12h11M9 17h11"/>',
+  indent: '<path d="M4 6h16M11 12h9M11 18h9"/><path d="m4 12 3 3-3 3"/>',
+  outdent: '<path d="M4 6h16M11 12h9M11 18h9"/><path d="m7 12-3 3 3 3"/>',
+  al: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',
+  ac: '<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>',
+  ar: '<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>',
+  aj: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
+  link: '<path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1"/><path d="M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"/>',
+  image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m21 16-5-5-9 8"/>',
+  table: '<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 10h18M3 15h18M9 5v14M15 5v14"/>',
+  diagram: '<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/>',
+  formula: '<path d="M17 5H7l6 7-6 7h10"/>',
+  chev: '<path d="m7 10 5 5 5-5"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  pick: '<path d="m14 4 6 6-9 9H5v-6z"/><path d="m12 6 6 6"/>',
+  none: '<circle cx="12" cy="12" r="8"/><path d="m6.5 17.5 11-11"/>',
+};
+
+export function icon(name: string, size = 18): string {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
+}

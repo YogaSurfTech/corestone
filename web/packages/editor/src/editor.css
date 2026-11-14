@@ -1,0 +1,51 @@
+/* @corestone/editor: toolbar from docs/design/Corestone editor toolbar demo.html, and the text area. */
+.cs-editor { --cs-border: #d0d7de; --cs-hover: #eef1f5; --cs-pressed: #dde6f3; --cs-muted: #57606a; --cs-text: #1f2328; --cs-panel: #fff;
+  max-width: 640px; color: var(--cs-text); font: 14px/1.5 Inter, Arial, sans-serif; }
+.cs-editor *, .cs-editor *::before, .cs-editor *::after { box-sizing: border-box; }
+
+.cs-tb { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; background: var(--cs-panel); border: 1px solid var(--cs-border);
+  border-radius: 10px 10px 0 0; padding: 6px 8px; position: sticky; top: 0; z-index: 5; }
+.cs-tb .b { height: 32px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent;
+  border-radius: 6px; color: var(--cs-text); font: inherit; padding: 0 6px; cursor: pointer; }
+.cs-tb .b:hover, .cs-tb .b:focus-visible { background: var(--cs-hover); outline: none; }
+.cs-tb .b[aria-pressed="true"] { background: var(--cs-pressed); }
+.cs-tb .b[aria-disabled="true"] { color: #a5acb4; cursor: not-allowed; background: transparent; }
+.cs-tb .c { height: 32px; width: 12px; border: 0; background: transparent; border-left: 1px solid #e1e4e8; color: var(--cs-muted); padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 0 6px 6px 0; }
+.cs-tb .c:hover, .cs-tb .c[aria-expanded="true"] { background: #e3e8ef; }
+.cs-tb .sp { position: relative; display: inline-flex; align-items: center; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--cs-border); }
+.cs-tb .sp > .b { border-radius: 6px 0 0 6px; }
+.cs-tb .sp.gap { margin-left: 10px; }
+.cs-tb .sep { width: 1px; height: 22px; background: var(--cs-border); margin: 0 6px; }
+.cs-tb .cw { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; }
+.cs-tb .cw i { display: block; width: 16px; height: 3px; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+.cs-tb .sz { width: 36px; height: 26px; border: 1px solid var(--cs-border); border-radius: 5px; text-align: center; font: inherit; margin: 0 2px; padding: 0; }
+.cs-tb .sz.bad { border-color: #c62828; color: #c62828; }
+.cs-tb .fontsel { justify-content: flex-start; padding: 0 4px; width: 110px; }
+.cs-tb .fn { display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+.cs-tb .pop { position: absolute; top: 36px; left: 0; background: var(--cs-panel); border: 1px solid var(--cs-border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.1); padding: 6px; display: none; gap: 2px; z-index: 10; white-space: nowrap; }
+.cs-tb .pop.open { display: flex; }
+.cs-tb .pop.cgrid.open { display: grid; grid-template-columns: repeat(9, auto); gap: 4px; align-items: center; }
+.cs-tb .pop.col { flex-direction: column; min-width: 160px; }
+.cs-tb .f { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 15px; color: var(--cs-text); cursor: pointer; }
+.cs-tb .f:hover { background: var(--cs-hover); }
+.cs-tb .sw { width: 24px; height: 24px; border-radius: 5px; border: 1px solid #c9d1d9; cursor: pointer; padding: 0; }
+.cs-tb .sw:hover { outline: 2px solid #1565c0; outline-offset: 1px; }
+.cs-tb .sw.empty { background: repeating-linear-gradient(45deg, #fff 0 3px, #eef1f5 3px 6px); border-style: dashed; cursor: default; outline: none; }
+.cs-tb label.b input[type=color] { width: 0; height: 0; opacity: 0; border: 0; padding: 0; position: absolute; }
+.cs-tb .none { grid-column: 1 / -1; justify-content: flex-start; }
+.cs-tb .none::after { content: attr(aria-label); font-size: 13px; }
+
+.cs-tip { position: fixed; max-width: 260px; background: rgba(31,35,40,.5); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px);
+  text-shadow: 0 1px 2px rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 1.4; padding: 7px 10px; border-radius: 6px;
+  pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 20; }
+.cs-tip.on { opacity: 1; }
+.cs-tip b { display: block; color: #ffb4a8; font-weight: 600; }
+
+.cs-area { background: var(--cs-panel); border: 1px solid var(--cs-border); border-top: 0; border-radius: 0 0 10px 10px; }
+.cs-area .ProseMirror { min-height: 140px; padding: 14px 18px; outline: none; white-space: pre-wrap; word-wrap: break-word; font-variant-ligatures: none; }
+.cs-area .ProseMirror p { margin: 0 0 .5em; }
+.cs-area .ProseMirror ul, .cs-area .ProseMirror ol { margin: 0 0 .5em; padding-left: 1.6em; }
+.cs-area .ProseMirror li > p { margin: 0; }
+.cs-area .ProseMirror:focus-within { box-shadow: inset 0 0 0 2px rgba(21,101,192,.25); border-radius: 0 0 10px 10px; }

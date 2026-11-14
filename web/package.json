@@ -13,12 +13,16 @@
     "test:unit": "node --test tests/*.unit.mjs"
   },
   "dependencies": {
-    "lit": "^3.3.0"
+    "lit": "^3.3.0",
+    "@corestone/editor": "*"
   },
   "devDependencies": {
     "@playwright/test": "1.56.0",
     "@types/node": "^22.20.4",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.0"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
