@@ -7,6 +7,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/model"
@@ -30,6 +31,20 @@ var objectName = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 type HistoryEntry struct {
 	gitx.LogEntry
 	Blob string `json:"blob,omitempty"`
+	// Recreates lists the links created in this commit that repeat a link
+	// deleted before (same type and endpoints).
+	Recreates []RecreatedLink `json:"recreates,omitempty"`
+}
+
+// RecreatedLink is a deleted link that a new one repeats, with its last
+// version to open it.
+type RecreatedLink struct {
+	Link      string    `json:"link"`  // the new link
+	Prior     string    `json:"prior"` // the deleted one
+	Blob      string    `json:"blob,omitempty"`
+	At        string    `json:"at,omitempty"`
+	DeletedAt time.Time `json:"deletedAt,omitzero"`
+	DeletedBy string    `json:"deletedBy,omitempty"`
 }
 
 // HistoryPage is one batch of an artifact's history, newest first.
@@ -72,10 +87,14 @@ func (f *Foundation) HistoryPage(ctx context.Context, guid string, limit int, be
 			for _, e := range log {
 				byCommit[e.SHA] = e
 			}
+			recreated, err := f.recreatedLinks(ctx, guid, shas)
+			if err != nil {
+				return nil, err
+			}
 			page := &HistoryPage{History: []HistoryEntry{}, More: more}
 			for _, r := range rows {
 				if e, ok := byCommit[r.Commit]; ok {
-					page.History = append(page.History, HistoryEntry{LogEntry: e, Blob: r.Blob})
+					page.History = append(page.History, HistoryEntry{LogEntry: e, Blob: r.Blob, Recreates: recreated[r.Commit]})
 				}
 			}
 			return page, nil
@@ -636,4 +655,40 @@ func (f *Foundation) VersionFile(ctx context.Context, guid, blob, commit, name s
 		return nil, "", model.ErrNotFound
 	}
 	return data, sha, err
+}
+
+// recreatedLinks finds the links created in the given commits that repeat
+// an earlier deleted link, by commit, with that link's last version and who
+// deleted it.
+func (f *Foundation) recreatedLinks(ctx context.Context, guid string, commits []string) (map[string][]RecreatedLink, error) {
+	found, err := f.DB.RecreatedLinks(ctx, guid, commits)
+	if err != nil || len(found) == 0 {
+		return nil, err
+	}
+	deleters := make([]string, len(found))
+	for i, r := range found {
+		deleters[i] = r.DeletedCommit
+	}
+	log, err := f.Repo.Commits(ctx, deleters)
+	if err != nil {
+		return nil, err
+	}
+	by := map[string]string{}
+	for _, e := range log {
+		by[e.SHA] = e.Author
+	}
+	out := map[string][]RecreatedLink{}
+	for _, r := range found {
+		rl := RecreatedLink{Link: r.Link, Prior: r.Prior, DeletedAt: r.DeletedAt, DeletedBy: by[r.DeletedCommit]}
+		if seq, ok, err := f.DB.CommitSeq(ctx, r.DeletedCommit); err == nil && ok {
+			if _, blob, ok, err := f.DB.FileAt(ctx, r.Prior, seq-1); err == nil && ok {
+				rl.Blob = blob
+				if at, _, ok, err := f.DB.CommitOfBlob(ctx, r.Prior, blob); err == nil && ok {
+					rl.At = at
+				}
+			}
+		}
+		out[r.Commit] = append(out[r.Commit], rl)
+	}
+	return out, nil
 }

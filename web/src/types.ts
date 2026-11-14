@@ -127,7 +127,11 @@ export interface LogEntry {
 }
 
 /** A commit in an artifact's history; blob addresses the artifact's version then ("" or absent: it did not exist). */
-export interface HistoryEntry extends LogEntry { blob?: string }
+export interface HistoryEntry extends LogEntry {
+  blob?: string;
+  /** Links created here that repeat a deleted link (same type and endpoints), with its last version. */
+  recreates?: { link: string; prior: string; blob?: string; at?: string; deletedAt?: string; deletedBy?: string }[];
+}
 
 /** An artifact as it was at one commit (read-only); configuration is today's. */
 export interface VersionView extends View {

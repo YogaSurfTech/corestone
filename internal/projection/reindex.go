@@ -709,8 +709,9 @@ func (p *DB) phaseHistory(ctx context.Context, head string) error {
 			if rec.HID != "" {
 				hid = rec.HID
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_artifacts (guid, kind, type, title, hid, last_path, deleted_commit, deleted_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, d.guid, string(rec.Kind), rec.Type, rec.Title, hid, d.path, d.commit, d.at); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_artifacts (guid, kind, type, title, hid, last_path, deleted_commit, deleted_at, source, target, subject)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, d.guid, string(rec.Kind), rec.Type, rec.Title, hid, d.path, d.commit, d.at,
+				nullable(rec.Source), nullable(rec.Target), nullable(rec.Subject)); err != nil {
 				return unavailable(err)
 			}
 		}

@@ -163,6 +163,7 @@ POST /api/repository/maintenance/relocate-metadata     restore metadata locality
 GET  /api/repository/hids/{hid}           current and historical owners of a HID
 GET  /api/repository/deleted?guid=        deleted artifacts with their deletion commit
 GET  /api/artifacts/{guid}/schema | overlay | workflows | relationships | comments | history
+                                          (history entries name links that repeat a deleted link: same type and endpoints)
 GET  /api/artifacts/{guid}/versions/{blob}?commit=   a historic version: links, comments, endpoints and subject as they were then,
                                           and what the commit changed (created, restored after a deletion, properties, links, comments)
 POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifacts/{guid}/move  {path}

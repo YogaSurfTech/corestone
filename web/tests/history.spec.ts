@@ -126,3 +126,21 @@ test("a version shows the links and comments of its time, the other side as it w
   await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
   await expect(page.locator("[data-test=title]")).toHaveValue(`Old name ${id}`);
 });
+
+test("a link created again after its deletion points to the deleted one", async ({ page }) => {
+  const e = await post("/entries", { path: folder, type: "req", title: `Again ${id}`, fields: { priority: "low" } });
+  const tc = await post("/entries", { path: folder, type: "tc", title: `Again checker ${id}` });
+  const first = await post("/links", { type: "verifies", source: tc.meta.guid, target: e.meta.guid });
+  await del(`/artifacts/${first.meta.guid}`);
+  await post("/links", { type: "verifies", source: tc.meta.guid, target: e.meta.guid });
+
+  await page.goto(`/artifact/${e.meta.guid}?tab=history`);
+  const rows = page.locator("#sec-history .history-row");
+  await expect(rows.nth(1)).toContainText("Link verifies from");
+  await expect(rows.nth(1)).toContainText("deleted");
+  await expect(rows.nth(0).locator("[data-test=history-recreates]")).toContainText("Same link as one deleted");
+  await expect(page.locator("[data-test=history-recreates]")).toHaveCount(1);
+  await rows.nth(0).locator("[data-test=history-recreates-prior]").click();
+  await expect(page).toHaveURL(new RegExp(`/artifact/${first.meta.guid}\\?.*version=${first.etag}`));
+  await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
+});

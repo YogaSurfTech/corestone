@@ -347,3 +347,67 @@ func TestVersionRestored(t *testing.T) {
 	}
 	check("rebuilt")
 }
+
+func TestRecreatedLinkAndDeleteSubjects(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	seed(t, f)
+	a := create(t, f, model.KindEntry, `{"path":"specs/a","type":"requirement","title":"Alpha","fields":{"priority":"high"}}`)
+	b := create(t, f, model.KindEntry, `{"path":"tests","type":"testcase","title":"Beta"}`)
+	link := `{"type":"verifies","source":"` + b.Meta.GUID + `","target":"` + a.Meta.GUID + `"}`
+	l1, err := f.CreateLink(ctx, obj(t, link))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm, err := f.CreateComment(ctx, obj(t, `{"subject":"`+a.Meta.GUID+`","text":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, l1.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteArtifact(ctx, cm.Meta.GUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := f.CreateLink(ctx, obj(t, link))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(label string) {
+		t.Helper()
+		page, err := f.HistoryPage(ctx, a.Meta.GUID, 0, "")
+		if err != nil || len(page.History) < 3 {
+			t.Fatalf("%s: history %+v %v", label, page, err)
+		}
+		// The deletions are named like the creations.
+		if s := page.History[1].Subject; s != "Comment on REQ-1 deleted" {
+			t.Fatalf("%s: comment deletion %q", label, s)
+		}
+		if s := page.History[2].Subject; s != "Link verifies from TC-001 to REQ-1 deleted" {
+			t.Fatalf("%s: link deletion %q", label, s)
+		}
+		// The new link repeats the deleted one, which opens at its last version.
+		for _, g := range []string{a.Meta.GUID, l2.Meta.GUID} {
+			p, err := f.HistoryPage(ctx, g, 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			rc := p.History[0].Recreates
+			if len(rc) != 1 || rc[0].Link != l2.Meta.GUID || rc[0].Prior != l1.Meta.GUID || rc[0].Blob != l1.ETag || rc[0].At == "" || rc[0].DeletedBy == "" {
+				t.Fatalf("%s: recreates in the history of %s: %+v", label, g, rc)
+			}
+		}
+		// The first link was a plain creation.
+		for _, h := range page.History[3:] {
+			if len(h.Recreates) != 0 {
+				t.Fatalf("%s: %q marked as re-created", label, h.Subject)
+			}
+		}
+	}
+	check("maintained")
+	if err := f.DB.Reindex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check("rebuilt")
+}
