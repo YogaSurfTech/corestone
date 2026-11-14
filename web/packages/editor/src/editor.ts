@@ -1,10 +1,10 @@
-import { baseKeymap } from "prosemirror-commands";
+import { baseKeymap, chainCommands } from "prosemirror-commands";
 import { history, redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import { splitListItem } from "prosemirror-schema-list";
 import { EditorState, type Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-import { clearFormatting, indent, outdent, setAlign, toggleFlag } from "./commands";
+import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { fromStorage, toStorage, type RichText } from "./model";
 import { schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar, type Palette } from "./toolbar";
@@ -67,7 +67,8 @@ export class RichTextEditor {
       "Mod-b": toggleFlag("bold"), "Mod-i": toggleFlag("italic"), "Mod-u": toggleFlag("underline"),
       "Mod-,": toggleFlag("sub"), "Mod-.": toggleFlag("sup"), "Mod-\\": clearFormatting,
       "Mod-l": setAlign("left"), "Mod-e": setAlign("center"), "Mod-r": setAlign("right"), "Mod-j": setAlign("justify"),
-      "Enter": splitListItem(schema.nodes.list_item),
+      // a new paragraph or list item keeps the alignment of the one it was split from
+      "Enter": keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter)),
       "Tab": indent, "Shift-Tab": outdent,
       "Shift-Enter": (state, dispatch) => {
         dispatch?.(state.tr.replaceSelectionWith(schema.nodes.hard_break.create()).scrollIntoView());

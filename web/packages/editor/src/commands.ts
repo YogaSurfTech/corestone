@@ -79,6 +79,21 @@ export function toggleList(type: NodeType): Command {
   };
 }
 
+/** Runs a command that splits a paragraph (Enter) so that the new paragraph keeps the alignment, as in Word. */
+export function keepAlign(cmd: Command): Command {
+  return (state, dispatch) => {
+    const align = state.selection.$from.parent.attrs.align ?? null;
+    return cmd(state, dispatch && ((tr) => {
+      const $p = tr.selection.$from;
+      const p = $p.parent;
+      if (align && p.type === schema.nodes.paragraph && p.attrs.align !== align) {
+        tr.setNodeMarkup($p.before(), undefined, { ...p.attrs, align });
+      }
+      dispatch(tr);
+    }));
+  };
+}
+
 export const indent: Command = sinkListItem(schema.nodes.list_item);
 export const outdent: Command = liftListItem(schema.nodes.list_item);
 

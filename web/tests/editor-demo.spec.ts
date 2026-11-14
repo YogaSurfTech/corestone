@@ -127,3 +127,32 @@ test("list markers follow the alignment; nested numbered lists count across leve
   expect(await marker("right bullet")).toBe('"•"');
   await page.locator(".cs-editor").screenshot({ path: "test-results/editor-lists.png" });
 });
+
+test("Enter keeps the alignment, in lists and paragraphs", async ({ page }) => {
+  await page.locator("#json").fill(JSON.stringify([
+    { type: "list", items: [{ blocks: [{ type: "paragraph", align: "right", text: "first" }] }] },
+    { type: "paragraph", align: "center", text: "middle" },
+  ]));
+  await page.locator("#load").click();
+  // ProseMirror takes over the clicked position a moment after the click; End must come after that
+  const atEnd = async (text: string) => {
+    await page.locator(".cs-area p", { hasText: text }).click();
+    await page.waitForTimeout(100);
+    await page.keyboard.press("End");
+  };
+  await atEnd("first");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("second");
+  await atEnd("middle");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("below");
+  await page.locator("#save").click();
+  expect(JSON.parse(await page.locator("#json").inputValue())).toEqual([
+    { type: "list", items: [
+      { blocks: [{ type: "paragraph", align: "right", text: "first" }] },
+      { blocks: [{ type: "paragraph", align: "right", text: "second" }] },
+    ] },
+    { type: "paragraph", align: "center", text: "middle" },
+    { type: "paragraph", align: "center", text: "below" },
+  ]);
+});
