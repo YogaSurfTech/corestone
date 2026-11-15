@@ -144,6 +144,7 @@ test("Enter keeps the alignment, in lists and paragraphs", async ({ page }) => {
     await page.locator(".cs-area p", { hasText: text }).click();
     await page.waitForTimeout(100);
     await page.keyboard.press("End");
+    await page.waitForTimeout(100); // the same for the cursor that End moved
   };
   await atEnd("first");
   await page.keyboard.press("Enter");

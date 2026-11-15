@@ -230,8 +230,10 @@ test("rich text: formatted in the entry, stored as paragraphs, shown and searcha
   const rich = page.locator("corestone-detail [data-field=rich]");
   // an older plain value opens in the editor
   await expect(rich.locator(".ProseMirror")).toHaveText("old plain text");
-  await rich.locator(".ProseMirror").click();
+  await rich.locator(".ProseMirror").focus();
   await page.keyboard.press("Control+End");
+  // the editor learns of a cursor moved by the browser (Ctrl+End) a moment later; a scripted Enter is faster
+  await page.waitForTimeout(150);
   await page.keyboard.press("Enter");
   await page.keyboard.type("Housing ");
   await page.keyboard.press("Control+b");
@@ -254,7 +256,7 @@ test("rich text: formatted in the entry, stored as paragraphs, shown and searcha
   const found = await get<{ artifacts: { guid: string }[] }>(`/repository/search?q=${encodeURIComponent("Housing steel")}&path=${folder}&subtree=true`);
   expect(found.artifacts.map((a) => a.guid)).toContain(entry.meta.guid);
   // emptied: the field is unset
-  await rich.locator(".ProseMirror").click();
+  await rich.locator(".ProseMirror").focus();
   await page.keyboard.press("Control+a");
   await page.keyboard.press("Delete");
   await page.locator("[data-test=save]").click();
