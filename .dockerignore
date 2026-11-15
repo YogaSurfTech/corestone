@@ -5,6 +5,7 @@ data
 docs
 examples
 scripts
+!scripts/fetch-drawio.sh
 web/node_modules
 web/dist
 web/test-results
