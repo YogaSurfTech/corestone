@@ -394,7 +394,15 @@ func encode(doc *ojson.Object, style ojson.Style) []byte {
 	if style.Newline == "" {
 		style.Newline = "\n"
 	}
+	style.Rows = richTextRows
 	return ojson.MustEncode(doc, style)
+}
+
+// richTextRows picks the field values that are written one element per
+// line: a rich-text value is a list of blocks (paragraphs), and a line in
+// the file is a line of the text, so Git diffs show the changed lines.
+func richTextRows(path []string, a []any) bool {
+	return len(path) == 2 && path[0] == "fields" && model.IsRichText(a)
 }
 
 func label(a *model.Artifact) string {

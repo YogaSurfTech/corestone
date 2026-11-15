@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -149,7 +150,7 @@ func (o *Object) unchanged() bool {
 // MarshalJSON encodes the object compactly, in order.
 func (o *Object) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
-	if err := encode(&b, o, Style{}, 0); err != nil {
+	if err := encode(&b, o, Style{}, 0, nil); err != nil {
 		return nil, err
 	}
 	return b.Bytes(), nil
@@ -174,6 +175,13 @@ type Style struct {
 	Indent   string // "" means compact single-line output
 	Newline  string // "\n" or "\r\n"
 	Trailing bool   // newline after the closing bracket
+	// Rows, when set, picks arrays (by their path of object keys and
+	// array indexes from the top) that are written with one compact
+	// element per line, so a line in the file is a row of the data
+	// (rich-text blocks: one line per paragraph). Only used when Indent is set.
+	Rows func(path []string, a []any) bool
+
+	oneLine bool // a row: no line breaks, a space after ':' and ','
 }
 
 // DefaultStyle is used for files the Foundation creates.
@@ -233,6 +241,32 @@ func ParseObject(data []byte) (*Object, error) {
 		return nil, errors.New("ojson: expected a JSON object")
 	}
 	return o, nil
+}
+
+// ParseBody parses a request body that must be a JSON object. Unlike
+// ParseObject it keeps only the values, not the sender's layout: what a
+// client sends is written into files in the files' own style.
+func ParseBody(data []byte) (*Object, error) {
+	o, err := ParseObject(data)
+	if err != nil {
+		return nil, err
+	}
+	forgetSource(o)
+	return o, nil
+}
+
+func forgetSource(v any) {
+	switch t := v.(type) {
+	case *Object:
+		t.raw = nil
+		for _, e := range t.vals {
+			forgetSource(e)
+		}
+	case []any:
+		for _, e := range t {
+			forgetSource(e)
+		}
+	}
 }
 
 // MaxDepth bounds nesting so hostile documents cannot exhaust the stack.
@@ -318,7 +352,7 @@ func Encode(v any, style Style) ([]byte, error) {
 		style.Newline = "\n"
 	}
 	var b bytes.Buffer
-	if err := encode(&b, v, style, 0); err != nil {
+	if err := encode(&b, v, style, 0, nil); err != nil {
 		return nil, err
 	}
 	if style.Trailing {
@@ -336,7 +370,7 @@ func MustEncode(v any, style Style) []byte {
 	return b
 }
 
-func encode(b *bytes.Buffer, v any, st Style, depth int) error {
+func encode(b *bytes.Buffer, v any, st Style, depth int, path []string) error {
 	pretty := st.Indent != ""
 	nl := func(d int) {
 		if pretty {
@@ -376,13 +410,24 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 			b.WriteString("[]")
 			return nil
 		}
+		rows := pretty && st.Rows != nil && st.Rows(path, t)
 		b.WriteByte('[')
 		for i, e := range t {
 			if i > 0 {
 				b.WriteByte(',')
+				if st.oneLine {
+					b.WriteByte(' ')
+				}
 			}
 			nl(depth + 1)
-			if err := encode(b, e, st, depth+1); err != nil {
+			if rows {
+				// compact, without the remembered source layout
+				if err := encode(b, e, Style{oneLine: true}, 0, nil); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := encode(b, e, st, depth+1, append(path, strconv.Itoa(i))); err != nil {
 				return err
 			}
 		}
@@ -393,7 +438,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 		for i := range t {
 			arr[i] = t[i]
 		}
-		return encode(b, arr, st, depth)
+		return encode(b, arr, st, depth, path)
 	case *Object:
 		if t == nil || len(t.keys) == 0 {
 			b.WriteString("{}")
@@ -407,14 +452,17 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 		for i, k := range t.keys {
 			if i > 0 {
 				b.WriteByte(',')
+				if st.oneLine {
+					b.WriteByte(' ')
+				}
 			}
 			nl(depth + 1)
 			writeString(b, k)
 			b.WriteByte(':')
-			if pretty {
+			if pretty || st.oneLine {
 				b.WriteByte(' ')
 			}
-			if err := encode(b, t.vals[k], st, depth+1); err != nil {
+			if err := encode(b, t.vals[k], st, depth+1, append(path, k)); err != nil {
 				return err
 			}
 		}
@@ -430,7 +478,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 		for _, k := range keys {
 			o.Set(k, t[k])
 		}
-		return encode(b, o, st, depth)
+		return encode(b, o, st, depth, path)
 	case json.Marshaler:
 		raw, err := t.MarshalJSON()
 		if err != nil {
@@ -440,7 +488,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 		if err != nil {
 			return err
 		}
-		return encode(b, parsed, st, depth)
+		return encode(b, parsed, st, depth, path)
 	default:
 		raw, err := json.Marshal(t)
 		if err != nil {
@@ -450,7 +498,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int) error {
 		if err != nil {
 			return err
 		}
-		return encode(b, parsed, st, depth)
+		return encode(b, parsed, st, depth, path)
 	}
 	return nil
 }

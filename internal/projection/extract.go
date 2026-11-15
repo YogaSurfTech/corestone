@@ -139,6 +139,11 @@ func searchText(a *model.Artifact) string {
 			if depth > 8 || b.Len() > maxSearchBytes {
 				return
 			}
+			if depth == 1 && model.IsRichText(v) {
+				// the text as it reads, without formatting names or words split by formatting
+				add(model.RichTextPlain(v))
+				return
+			}
 			switch t := v.(type) {
 			case string:
 				add(t)
@@ -169,6 +174,9 @@ func searchText(a *model.Artifact) string {
 }
 
 func scalarStrings(v any) []string {
+	if model.IsRichText(v) {
+		return []string{model.RichTextPlain(v)} // filtered and sorted by its text, as for a plain text
+	}
 	switch t := v.(type) {
 	case string:
 		return []string{t}

@@ -1,4 +1,6 @@
 import type { Summary } from "./types";
+import { plainText } from "@corestone/editor";
+import { isRichText } from "./util";
 
 interface RankedValue { value: string; rank: number }
 type ScalarValue = string | number | null | RankedValue;
@@ -34,6 +36,7 @@ export function fieldValue(row: Summary, id: string): string | number | null {
   const v = row.fields?.[id];
   if (v == null) return null;
   if (typeof v === "number") return v;
+  if (isRichText(v)) return plainText(v);
   if (Array.isArray(v)) return v.join(", ");
   if (typeof v === "object") return "{…}";
   return String(v);

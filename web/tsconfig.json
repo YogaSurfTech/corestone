@@ -12,5 +12,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "build.mjs", "playwright.config.ts"]
+  "include": ["src", "packages/*/src", "packages/*/demo", "tests", "build.mjs", "playwright.config.ts"]
 }

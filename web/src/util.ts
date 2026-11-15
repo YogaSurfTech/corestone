@@ -1,5 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import type { Field, Kind, Schema, Summary } from "./types";
+import { plainText, type RichText } from "@corestone/editor";
 
 export const kindLabel: Record<Kind, string> = { entry: "Entry", document: "Document", link: "Link", comment: "Comment" };
 export const kindPlural: Record<Kind, string> = { entry: "Entries", document: "Documents", link: "Links", comment: "Comments" };
@@ -56,6 +57,18 @@ export function folderCrumbs(folder: string): { name: string; path: string }[] {
   const parts = folder.split("/").filter(Boolean);
   parts.forEach((p, i) => out.push({ name: p, path: parts.slice(0, i + 1).join("/") }));
   return out;
+}
+
+/** Whether a field value is rich text in paragraphs (a list of objects with text); see internal/model/richtext.go. */
+export function isRichText(v: unknown): v is RichText {
+  return Array.isArray(v) && v.length > 0 && v.every((b) => !!b && typeof b === "object" && "text" in b);
+}
+
+/** A field value as one text: rich text as it reads, other objects as JSON. */
+export function showValue(v: unknown): string {
+  if (v === undefined || v === null) return "";
+  if (isRichText(v)) return plainText(v);
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
 export function deepEqual(a: unknown, b: unknown): boolean {

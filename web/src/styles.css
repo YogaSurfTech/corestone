@@ -491,3 +491,13 @@ table.accounts td:last-child { text-align: right; }
 .inline-form { display: inline-flex; gap: 6px; align-items: center; }
 .inline-form input { width: 150px; }
 .btn.delete-x { color: var(--danger); font-weight: 800; }
+
+/* Rich-text fields: the editor (@corestone/editor, editor.css) in the app's colours */
+.field cs-richtext { display: block; }
+.field cs-richtext .cs-editor { --cs-border: var(--border); --cs-hover: var(--bg); --cs-pressed: var(--accent-soft); --cs-muted: var(--muted);
+  --cs-text: var(--text); --cs-panel: var(--input-bg); --cs-disabled: light-dark(#b4bac4, #4a5263); --cs-focus: var(--accent-soft);
+  max-width: none; font: 14px/1.5 var(--sans); }
+.field.locked cs-richtext .cs-editor { --cs-panel: var(--locked-bg); --cs-text: var(--muted); }
+.field cs-richtext .cs-tb { top: 0; }
+.field cs-richtext label { padding: 0; color: inherit; font-size: inherit; }
+.pre-line { white-space: pre-line; }

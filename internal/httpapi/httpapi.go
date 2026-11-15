@@ -225,7 +225,7 @@ func readObject(w http.ResponseWriter, r *http.Request) (*ojson.Object, bool) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return ojson.NewObject(), true
 	}
-	o, err := ojson.ParseObject(data)
+	o, err := ojson.ParseBody(data)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "request body must be a JSON object: "+err.Error())
 		return nil, false
@@ -520,7 +520,7 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 			}
 			switch part.FormName() {
 			case "changes":
-				if body, err = ojson.ParseObject(data); err != nil {
+				if body, err = ojson.ParseBody(data); err != nil {
 					writeError(w, http.StatusBadRequest, "changes must be a JSON object: "+err.Error())
 					return
 				}

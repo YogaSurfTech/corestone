@@ -110,7 +110,8 @@ test("all field types round-trip through the generated form", async ({ page }) =
   await d.locator("[data-field=when] input").fill("2026-12-24T10:30");
   await d.locator("[data-field=line] input").fill("single line");
   await d.locator("[data-field=para] textarea").fill("first line\nsecond line");
-  await d.locator("[data-field=rich] textarea").fill("rich *text*");
+  await d.locator("[data-field=rich] .ProseMirror").click();
+  await page.keyboard.type("rich *text*");
   await d.locator("[data-field=one] .enum-trigger").click();
   await d.locator('[data-field=one] .enum-option[data-value="b"]').click();
   await d.locator("[data-field=many] .enum-trigger").click();
@@ -221,4 +222,50 @@ test("the server refuses undefined types and fields", async () => {
   await expect(post("/entries", { path: folder, type: "mystery", title: "No type" })).rejects.toThrow(/400.*mystery.*is not defined/);
   await expect(post("/entries", { path: folder, type: "req", title: "Extra", fields: { priority: "low", colour: "red" } }))
     .rejects.toThrow(/400.*colour.*is not defined/);
+});
+
+test("rich text: formatted in the entry, stored as paragraphs, shown and searchable", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Rich entry", fields: { rich: "old plain text" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  // an older plain value opens in the editor
+  await expect(rich.locator(".ProseMirror")).toHaveText("old plain text");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("Control+End");
+  // the editor learns of a cursor moved by the browser (Ctrl+End) a moment later; a scripted Enter is faster
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Housing ");
+  await page.keyboard.press("Control+b");
+  await page.keyboard.type("steel");
+  await page.keyboard.press("Control+b");
+  await rich.locator(".cs-tb .sp:has([data-cmd=ul]) .c").click();
+  await rich.locator(".cs-tb .pop.open [data-cmd=ul]").click();
+  await expect(page.locator("[data-test=save]")).toBeVisible();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
+  expect(stored.data.fields.rich).toEqual([
+    { text: "old plain text" },
+    { list: "ul", text: [{ text: "Housing " }, { text: "steel", bold: true }] },
+  ]);
+  // back from the server: the formatting is there
+  await page.reload();
+  await expect(rich.locator(".ProseMirror ul li strong")).toHaveText("steel");
+  // search finds the words, also across formatting
+  const found = await get<{ artifacts: { guid: string }[] }>(`/repository/search?q=${encodeURIComponent("Housing steel")}&path=${folder}&subtree=true`);
+  expect(found.artifacts.map((a) => a.guid)).toContain(entry.meta.guid);
+  // emptied: the field is unset
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Delete");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" }).last()).toBeVisible();
+  await expect.poll(async () => (await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`)).data.fields.rich).toBeUndefined();
+});
+
+test("rich text: invalid values are refused by the server", async () => {
+  const r = await fetch(`${api}/entries`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: folder, type: "all", title: "Bad rich", fields: { rich: [{ text: "x", align: "left" }] } }) });
+  expect(r.status).toBe(400);
 });

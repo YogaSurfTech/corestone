@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rich-text editor demo</title>
+<link rel="stylesheet" href="editor.css">
+<style>
+  body { margin: 0; background: #f6f7f9; color: #1f2328; font: 14px/1.5 Inter, Arial, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lead { color: #57606a; margin: 0 0 20px; max-width: 760px; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  .row button { height: 30px; padding: 0 14px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; font: inherit; cursor: pointer; }
+  .row button.primary { background: #1565c0; border-color: #1565c0; color: #fff; }
+  .row .status { color: #57606a; font-size: 13px; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+  .panels h2 { font-size: 13px; color: #57606a; margin: 0 0 4px; font-weight: 600; }
+  textarea, pre { width: 100%; min-height: 240px; margin: 0; padding: 10px; border: 1px solid #d0d7de; border-radius: 8px; background: #fff;
+    font: 12px/1.45 ui-monospace, "Courier New", monospace; white-space: pre-wrap; box-sizing: border-box; }
+  .err { color: #c62828; font-size: 13px; }
+  @media (max-width: 800px) { .panels { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rich-text editor</h1>
+  <p class="lead">The editor of a rich-text field, on its own (TSK-14). <b>Save</b> keeps the value in this browser and shows how it
+    is stored and what search would see. Edit the JSON on the right and <b>Load JSON</b> to try values, including old plain strings.</p>
+  <cs-richtext id="ed"></cs-richtext>
+  <div class="row">
+    <button class="primary" id="save">Save</button>
+    <button id="revert">Back to saved</button>
+    <button id="sample">Sample text</button>
+    <button id="empty">Empty</button>
+    <span class="status" id="status"></span>
+  </div>
+  <div class="panels">
+    <div><h2>Stored value (JSON)</h2><textarea id="json" spellcheck="false"></textarea>
+      <div class="row"><button id="load">Load JSON</button><span class="err" id="err"></span></div></div>
+    <div><h2>Plain text (search, table columns)</h2><pre id="plain"></pre></div>
+  </div>
+</div>
+<script type="module" src="editor-demo.js"></script>
+</body>
+</html>
