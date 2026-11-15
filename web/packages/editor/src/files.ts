@@ -12,12 +12,16 @@ import { safeFileName, schema } from "./schema";
 
 /** The entry's files, as the host application offers them. */
 export interface EntryFiles {
-  /** Takes a new file (pasted, dropped or chosen); resolves with the name it is kept under. */
-  add(file: File): Promise<string>;
+  /** Takes a new file (pasted, dropped or chosen); resolves with the name it is kept under.
+   *  replace: keep it under its own name, in place of a file of that name (a changed diagram;
+   *  the history keeps the old content). */
+  add(file: File, replace?: boolean): Promise<string>;
   /** Where a file can be seen (for images) or opened. */
   url(name: string): string;
   /** The names of the entry's files, to pick one. */
   list(): Promise<string[]>;
+  /** Removes a file no longer shown (a formula's old picture); Save removes a stored one. */
+  remove?(name: string): Promise<void> | void;
   /** A file's content (to edit a diagram: draw.io reads the diagram from its PNG). */
   get?(name: string): Promise<Blob>;
 }
