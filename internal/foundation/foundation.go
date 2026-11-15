@@ -401,8 +401,13 @@ func encode(doc *ojson.Object, style ojson.Style) []byte {
 // richTextRows picks the field values that are written one element per
 // line: a rich-text value is a list of blocks (paragraphs), and a line in
 // the file is a line of the text, so Git diffs show the changed lines.
+// A table in it has its rows on lines of their own too.
 func richTextRows(path []string, a []any) bool {
-	return len(path) == 2 && path[0] == "fields" && model.IsRichText(a)
+	if len(path) == 0 || path[0] != "fields" {
+		return false
+	}
+	return len(path) == 2 && model.IsRichText(a) ||
+		len(path) == 4 && path[3] == "table" // fields.<id>.<block>.table: the rows of a table
 }
 
 func label(a *model.Artifact) string {

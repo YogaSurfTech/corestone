@@ -90,3 +90,33 @@
 .cs-editor .lb:hover { background: var(--cs-hover); }
 .cs-editor .lb.apply { background: var(--cs-pressed); }
 .cs-linkpop[hidden], .cs-linkbubble[hidden], .cs-editor .lb[hidden] { display: none; }
+
+/* tables (prosemirror-tables): grid lines, header row, selected cells, column resizing */
+.cs-area .ProseMirror .tableWrapper { overflow-x: auto; margin: 0 0 .5em; }
+.cs-area .ProseMirror table { border-collapse: collapse; table-layout: fixed; width: 100%; margin: 0 0 .5em; }
+.cs-area .ProseMirror .tableWrapper table { margin: 0; }
+.cs-area .ProseMirror td, .cs-area .ProseMirror th { border: 1px solid var(--cs-border); padding: 4px 8px; vertical-align: top;
+  position: relative; min-width: 2em; box-sizing: border-box; text-align: left; }
+.cs-area .ProseMirror th { background: var(--cs-hover); font-weight: 600; }
+.cs-area .ProseMirror td > :last-child, .cs-area .ProseMirror th > :last-child { margin-bottom: 0; }
+.cs-area .ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--cs-focus); pointer-events: none; }
+.cs-area .ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--cs-link); pointer-events: none; z-index: 2; }
+.cs-area .ProseMirror.resize-cursor { cursor: col-resize; }
+.cs-editor.readonly .cs-area .ProseMirror .column-resize-handle { display: none; }
+
+.cs-tablegrid { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
+.cs-tablegrid { padding: 8px; }
+.cs-tablegrid .size { color: var(--cs-muted); margin-bottom: 6px; }
+.cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
+.cs-tablegrid .cells button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--cs-border); border-radius: 3px; background: var(--cs-panel); cursor: pointer; }
+.cs-tablegrid .cells button.on { background: var(--cs-pressed); border-color: var(--cs-link); }
+/* the table row of the toolbar, shown while the cursor is in a table */
+.cs-tablebar { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 4px; padding-top: 4px;
+  border-top: 1px solid var(--cs-border); font-size: 13px; }
+.cs-tablebar .what { color: var(--cs-muted); margin-right: 6px; }
+.cs-tablebar .sep { width: 10px; } /* a gap, not a line: the row wraps on narrow editors */
+.cs-tablebar .lb:disabled { color: var(--cs-disabled); cursor: default; background: transparent; }
+.cs-tablebar .lb.danger:not(:disabled) { color: var(--cs-error); }
+.cs-tablebar .lb[aria-pressed="true"] { background: var(--cs-pressed); }
+.cs-tablegrid[hidden], .cs-tablebar[hidden] { display: none; }

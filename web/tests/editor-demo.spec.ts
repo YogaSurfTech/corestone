@@ -305,3 +305,128 @@ test("links: open on Ctrl+click while editing, on a click when read-only", async
   expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(["https://example.org/", "https://example.org/"]);
   await expect(page.locator(".cs-linkbubble")).toBeHidden();
 });
+
+const insertMenu = async (page: import("@playwright/test").Page) => {
+  await page.locator(".cs-tb .sp:has([data-cmd=formula]) .c").click();
+  return page.locator(".cs-tb .pop.open");
+};
+
+test("tables: insert with the size grid, Tab through the cells, Tab in the last cell adds a row", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("Intro");
+  await (await insertMenu(page)).locator("[data-cmd=table]").click();
+  const grid = page.locator(".cs-tablegrid");
+  await expect(grid).toBeVisible();
+  await grid.locator('button[data-r="2"][data-c="3"]').hover();
+  await expect(grid.locator(".size")).toHaveText("3 × 2");
+  await grid.locator('button[data-r="2"][data-c="3"]').click();
+  await expect(page.locator(".cs-area table tr")).toHaveCount(2);
+  await expect(page.locator(".cs-area table th")).toHaveCount(3);
+  for (const t of ["Name", "Value", "Unit", "Pressure", "16", "bar"]) {
+    await page.keyboard.type(t);
+    await page.keyboard.press("Tab");
+  }
+  await page.keyboard.type("Temp");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([
+    { text: "Intro" },
+    { header: true, table: [["Name", "Value", "Unit"], ["Pressure", "16", "bar"], ["Temp", "", ""]] },
+  ]);
+  // inside a table no table can be inserted
+  await page.locator(".cs-area td", { hasText: "Temp" }).click();
+  await insertMenu(page);
+  await expect(page.locator(".cs-tb .pop.open [data-cmd=table]")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator("#plain")).toHaveText("Intro\nName | Value | Unit\nPressure | 16 | bar\nTemp |  | ");
+});
+
+test("tables: the table bar adds columns, merges cells and switches the header row", async ({ page }) => {
+  await page.locator("#json").fill(JSON.stringify([{ header: true, table: [["A", "B"], ["1", "2"]] }]));
+  await page.locator("#load").click();
+  await page.locator(".cs-area td", { hasText: "1" }).click();
+  const bar = page.locator(".cs-tablebar");
+  await expect(bar).toBeVisible();
+  await expect(bar.getByRole("button", { name: "Split" })).toBeDisabled();
+  await bar.getByRole("button", { name: "+ Column right" }).click();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ header: true, table: [["A", "", "B"], ["1", "", "2"]] }]);
+  // select two cells across the row and merge them
+  await page.locator(".cs-area .ProseMirror").focus();
+  await page.locator(".cs-area td", { hasText: "1" }).click();
+  await page.waitForTimeout(100);
+  await page.keyboard.press("End");
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+ArrowRight"); // over the cell border: the two cells are selected
+  await expect(page.locator(".cs-area .selectedCell")).toHaveCount(2);
+  await bar.getByRole("button", { name: "Merge" }).click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].table[1]).toEqual([{ content: "1", colspan: 2 }, "2"]);
+  // the header row off (back in the table: the bar shows while the text has the focus)
+  await page.locator(".cs-area td", { hasText: "2" }).click();
+  await expect(bar.getByRole("button", { name: "Header row" })).toHaveAttribute("aria-pressed", "true");
+  await bar.getByRole("button", { name: "Header row" }).click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].header).toBeUndefined();
+});
+
+test("tables: stored widths, spans and cell content come back unchanged", async ({ page }) => {
+  const value = [
+    { text: "Before" },
+    { header: true, widths: [200, null, 90], table: [
+      ["Property", "Value", "Unit"],
+      [{ content: [{ text: [{ text: "Material", bold: true }] }, { list: "ul", text: "stainless" }], rowspan: 2 }, "1.4404", ""],
+      ["316L", [{ text: "alt", align: "right" }]],
+      [{ content: "Note across", colspan: 3 }],
+    ] },
+    { text: "After" },
+  ];
+  await page.locator("#json").fill(JSON.stringify(value));
+  await page.locator("#load").click();
+  await expect(page.locator(".cs-area td[rowspan='2'] li")).toHaveText("stainless");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual(value);
+  // a table at the very end: the empty line after it for the cursor is not stored
+  await page.locator("#json").fill(JSON.stringify([{ table: [["only"]] }]));
+  await page.locator("#load").click();
+  await expect(page.locator(".cs-area .ProseMirror > p")).toHaveCount(2);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ table: [["only"]] }]);
+});
+
+test("tables: dragging a column border sets the column width", async ({ page }) => {
+  await page.locator("#json").fill(JSON.stringify([{ table: [["A", "B"], ["1", "2"]] }]));
+  await page.locator("#load").click();
+  const a = page.locator(".cs-area td", { hasText: "A" });
+  const box = (await a.boundingBox())!;
+  const x = box.x + box.width - 1, y = box.y + box.height / 2;
+  await page.mouse.move(x - 10, y);
+  await page.mouse.move(x, y);
+  await expect(page.locator(".cs-area .column-resize-handle").first()).toBeVisible(); // drawn on each cell of the column
+  await page.mouse.down();
+  await page.mouse.move(x - 60, y, { steps: 5 });
+  await page.mouse.up();
+  await page.locator("#save").click();
+  const t = (await stored(page))[0];
+  expect(t.widths[1]).toBeNull();
+  expect(Math.abs(t.widths[0] - (box.width - 60))).toBeLessThan(8);
+});
+
+test("tables: pasted tables keep what the editor supports; a table in a table becomes text", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData("text/html", `<table border="1" style="background:yellow"><colgroup><col width="300"></colgroup>
+      <tr><th style="color:rgb(198,40,40)">Name</th><th>Value</th></tr>
+      <tr><td><b>Pressure</b></td><td bgcolor="red"><table><tr><td>inner a</td><td>inner b</td></tr><tr><td>c</td><td>d</td></tr></table></td></tr>
+      <tr><td colspan="2"><span style="font-family:Comic Sans MS">wide</span></td></tr></table>`);
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await page.locator("#save").click();
+  const v = await stored(page);
+  const t = v.find((b: { table?: unknown }) => b.table);
+  expect(t).toEqual({ header: true, table: [
+    [[{ text: [{ text: "Name", color: "#c62828" }] }], "Value"],
+    [[{ text: [{ text: "Pressure", bold: true }] }], "inner a | inner b\nc | d"],
+    [{ content: "wide", colspan: 2 }],
+  ] });
+  await expect(page.locator(".cs-area table table")).toHaveCount(0);
+});

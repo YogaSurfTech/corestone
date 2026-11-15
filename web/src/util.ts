@@ -59,9 +59,9 @@ export function folderCrumbs(folder: string): { name: string; path: string }[] {
   return out;
 }
 
-/** Whether a field value is rich text in paragraphs (a list of objects with text); see internal/model/richtext.go. */
+/** Whether a field value is rich text in blocks (a list of paragraphs with text, and tables); see internal/model/richtext.go. */
 export function isRichText(v: unknown): v is RichText {
-  return Array.isArray(v) && v.length > 0 && v.every((b) => !!b && typeof b === "object" && "text" in b);
+  return Array.isArray(v) && v.length > 0 && v.every((b) => !!b && typeof b === "object" && ("text" in b || "table" in b));
 }
 
 /** A field value as one text: rich text as it reads, other objects as JSON. */

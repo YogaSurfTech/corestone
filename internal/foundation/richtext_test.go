@@ -84,3 +84,35 @@ func TestRichTextItemLinks(t *testing.T) {
 		t.Fatalf("text linking to a deleted item could not be edited: %v", err)
 	}
 }
+
+// TestRichTextTableFile: a table is written with one line per row.
+func TestRichTextTableFile(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	putConfig(t, f, "", "entries/fields.json", `{"fields":[{"id":"notes","type":"richtext"}]}`)
+	putConfig(t, f, "", "entries/types.json", `{"types":[{"id":"note","fields":["notes"]}]}`)
+	req, err := ojson.ParseBody([]byte(`{"path":"n","type":"note","title":"Table","fields":{"notes":[
+		{"text":"Intro"},
+		{"header":true,"widths":[120,null],"table":[["Name","Value"],["Pressure",[{"text":[{"text":"16","bold":true}]}]]]}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := f.CreateArtifact(ctx, model.KindEntry, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := f.Repo.ReadPath(ctx, mustHead(t, f), v.Meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `    "notes": [
+      {"text": "Intro"},
+      {"header": true, "widths": [120, null], "table": [
+        ["Name", "Value"],
+        ["Pressure", [{"text": [{"text": "16", "bold": true}]}]]
+      ]}
+    ]`
+	if !strings.Contains(string(raw), want) {
+		t.Fatalf("file:\n%s\nwant it to contain:\n%s", raw, want)
+	}
+}

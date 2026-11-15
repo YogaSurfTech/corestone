@@ -11,6 +11,11 @@ const SAMPLE: RichText = [
   { list: "ul", text: "Tolerances follow ISO 2768-m" },
   { list: "ul", text: [{ text: "Surface: " }, { text: "Ra 0.8", bg: "#fff59d" }] },
   { align: "center", text: [{ text: "H" }, { text: "2", sub: true }, { text: "O at 20 °C" }] },
+  { header: true, table: [
+    ["Property", "Value", "Unit"],
+    ["Pressure", [{ text: [{ text: "16", bold: true }] }], "bar"],
+    [{ content: "Material: stainless steel 1.4404", colspan: 3 }],
+  ] },
 ];
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -27,8 +32,15 @@ const oneLine = (v: unknown): string =>
   Array.isArray(v) ? "[" + v.map(oneLine).join(", ") + "]"
   : v && typeof v === "object" ? "{" + Object.entries(v).map(([k, e]) => JSON.stringify(k) + ": " + oneLine(e)).join(", ") + "}"
   : JSON.stringify(v);
+// a table: its rows on lines of their own
+const block = (b: object): string => {
+  if (!("table" in b) || !Array.isArray(b.table)) return oneLine(b);
+  const head = Object.entries(b).filter(([k]) => k !== "table").map(([k, e]) => JSON.stringify(k) + ": " + oneLine(e));
+  const rows = b.table.length ? "[\n" + b.table.map((r: unknown) => "    " + oneLine(r)).join(",\n") + "\n  ]" : "[]";
+  return "{" + [...head, '"table": ' + rows].join(", ") + "}";
+};
 const fileLayout = (v: RichText | null) =>
-  Array.isArray(v) ? (v.length ? "[\n" + v.map((b) => "  " + oneLine(b)).join(",\n") + "\n]" : "[]") : JSON.stringify(v);
+  Array.isArray(v) ? (v.length ? "[\n" + v.map((b) => "  " + block(b)).join(",\n") + "\n]" : "[]") : JSON.stringify(v);
 
 function show(v: RichText | null, note: string) {
   json.value = fileLayout(v);

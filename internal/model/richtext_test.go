@@ -91,3 +91,44 @@ func TestRichTextRefs(t *testing.T) {
 		t.Errorf("field refs %v", got)
 	}
 }
+
+func TestRichTextTables(t *testing.T) {
+	good := `[{"text": "before"}, {"header": true, "widths": [120, null], "table": [
+		["Name", "Value"],
+		[[{"text": [{"text": "bold", "bold": true}]}, {"list": "ul", "text": "item"}], ""],
+		[{"content": "both columns", "colspan": 2}]]}]`
+	if err := ValidateRichText("f", parse(t, good)); err != nil {
+		t.Fatal(err)
+	}
+	if !IsRichText(parse(t, good)) {
+		t.Error("a value with a table is rich text")
+	}
+	bad := map[string]string{
+		`[{"table": []}]`:                                                      "list of rows",
+		`[{"table": [[]]}]`:                                                    "list of cells",
+		`[{"table": [["a"]], "header": false}]`:                                "header is true",
+		`[{"table": [["a"]], "widths": [5]}]`:                                  "10 to 4000",
+		`[{"table": [["a"]], "border": 1}]`:                                    "unknown property",
+		`[{"table": [[{"content": "a", "colspan": 0}]]}]`:                      "colspan is 1",
+		`[{"table": [[{"colspan": 2}]]}]`:                                      "has a content",
+		`[{"table": [[42]]}]`:                                                  "a cell is text",
+		`[{"table": [[[{"table": [["inner"]]}]]]}]`:                            "no tables in tables",
+		`[{"table": [[[{"text": [{"text": "x", "href": "javascript:x"}]}]]]}]`: "href is a web address",
+	}
+	for s, want := range bad {
+		err := ValidateRichText("f", parse(t, s))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: got %v, want %q", s, err, want)
+		}
+	}
+	g := "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f"
+	v := parse(t, `[{"text": "Intro"}, {"table": [
+		["Name", [{"text": [{"text": "see "}, {"text": "it", "ref": "`+g+`"}]}]],
+		[{"content": [{"text": "two"}, {"text": "lines"}], "colspan": 2}]]}, {"list": "ol", "text": "after"}]`)
+	if got, want := RichTextPlain(v), "Intro\nName | see it\ntwo lines\n1. after"; got != want {
+		t.Errorf("plain %q, want %q", got, want)
+	}
+	if got := RichTextRefs(v); len(got) != 1 || got[0] != g {
+		t.Errorf("refs in cells %v", got)
+	}
+}

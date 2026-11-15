@@ -6,7 +6,9 @@ import { EditorState, type Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { fromStorage, toStorage, type RichText } from "./model";
+import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
 import { LinkUI, openLink, type ItemLinks } from "./links";
+import { TableUI, flattenNestedTables, nextCell, prevCell, tableEdges } from "./tables";
 import { safeHref, schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar, type Palette } from "./toolbar";
 
@@ -28,6 +30,7 @@ export class RichTextEditor {
   private readonly root: HTMLElement;
   private readonly: boolean;
   private readonly links: LinkUI;
+  private readonly tables: TableUI;
 
   constructor(host: HTMLElement, opts: EditorOptions = {}) {
     const items = () => opts.items?.();
@@ -37,13 +40,14 @@ export class RichTextEditor {
     this.root.classList.toggle("readonly", this.readonly);
     // the toolbar's own inputs are internal: their change events are not the editor's
     this.root.addEventListener("change", (e) => e.stopPropagation());
-    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit() },
+    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), table: () => this.tables.openGrid() },
       opts.palette ?? DEFAULT_PALETTE);
     const area = document.createElement("div");
     area.className = "cs-area";
     this.root.append(this.toolbar.el, area);
     host.append(this.root);
     this.links = new LinkUI(() => this.view, this.root, items);
+    this.tables = new TableUI(() => this.view, this.root, this.toolbar.el);
     this.view = new EditorView(area, {
       state: this.state(opts.value),
       editable: () => !this.readonly,
@@ -51,6 +55,7 @@ export class RichTextEditor {
         this.view.updateState(this.view.state.apply(tr));
         this.toolbar.update(this.view.state);
         this.links.update(this.view, this.readonly);
+        this.tables.update(this.view, this.readonly);
         if (tr.docChanged) opts.onChange?.(this.value);
       },
       handleDOMEvents: {
@@ -67,6 +72,8 @@ export class RichTextEditor {
         focus: (view) => { this.links.update(view, this.readonly); return false; },
         blur: () => { this.links.hideBubble(); return false; },
       },
+      // pasted tables keep what the editor supports; a table in a table becomes lines of text
+      transformPastedHTML: flattenNestedTables,
       // a pasted web address links the selected text, or is inserted as a link
       handlePaste: (view, e) => {
         const text = e.clipboardData?.getData("text/plain").trim() ?? "";
@@ -82,6 +89,7 @@ export class RichTextEditor {
       },
     });
     this.toolbar.update(this.view.state);
+    this.tables.update(this.view, this.readonly);
   }
 
   /** The stored form of the current text. */
@@ -91,6 +99,7 @@ export class RichTextEditor {
   set value(v: RichText | null) {
     this.view.updateState(this.state(v));
     this.toolbar.update(this.view.state);
+    this.tables.update(this.view, this.readonly);
   }
 
   /** Read-only shows the text without the toolbar. */
@@ -98,12 +107,12 @@ export class RichTextEditor {
     if (on === this.readonly) return;
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
-    if (on) { this.links.close(false); this.links.hideBubble(); }
+    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.closeGrid(); }
     this.view.setProps({}); // editable is asked again
   }
 
   focus() { this.view.focus(); }
-  destroy() { this.links.destroy(); this.view.destroy(); this.root.remove(); }
+  destroy() { this.links.destroy(); this.tables.destroy(); this.view.destroy(); this.root.remove(); }
 
   private run(cmd: Command) {
     cmd(this.view.state, this.view.dispatch);
@@ -118,13 +127,18 @@ export class RichTextEditor {
       "Mod-l": setAlign("left"), "Mod-e": setAlign("center"), "Mod-r": setAlign("right"), "Mod-j": setAlign("justify"),
       // a new paragraph or list item keeps the alignment of the one it was split from
       "Enter": keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter)),
-      "Tab": indent, "Shift-Tab": outdent,
+      // in a list: indent; in a table: the next / previous cell
+      "Tab": chainCommands(indent, nextCell), "Shift-Tab": chainCommands(outdent, prevCell),
       "Mod-k": () => { if (this.readonly) return false; this.links.edit(); return true; },
       "Shift-Enter": (state, dispatch) => {
         dispatch?.(state.tr.replaceSelectionWith(schema.nodes.hard_break.create()).scrollIntoView());
         return true;
       },
     };
-    return EditorState.create({ doc: fromStorage(value), plugins: [history(), keymap(keys), keymap(baseKeymap)] });
+    const state = EditorState.create({ doc: fromStorage(value),
+      plugins: [history(), columnResizing(), tableEditing(), tableEdges, keymap(keys), keymap(baseKeymap)] });
+    // irregular stored tables (rows of different lengths) are completed, outside the undo history
+    const fix = fixTables(state);
+    return fix ? state.apply(fix.setMeta("addToHistory", false)) : state;
   }
 }

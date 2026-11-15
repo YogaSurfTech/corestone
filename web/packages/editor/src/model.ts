@@ -1,4 +1,5 @@
 import { Fragment, type Mark, type Node } from "prosemirror-model";
+import { TableMap } from "prosemirror-tables";
 import { FLAGS, GUID, safeHref, schema, type Align } from "./schema";
 
 // The stored form of rich text: JSON blocks whose text is a plain string
@@ -19,28 +20,52 @@ export interface Marks {
 export type Run = { text: string } & Marks;
 
 /** A paragraph; with list it is a list item (level 1 when absent). */
-export interface Block {
+export interface Paragraph {
   text: string | Run[];
   align?: Exclude<Align, "left">;
   list?: "ul" | "ol";
   level?: number;
 }
 
-/** A rich-text value: plain text (lines separated by "\n") or a list of paragraphs.
+/** A table: rows of cells; header marks the first row as the header row, widths are the
+ *  column widths in pixels (null: automatic). A cell spanning several columns or rows is
+ *  an object with its content; the cells it covers are left out (as in HTML). Cells hold
+ *  anything but tables. */
+export interface Table {
+  header?: true;
+  widths?: (number | null)[];
+  table: Cell[][];
+}
+export type Cell = RichText | { content: RichText; colspan?: number; rowspan?: number };
+
+export type Block = Paragraph | Table;
+
+/** A rich-text value: plain text (lines separated by "\n") or a list of blocks.
  *  The server validates the same form (internal/model/richtext.go). */
 export type RichText = string | Block[];
 
 export const MAX_LEVEL = 9;
 
+export const isTable = (b: Block): b is Table => "table" in b;
+
 /** Reads a stored value; plain text becomes one paragraph per line. */
 export function fromStorage(value: RichText | null | undefined): Node {
+  const blocks = blockNodes(value, false);
+  // a table at the start or the end gets an empty line before / after it for the cursor (not stored)
+  if (blocks[0]?.type === schema.nodes.table) blocks.unshift(schema.node("paragraph"));
+  if (blocks[blocks.length - 1]?.type === schema.nodes.table) blocks.push(schema.node("paragraph"));
+  return schema.node("doc", null, blocks.length ? blocks : [schema.node("paragraph")]);
+}
+
+/** The editor's blocks for a stored value; inCell: inside a table cell (no tables there). */
+function blockNodes(value: RichText | null | undefined, inCell: boolean): Node[] {
   if (typeof value === "string" || value == null) {
     const lines = (value ?? "").split("\n");
-    return schema.node("doc", null, lines.map((l) => schema.node("paragraph", null, l ? schema.text(l) : undefined)));
+    return lines.map((l) => schema.node("paragraph", null, l ? schema.text(l) : undefined));
   }
+  if (!Array.isArray(value)) return [];
   // flat paragraphs with list levels become the editor's nested lists
-  interface Open { kind: "ul" | "ol"; node: NodeTypeName; items: Node[][] } // items: each item's children
-  type NodeTypeName = "bullet_list" | "ordered_list";
+  interface Open { kind: "ul" | "ol"; node: "bullet_list" | "ordered_list"; items: Node[][] } // items: each item's children
   const top: Node[] = [];
   const stack: Open[] = [];
   const close = (to: number) => {
@@ -53,6 +78,12 @@ export function fromStorage(value: RichText | null | undefined): Node {
   };
   for (const b of value) {
     if (!b || typeof b !== "object") continue; // unknown entries are kept out rather than guessed at
+    if (isTable(b)) {
+      close(0);
+      const t = inCell ? null : tableNode(b); // no tables in tables
+      if (t) top.push(t);
+      continue;
+    }
     const p = schema.node("paragraph", { align: b.align ?? null }, inline(b.text));
     if (b.list !== "ul" && b.list !== "ol") {
       close(0);
@@ -66,7 +97,45 @@ export function fromStorage(value: RichText | null | undefined): Node {
     stack[level - 1].items.push([p]);
   }
   close(0);
-  return schema.node("doc", null, top.length ? top : [schema.node("paragraph")]);
+  return top;
+}
+
+const span = (v: unknown) => (typeof v === "number" && v >= 1 ? Math.min(Math.trunc(v), 100) : 1);
+const spanned = (c: Cell) => (c !== null && typeof c === "object" && !Array.isArray(c) ? c : null);
+
+function tableNode(t: Table): Node | null {
+  const rows = (Array.isArray(t.table) ? t.table : []).filter(Array.isArray).map((row, r) => {
+    const cells = row.map((c) => {
+      const sp = spanned(c);
+      const content = blockNodes(sp ? sp.content : (c as RichText), true);
+      const type = t.header && r === 0 ? schema.nodes.table_header : schema.nodes.table_cell;
+      return type.create({ colspan: span(sp?.colspan), rowspan: span(sp?.rowspan) },
+        content.length ? content : [schema.node("paragraph")]);
+    });
+    return cells.length ? schema.node("table_row", null, cells) : null;
+  }).filter((r): r is Node => !!r);
+  if (!rows.length) return null;
+  const table = schema.node("table", null, rows);
+  const widths = Array.isArray(t.widths) ? t.widths : [];
+  if (!widths.some((w) => typeof w === "number" && w > 0)) return table;
+  // the widths go to the cells of their columns (the editor keeps them per cell)
+  try {
+    const map = TableMap.get(table);
+    const out: Node[] = [];
+    table.forEach((row, rowOffset) => {
+      const cells: Node[] = [];
+      row.forEach((cell, cellOffset) => {
+        const rect = map.findCell(rowOffset + 1 + cellOffset);
+        const cw = widths.slice(rect.left, rect.right).map((w) => (typeof w === "number" && w > 0 ? Math.round(w) : 0));
+        const ok = cw.length === rect.right - rect.left && cw.some((w) => w > 0);
+        cells.push(cell.type.create({ ...cell.attrs, colwidth: ok ? cw : null }, cell.content));
+      });
+      out.push(row.copy(Fragment.from(cells)));
+    });
+    return table.copy(Fragment.from(out));
+  } catch {
+    return table; // an irregular table: the editor repairs it, the widths are dropped
+  }
 }
 
 function inline(text: string | Run[] | undefined): Fragment {
@@ -93,12 +162,23 @@ function marksOf(m: Marks): Mark[] {
   return out;
 }
 
-/** The stored form of the editor's document: plain text when nothing is formatted, else paragraphs. */
+/** The stored form of the editor's document: plain text when nothing is formatted, else blocks. */
 export function toStorage(doc: Node): RichText {
+  const v = storeBlocks(doc);
+  if (typeof v === "string") return v;
+  // the empty lines the editor keeps before / after a table at the start or the end
+  const empty = (b: Block | undefined) => !!b && !isTable(b) && b.text === "" && !b.align && !b.list;
+  if (empty(v[0]) && v[1] && isTable(v[1])) v.shift();
+  if (empty(v[v.length - 1]) && v.length > 1 && isTable(v[v.length - 2])) v.pop();
+  return v;
+}
+
+/** The stored form of a node's blocks (the document's, or a table cell's). */
+function storeBlocks(parent: Node): RichText {
   const out: Block[] = [];
   const walk = (n: Node, list: "ul" | "ol" | null, level: number) => {
     if (n.type === schema.nodes.paragraph) {
-      const b: Block = { text: storeInline(n) };
+      const b: Paragraph = { text: storeInline(n) };
       if (n.attrs.align) b.align = n.attrs.align;
       if (list) {
         b.list = list;
@@ -110,14 +190,45 @@ export function toStorage(doc: Node): RichText {
       // the items' paragraphs are at this list's level, lists inside them one deeper;
       // a further paragraph inside an item becomes an item of its own (lists are flat)
       n.forEach((li) => li.forEach((c) => walk(c, kind, level + 1)));
+    } else if (n.type === schema.nodes.table) {
+      out.push(storeTable(n));
     }
   };
-  doc.forEach((n) => walk(n, null, 0));
+  parent.forEach((n) => walk(n, null, 0));
   // nothing but unformatted lines: plain text, as a plain text field stores it
-  if (out.every((b) => typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list)) {
-    return out.map((b) => b.text).join("\n");
-  }
+  const plain = (b: Block): b is Paragraph & { text: string } =>
+    !isTable(b) && typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list;
+  if (out.every(plain)) return out.map((b) => (b as Paragraph).text as string).join("\n");
   return out;
+}
+
+function storeTable(n: Node): Table {
+  const map = TableMap.get(n);
+  const widths: (number | null)[] = Array(map.width).fill(null);
+  const rows: Cell[][] = [];
+  let header = n.childCount > 0;
+  n.forEach((row, rowOffset) => {
+    const cells: Cell[] = [];
+    row.forEach((cell, cellOffset) => {
+      if (rows.length === 0 && cell.type !== schema.nodes.table_header) header = false;
+      const rect = map.findCell(rowOffset + 1 + cellOffset);
+      ((cell.attrs.colwidth as number[] | null) ?? []).forEach((w, i) => {
+        if (w > 0 && widths[rect.left + i] === null) widths[rect.left + i] = w;
+      });
+      const content = storeBlocks(cell);
+      const { colspan, rowspan } = cell.attrs as { colspan: number; rowspan: number };
+      cells.push(colspan > 1 || rowspan > 1
+        ? { content, ...(colspan > 1 ? { colspan } : {}), ...(rowspan > 1 ? { rowspan } : {}) }
+        : content);
+    });
+    rows.push(cells);
+  });
+  // the rows last, so that in the file they follow on lines of their own
+  const t = {} as Table;
+  if (header) t.header = true;
+  if (widths.some((w) => w !== null)) t.widths = widths;
+  t.table = rows;
+  return t;
 }
 
 /** A paragraph's text: a plain string when nothing is formatted, else runs. */
@@ -158,13 +269,20 @@ function sameMarks(run: Run, b: Marks): boolean {
 }
 
 /** The plain text of a value, as search sees it: one line per paragraph, list items with
- *  their marker, numbered lists numbered across levels as the editor shows them (1.2.3.).
+ *  their marker, numbered lists numbered across levels as the editor shows them (1.2.3.),
+ *  a table row per line with its cells separated by " | ".
  *  The server computes the same (RichTextPlain in internal/model/richtext.go). */
 export function plainText(value: RichText | null | undefined): string {
   if (typeof value === "string" || value == null) return value ?? "";
   const lines: string[] = [];
   const stack: { kind: "ul" | "ol"; count: number }[] = [];
   for (const b of value) {
+    if (isTable(b)) {
+      stack.length = 0;
+      const cell = (c: Cell) => plainText(spanned(c)?.content ?? (c as RichText)).replace(/\n+/g, " ");
+      for (const row of b.table ?? []) lines.push((row ?? []).map(cell).join(" | "));
+      continue;
+    }
     const text = typeof b.text === "string" ? b.text : b.text.map((r) => r.text).join("");
     if (!b.list) {
       stack.length = 0;

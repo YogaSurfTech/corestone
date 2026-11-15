@@ -9,19 +9,28 @@ import (
 )
 
 // Rich text (field type "richtext") is stored either as a plain string,
-// lines separated by "\n", or as a list of blocks, one per paragraph:
+// lines separated by "\n", or as a list of blocks, one per paragraph or table:
 //
 //	{"text": "plain line"}
 //	{"align": "center", "text": [{"text": "Housing", "bold": true, "color": "#1565c0"}]}
 //	{"list": "ol", "level": 2, "text": "one.one"}
+//	{"header": true, "widths": [120, null], "table": [["Name", "Value"], [{"content": "both", "colspan": 2}]]}
 //
 // text is a string or a list of runs (text with its formatting); "\n"
 // inside a text is a line break within the paragraph. A run may be a link:
 // href to a web address (http(s), ftp(s), mailto), or ref to an item (GUID). list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
+// A table has rows of cells; a cell is rich text itself (anything but a
+// table), or an object with its content and colspan/rowspan; the cells a
+// spanning cell covers are left out, as in HTML. header makes the first row
+// the header row, widths are the column widths in pixels (null: automatic).
 // The editor (web/packages/editor) writes this form; see its model.ts.
 
-const maxListLevel = 9
+const (
+	maxListLevel  = 9
+	maxSpan       = 100
+	maxTableCells = 10000
+)
 
 var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 
@@ -34,23 +43,125 @@ func ValidateRichText(what string, v any) error {
 	if !ok {
 		return Invalid("%s expects text or a list of paragraphs", what)
 	}
-	total := 0
-	for i, b := range blocks {
-		at := what + " paragraph " + strconv.Itoa(i+1)
-		o, ok := b.(*ojson.Object)
-		if !ok {
-			return Invalid("%s is not an object", at)
-		}
-		n, err := validateBlock(at, o)
-		if err != nil {
-			return err
-		}
-		total += n
+	total, err := validateRichBlocks(what, blocks, false)
+	if err != nil {
+		return err
 	}
 	if total > MaxTextLen {
 		return Invalid("%s longer than %d bytes", what, MaxTextLen)
 	}
 	return nil
+}
+
+// validateRichBlocks checks a list of blocks (a value's, or a table cell's) and
+// returns the length of their text.
+func validateRichBlocks(what string, blocks []any, inCell bool) (int, error) {
+	total := 0
+	for i, b := range blocks {
+		at := what + " paragraph " + strconv.Itoa(i+1)
+		o, ok := b.(*ojson.Object)
+		if !ok {
+			return 0, Invalid("%s is not an object", at)
+		}
+		var n int
+		var err error
+		if _, isTable := o.Get("table"); isTable {
+			if inCell {
+				return 0, Invalid("%s: no tables in tables", at)
+			}
+			n, err = validateTable(what+" table "+strconv.Itoa(i+1), o)
+		} else {
+			n, err = validateBlock(at, o)
+		}
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// validateTable checks a table block and returns the length of its text.
+func validateTable(at string, o *ojson.Object) (int, error) {
+	for _, k := range o.Keys() {
+		v, _ := o.Get(k)
+		switch k {
+		case "table":
+		case "header":
+			if v != true {
+				return 0, Invalid("%s: header is true or absent", at)
+			}
+		case "widths":
+			ws, ok := v.([]any)
+			if !ok {
+				return 0, Invalid("%s: widths is a list of column widths", at)
+			}
+			for _, w := range ws {
+				if w == nil {
+					continue
+				}
+				if f, ok := number(w); !ok || f < 10 || f > 4000 {
+					return 0, Invalid("%s: a column width is 10 to 4000 pixels, or null", at)
+				}
+			}
+		default:
+			return 0, Invalid("%s: unknown property %q", at, k)
+		}
+	}
+	tv, _ := o.Get("table")
+	rows, ok := tv.([]any)
+	if !ok || len(rows) == 0 {
+		return 0, Invalid("%s: table is a list of rows", at)
+	}
+	n, count := 0, 0
+	for r, rv := range rows {
+		cells, ok := rv.([]any)
+		if !ok || len(cells) == 0 {
+			return 0, Invalid("%s row %d: a row is a list of cells", at, r+1)
+		}
+		for c, cv := range cells {
+			if count++; count > maxTableCells {
+				return 0, Invalid("%s: more than %d cells", at, maxTableCells)
+			}
+			cat := at + " row " + strconv.Itoa(r+1) + " cell " + strconv.Itoa(c+1)
+			l, err := validateCell(cat, cv)
+			if err != nil {
+				return 0, err
+			}
+			n += l
+		}
+	}
+	return n, nil
+}
+
+// validateCell checks a table cell: rich text, or an object with its content and spans.
+func validateCell(at string, v any) (int, error) {
+	if o, ok := v.(*ojson.Object); ok {
+		content, has := o.Get("content")
+		if !has {
+			return 0, Invalid("%s: a spanning cell has a content", at)
+		}
+		for _, k := range o.Keys() {
+			switch k {
+			case "content":
+			case "colspan", "rowspan":
+				sv, _ := o.Get(k)
+				if n, ok := integer(sv); !ok || n < 1 || n > maxSpan {
+					return 0, Invalid("%s: %s is 1 to %d", at, k, maxSpan)
+				}
+			default:
+				return 0, Invalid("%s: unknown property %q", at, k)
+			}
+		}
+		v = content
+	}
+	switch t := v.(type) {
+	case string:
+		return len(t), ValidateText(at, t, MaxTextLen)
+	case []any:
+		return validateRichBlocks(at, t, true)
+	}
+	return 0, Invalid("%s: a cell is text, a list of paragraphs, or an object with content", at)
 }
 
 // validateBlock checks one paragraph and returns the length of its text.
@@ -180,29 +291,55 @@ func integer(v any) (int, bool) {
 	return int(f), true
 }
 
-// RichTextRefs returns the items a rich-text value links to (ref of its runs).
+// RichTextRefs returns the items a rich-text value links to (ref of its
+// runs), also in table cells.
 func RichTextRefs(v any) []string {
-	blocks, _ := v.([]any)
 	var out []string
-	for _, b := range blocks {
-		o, _ := b.(*ojson.Object)
-		text, _ := o.Get("text")
-		list, _ := text.([]any)
-		for _, r := range list {
-			if ro, ok := r.(*ojson.Object); ok {
-				if g := ro.String("ref"); g != "" {
-					out = append(out, g)
+	var walk func(v any)
+	walk = func(v any) {
+		blocks, _ := v.([]any)
+		for _, b := range blocks {
+			o, _ := b.(*ojson.Object)
+			if o == nil {
+				continue
+			}
+			if tv, ok := o.Get("table"); ok {
+				forCells(tv, walk)
+				continue
+			}
+			text, _ := o.Get("text")
+			list, _ := text.([]any)
+			for _, r := range list {
+				if ro, ok := r.(*ojson.Object); ok {
+					if g := ro.String("ref"); g != "" {
+						out = append(out, g)
+					}
 				}
 			}
 		}
 	}
+	walk(v)
 	return out
 }
 
+// forCells calls f with the content of every cell of a table's rows.
+func forCells(rows any, f func(content any)) {
+	rs, _ := rows.([]any)
+	for _, r := range rs {
+		cells, _ := r.([]any)
+		for _, c := range cells {
+			if o, ok := c.(*ojson.Object); ok {
+				c, _ = o.Get("content")
+			}
+			f(c)
+		}
+	}
+}
+
 // IsRichText reports whether a value has the shape of rich text in
-// paragraphs: a non-empty list of objects that all have "text". Rich text
-// is the only field type with that shape, so a value can be recognised
-// without its field definition (search, file layout).
+// blocks: a non-empty list of objects that all have "text" (paragraphs) or
+// "table". Rich text is the only field type with that shape, so a value can
+// be recognised without its field definition (search, file layout).
 func IsRichText(v any) bool {
 	blocks, ok := v.([]any)
 	if !ok || len(blocks) == 0 {
@@ -213,7 +350,9 @@ func IsRichText(v any) bool {
 		if !ok {
 			return false
 		}
-		if _, ok := o.Get("text"); !ok {
+		_, text := o.Get("text")
+		_, table := o.Get("table")
+		if !text && !table {
 			return false
 		}
 	}
@@ -222,7 +361,8 @@ func IsRichText(v any) bool {
 
 // RichTextPlain is the plain text of a rich-text value, for search and
 // previews: one line per paragraph, list items with their marker, numbered
-// lists numbered across levels as the editor shows them (1.2.1.).
+// lists numbered across levels as the editor shows them (1.2.1.), a table
+// row per line with its cells separated by " | ".
 func RichTextPlain(v any) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -237,6 +377,19 @@ func RichTextPlain(v any) string {
 	for _, b := range blocks {
 		o, _ := b.(*ojson.Object)
 		if o == nil {
+			continue
+		}
+		if tv, ok := o.Get("table"); ok {
+			// a row per line, its cells separated by " | "
+			stack = stack[:0]
+			rows, _ := tv.([]any)
+			for _, r := range rows {
+				var cells []string
+				forCells([]any{r}, func(c any) {
+					cells = append(cells, strings.Join(strings.Fields(RichTextPlain(c)), " "))
+				})
+				lines = append(lines, strings.Join(cells, " | "))
+			}
 			continue
 		}
 		text := inlinePlain(o)

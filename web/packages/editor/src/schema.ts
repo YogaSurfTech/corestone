@@ -1,4 +1,5 @@
 import { Schema, type Mark, type MarkSpec, type Node, type NodeSpec } from "prosemirror-model";
+import { tableNodes } from "prosemirror-tables";
 
 // The editor's document model. Only what is listed here can exist in the
 // editor: pasted HTML is reduced to these nodes and marks, everything else
@@ -52,20 +53,24 @@ const alignOf = (el: HTMLElement): { align: Align | null } => {
 };
 const alignStyle = (n: Node) => (n.attrs.align ? { style: `text-align:${n.attrs.align}` } : {});
 
+// Groups: "block" is anything at the top; "cellblock" is what a table cell
+// or a list item may hold (everything but tables: no tables in tables).
 const nodes: Record<string, NodeSpec> = {
   doc: { content: "block+" },
   paragraph: {
     content: "inline*",
-    group: "block",
+    group: "block cellblock",
     attrs: alignAttr,
     parseDOM: [{ tag: "p", getAttrs: (d) => alignOf(d as HTMLElement) },
       // headings and other blocks become plain paragraphs in a field
       { tag: "h1, h2, h3, h4, h5, h6, div, pre, blockquote", getAttrs: (d) => alignOf(d as HTMLElement) }],
     toDOM: (n) => ["p", alignStyle(n), 0],
   },
-  bullet_list: { content: "list_item+", group: "block", parseDOM: [{ tag: "ul" }], toDOM: () => ["ul", 0] },
-  ordered_list: { content: "list_item+", group: "block", parseDOM: [{ tag: "ol" }], toDOM: () => ["ol", 0] },
-  list_item: { content: "paragraph block*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
+  bullet_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ul" }], toDOM: () => ["ul", 0] },
+  ordered_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ol" }], toDOM: () => ["ol", 0] },
+  list_item: { content: "paragraph cellblock*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
+  // table, table_row, table_cell, table_header (colspan, rowspan, colwidth)
+  ...tableNodes({ tableGroup: "block", cellContent: "cellblock+", cellAttributes: {} }),
   text: { group: "inline" },
   hard_break: { inline: true, group: "inline", selectable: false, parseDOM: [{ tag: "br" }], toDOM: () => ["br"] },
 };

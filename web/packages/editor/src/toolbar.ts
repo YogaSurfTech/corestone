@@ -3,6 +3,7 @@ import type { Command, EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
+import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
 
@@ -17,6 +18,8 @@ export interface ToolbarHost {
   run(cmd: Command): void;
   /** Opens the link popover for the selection. */
   link(): void;
+  /** Opens the table size grid. */
+  table(): void;
 }
 
 /** A colour palette, e.g. from company design guidelines. */
@@ -61,7 +64,7 @@ const load = <T>(key: string, fallback: T): T => {
 };
 const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
 
-const SOON = "Not available yet: images, tables, diagrams and formulas come with TSK-15.";
+const SOON = "Not available yet: images, diagrams and formulas come with TSK-15.";
 
 export class Toolbar {
   readonly el: HTMLElement;
@@ -138,7 +141,9 @@ export class Toolbar {
     this.sep();
     this.split("ins", "Insert", [
       { i: "link", tip: { t: "Link…", k: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
-      ...["image", "table", "diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
+      { i: "table", tip: { t: "Table…", dis: () => (isInTable(S()) ? "No tables in tables: put the cursor outside the table." : null) },
+        run: () => this.host.table() },
+      ...["image", "diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
     ]);
   }
 
