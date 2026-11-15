@@ -18,8 +18,8 @@ export interface ToolbarHost {
   run(cmd: Command): void;
   /** Opens the link popover for the selection. */
   link(): void;
-  /** Opens the table size grid. */
-  table(): void;
+  /** Opens the table size grid, at the mouse pointer when the toolbar was clicked. */
+  table(at?: { x: number; y: number }): void;
 }
 
 /** A colour palette, e.g. from company design guidelines. */
@@ -34,12 +34,36 @@ export interface Palette {
   names?: string[];
   /** false: only palette colours, no picker and no history. */
   allowCustom?: boolean;
+  /** The colour pairs offered for striped tables (first and second stripe). */
+  stripes?: StripePreset[];
 }
+
+export interface StripePreset { name: string; colors: [string, string] }
+
+/** The colours a table dialog offers: the marker swatches, the picker and history when the
+ *  palette allows them, and the stripe presets. */
+export interface ColorChoices {
+  swatches: string[];
+  custom: boolean;
+  recent(): string[];
+  addRecent(v: string): void;
+  presets: StripePreset[];
+}
+
+export const DEFAULT_STRIPES: StripePreset[] = [
+  { name: "Grey", colors: ["#ffffff", "#f3f4f6"] },
+  { name: "Blue", colors: ["#ffffff", "#e3f2fd"] },
+  { name: "Green", colors: ["#ffffff", "#e8f5e9"] },
+  { name: "Yellow", colors: ["#ffffff", "#fffde7"] },
+  { name: "Red", colors: ["#ffffff", "#ffebee"] },
+  { name: "Grey and blue", colors: ["#f3f4f6", "#e3f2fd"] },
+];
 
 export const DEFAULT_PALETTE: Palette = {
   colors: ["#1f2328", "#c62828", "#e65100", "#f9a825", "#2e7d32", "#1565c0", "#6a1b9a", "#ffffff"],
   backgrounds: ["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#57606a"],
   allowCustom: true,
+  stripes: DEFAULT_STRIPES,
 };
 
 /** A button's tooltip text and, when unavailable, the reason. */
@@ -72,6 +96,7 @@ export class Toolbar {
   private readonly updaters: ((s: EditorState) => void)[] = [];
   private last: Record<string, string> = load(LAST_KEY, {});
   private history: string[] = load(HISTORY_KEY, []);
+  private pointer?: { x: number; y: number };
   private readonly historyViews: (() => void)[] = [];
 
   constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE) {
@@ -85,6 +110,8 @@ export class Toolbar {
     this.el.append(this.tip);
     this.build();
     this.tooltips();
+    // where the last click on the toolbar was (none for keyboard use), for panels that open there
+    this.el.addEventListener("click", (e) => { this.pointer = e.detail ? { x: e.clientX, y: e.clientY } : undefined; }, true);
     // Clicking the toolbar must not take the focus (and the selection) from the text.
     this.el.addEventListener("mousedown", (e) => {
       if (!(e.target as HTMLElement).closest("input")) e.preventDefault();
@@ -141,8 +168,8 @@ export class Toolbar {
     this.sep();
     this.split("ins", "Insert", [
       { i: "link", tip: { t: "Link…", k: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
-      { i: "table", tip: { t: "Table…", dis: () => (isInTable(S()) ? "No tables in tables: put the cursor outside the table." : null) },
-        run: () => this.host.table() },
+      { i: "table", tip: { t: "Table…", dis: () => (isInTable(S()) ? "No tables in tables. Right-click the table for rows, columns and its properties." : null) },
+        run: () => this.host.table(this.pointer) },
       ...["image", "diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
     ]);
   }
@@ -303,6 +330,18 @@ export class Toolbar {
   private colors(mark: "color" | "bg"): string[] {
     if (mark === "color") return this.palette.colors;
     return this.palette.colors.map((c, i) => this.palette.backgrounds?.[i] ?? tint(c));
+  }
+
+  /** The colours for the table dialog, with the same limits as the marker colour. */
+  colorChoices(): ColorChoices {
+    const custom = this.palette.allowCustom !== false;
+    return {
+      swatches: this.colors("bg"),
+      custom,
+      recent: () => (custom ? this.history : []),
+      addRecent: (v) => { if (custom) this.addHistory(v); },
+      presets: this.palette.stripes ?? DEFAULT_STRIPES,
+    };
   }
 
   private addHistory(v: string) {

@@ -1,17 +1,20 @@
 import type { Node } from "prosemirror-model";
 import { Plugin, TextSelection, type Command, type EditorState } from "prosemirror-state";
 import {
-  addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, deleteColumn, deleteRow, deleteTable,
-  goToNextCell, isInTable, mergeCells, splitCell,
+  addColumn, addColumnAfter, addColumnBefore, addRow, addRowAfter, addRowBefore, cellAround, CellSelection, deleteColumn,
+  deleteRow, deleteTable, goToNextCell, isInTable, mergeCells, removeColumn, removeRow, splitCell, TableMap, TableView,
 } from "prosemirror-tables";
 import type { EditorView } from "prosemirror-view";
-import { schema } from "./schema";
+import { icon } from "./icons";
+import { hexColor, schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
+import type { ColorChoices } from "./toolbar";
 
-// Tables: inserting one (a size grid), the bar shown while the cursor is in
-// a table (rows, columns, merging, header row), Tab between cells, and the
-// cleanup of pasted tables (no tables in tables).
+// Tables: inserting one (a size grid), the context menu (rows, columns,
+// header format, merging) and the Properties dialog (size, stripes,
+// borders), Tab between cells, and the cleanup of pasted tables (no tables
+// in tables).
 
-/** A new table, the first row as header row. */
+/** A new table, its first row formatted as header. */
 export function insertTable(rows: number, cols: number): Command {
   return (state, dispatch) => {
     if (isInTable(state)) return false; // no tables in tables
@@ -33,32 +36,86 @@ export function insertTable(rows: number, cols: number): Command {
   };
 }
 
-/** The first row as header row, on or off, wherever the cursor is in the table (the stored
- *  "header" means the first row; other rows never hold header cells). */
-export const toggleHeader: Command = (state, dispatch) => {
-  const t = tableAt(state);
-  if (!t) return false;
-  const first = t.node.firstChild;
-  if (!first) return false;
+/** The cells the selection covers: the selected cells, or the cell at the cursor. */
+function selectedCells(state: EditorState): { node: Node; pos: number }[] {
+  const sel = state.selection;
+  if (sel instanceof CellSelection) {
+    const out: { node: Node; pos: number }[] = [];
+    sel.forEachCell((node, pos) => out.push({ node, pos }));
+    return out;
+  }
+  const $cell = cellAround(sel.$head);
+  return $cell?.nodeAfter ? [{ node: $cell.nodeAfter, pos: $cell.pos }] : [];
+}
+
+/** Whether every selected cell is formatted as header. */
+export function isHeader(state: EditorState): boolean {
+  const cells = selectedCells(state);
+  return cells.length > 0 && cells.every((c) => c.node.type === schema.nodes.table_header);
+}
+
+/** Formats the selected cells (a row, a column, or any cells) as header, or back as normal
+ *  cells when they all are headers already. A header is formatting only. */
+export const formatHeader: Command = (state, dispatch) => {
+  const cells = selectedCells(state);
+  if (!cells.length) return false;
   if (dispatch) {
-    const on = !isHeaderRow(t.node);
+    const type = isHeader(state) ? schema.nodes.table_cell : schema.nodes.table_header;
     const tr = state.tr;
-    let pos = t.pos + 2; // into the table, into the first row
-    first.forEach((cell) => {
-      tr.setNodeMarkup(pos, on ? schema.nodes.table_header : schema.nodes.table_cell, cell.attrs);
-      pos += cell.nodeSize;
-    });
+    for (const c of cells) tr.setNodeMarkup(c.pos, type, c.node.attrs);
     dispatch(tr);
   }
   return true;
 };
 
-/** Whether the table's first row is a header row. */
-export function isHeaderRow(table: Node): boolean {
-  let all = !!table.firstChild?.childCount;
-  table.firstChild?.forEach((c) => { if (c.type !== schema.nodes.table_header) all = false; });
-  return all;
+export interface TableProps { rows: number; cols: number; stripes: Stripes | null; colors: [string, string] | null; borders: Borders | null }
+export const MAX_ROWS = 100, MAX_COLS = 100;
+
+/** The current properties of the table at the cursor. */
+export function propsOf(state: EditorState): TableProps | null {
+  const t = tableAt(state);
+  if (!t) return null;
+  const map = TableMap.get(t.node);
+  return { rows: map.height, cols: map.width, stripes: t.node.attrs.stripes, colors: t.node.attrs.colors, borders: t.node.attrs.borders };
 }
+
+/** Whether shrinking the table at the cursor to rows × cols drops cells that hold text. */
+export function dropsText(state: EditorState, rows: number, cols: number): boolean {
+  const t = tableAt(state);
+  if (!t) return false;
+  const map = TableMap.get(t.node);
+  let drops = false;
+  t.node.forEach((row, rowOffset) => row.forEach((cell, cellOffset) => {
+    const r = map.findCell(rowOffset + 1 + cellOffset);
+    if ((r.top >= rows || r.left >= cols) && cell.textContent.trim()) drops = true;
+  }));
+  return drops;
+}
+
+/** Sets the style of the table at the cursor and its size; rows and columns are added or
+ *  removed at the end. */
+export function setTableProps(p: TableProps): Command {
+  return (state, dispatch) => {
+    const t = tableAt(state);
+    if (!t) return false;
+    if (dispatch) {
+      const tr = state.tr.setNodeMarkup(t.pos, null, { ...t.node.attrs, stripes: p.stripes, colors: p.stripes ? p.colors : null, borders: p.borders });
+      const rect = () => {
+        const table = tr.doc.nodeAt(t.pos)!;
+        return { map: TableMap.get(table), table, tableStart: t.pos + 1, left: 0, top: 0, right: 0, bottom: 0 };
+      };
+      const rows = clamp(p.rows, 1, MAX_ROWS), cols = clamp(p.cols, 1, MAX_COLS);
+      for (let r = rect(); r.map.width < cols; r = rect()) addColumn(tr, r, r.map.width);
+      for (let r = rect(); r.map.width > cols; r = rect()) removeColumn(tr, r, r.map.width - 1);
+      for (let r = rect(); r.map.height < rows; r = rect()) addRow(tr, r, r.map.height);
+      for (let r = rect(); r.map.height > rows; r = rect()) removeRow(tr, r, r.map.height - 1);
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(Math.trunc(n) || lo, lo), hi);
 
 /** Tab: the next cell; in the last cell a new row. Lists in cells still indent first (see the keymap). */
 export const nextCell: Command = (state, dispatch, view) => {
@@ -101,31 +158,35 @@ export function flattenNestedTables(html: string): string {
   return doc.body.innerHTML;
 }
 
-interface Action { label: string; title: string; cmd: Command; cls?: string }
+/** The table view: prosemirror-tables' (column widths), with the table's style as classes. */
+export class StyledTableView extends TableView {
+  constructor(node: Node, cellMinWidth: number) {
+    super(node, cellMinWidth);
+    this.style(node);
+  }
+  override update(node: Node): boolean {
+    if (!super.update(node)) return false;
+    this.style(node);
+    return true;
+  }
+  private style(node: Node) {
+    this.table.className = tableClass(node);
+    this.table.setAttribute("style", tableStyle(node));
+  }
+}
 
-const ACTIONS: (Action | "|")[] = [
-  { label: "+ Row above", title: "Insert a row above", cmd: addRowBefore },
-  { label: "+ Row below", title: "Insert a row below", cmd: addRowAfter },
-  { label: "+ Column left", title: "Insert a column to the left", cmd: addColumnBefore },
-  { label: "+ Column right", title: "Insert a column to the right", cmd: addColumnAfter },
-  "|",
-  { label: "Merge", title: "Merge the selected cells (select them by dragging across)", cmd: mergeCells },
-  { label: "Split", title: "Split the merged cell", cmd: splitCell },
-  { label: "Header row", title: "The first row as header row, on or off", cmd: toggleHeader, cls: "hdr" },
-  "|",
-  { label: "− Row", title: "Delete the row", cmd: deleteRow, cls: "danger" },
-  { label: "− Column", title: "Delete the column", cmd: deleteColumn, cls: "danger" },
-  { label: "Delete table", title: "Delete the whole table", cmd: deleteTable, cls: "danger" },
-];
+interface Item { label: string; cmd?: Command; run?: () => void; sub?: Item[]; danger?: boolean; check?: (s: EditorState) => boolean; onlyIf?: boolean }
 
+/** The table's context menu (right mouse button, the menu key or Shift+F10) and its
+ *  Properties dialog; the toolbar's table button opens the size grid. */
 export class TableUI {
   private readonly grid: HTMLElement;
-  private readonly bar: HTMLElement;
-  private readonly buttons: { b: HTMLButtonElement; a: Action }[] = [];
+  private readonly menu: HTMLElement;
+  private readonly props: HTMLElement;
+  private readonly colorPop: HTMLElement;
   private outside?: (e: MouseEvent) => void;
 
-  /** root: where the size grid opens; toolbar: the bar becomes its last row. */
-  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement, toolbar: HTMLElement) {
+  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement, private readonly colors: ColorChoices) {
     // the size grid
     this.grid = el("div", "cs-tablegrid");
     this.grid.setAttribute("role", "dialog");
@@ -147,75 +208,322 @@ export class TableUI {
       b.addEventListener("focus", () => mark(r, c));
       b.addEventListener("click", (e) => {
         e.preventDefault();
-        this.closeGrid();
+        this.close();
         const v = this.view();
         insertTable(r, c)(v.state, v.dispatch);
         v.focus();
+        this.openProps(); // straight on to the table's look
       });
       cells.append(b);
     }
     cells.addEventListener("mouseleave", () => mark(0, 0));
     mark(0, 0);
     this.grid.append(label, cells);
-    this.grid.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); this.closeGrid(); this.view().focus(); } });
 
-    // the table row of the toolbar, while the cursor is in a table
-    this.bar = el("div", "cs-tablebar");
-    this.bar.setAttribute("role", "group");
-    this.bar.setAttribute("aria-label", "Table");
-    this.bar.append(el("span", "what"));
-    (this.bar.lastChild as HTMLElement).textContent = "Table";
-    for (const a of ACTIONS) {
-      if (a === "|") { this.bar.append(el("span", "sep")); continue; }
-      const b = el("button", "lb " + (a.cls ?? "")) as HTMLButtonElement;
-      b.type = "button";
-      b.textContent = a.label;
-      b.title = a.title;
-      b.addEventListener("click", (e) => {
+    this.menu = el("div", "cs-tablemenu");
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "Table");
+    this.props = el("div", "cs-tableprops");
+    this.colorPop = el("div", "colorpop");
+    this.props.setAttribute("role", "dialog");
+    this.props.setAttribute("aria-label", "Table properties");
+    for (const p of [this.grid, this.menu, this.props]) {
+      p.hidden = true;
+      p.addEventListener("mousedown", (e) => { if (!(e.target as HTMLElement).closest("input, select")) e.preventDefault(); });
+      p.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
         e.preventDefault();
-        const v = this.view();
-        a.cmd(v.state, v.dispatch);
-        v.focus();
+        e.stopPropagation();
+        if (!this.colorPop.hidden) { this.colorPop.hidden = true; return; }
+        this.close();
+        this.view().focus();
       });
-      this.buttons.push({ b, a });
-      this.bar.append(b);
     }
-    this.grid.hidden = this.bar.hidden = true;
-    root.append(this.grid);
-    toolbar.append(this.bar);
+    root.append(this.grid, this.menu, this.props);
   }
 
-  /** Opens the size grid at the cursor. */
-  openGrid() {
-    const view = this.view();
-    this.grid.hidden = false;
-    const r = this.root.getBoundingClientRect(), c = view.coordsAtPos(view.state.selection.from);
-    this.grid.style.left = `${Math.max(0, Math.min(c.left - r.left, r.width - this.grid.offsetWidth))}px`;
-    this.grid.style.top = `${c.bottom - r.top + 4}px`;
-    (this.grid.querySelector("button") as HTMLElement).focus();
-    this.outside = (e) => { if (!this.grid.contains(e.target as globalThis.Node)) this.closeGrid(); };
+  /** Opens the size grid with its first cell under the mouse pointer, or at the cursor. */
+  openGrid(at?: { x: number; y: number }) {
+    this.open(this.grid, at ?? this.cursorPoint());
+    const first = this.grid.querySelector("button") as HTMLElement;
+    if (at) {
+      const b = first.getBoundingClientRect();
+      this.grid.style.left = `${parseFloat(this.grid.style.left) + at.x - (b.left + b.width / 2)}px`;
+      this.grid.style.top = `${parseFloat(this.grid.style.top) + at.y - (b.top + b.height / 2)}px`;
+    }
+    first.focus();
+  }
+
+  /** Opens the context menu at a point of the window (a right click), or at the cursor. */
+  openMenu(at?: { x: number; y: number }) {
+    const state = this.view().state;
+    if (!tableAt(state)) return;
+    const items: Item[] = [
+      { label: "Insert row", sub: [{ label: "Above", cmd: addRowBefore }, { label: "Below", cmd: addRowAfter }] },
+      { label: "Insert column", sub: [{ label: "Left", cmd: addColumnBefore }, { label: "Right", cmd: addColumnAfter }] },
+      { label: "Format as header", cmd: formatHeader, check: isHeader },
+      { label: "Merge cells", cmd: mergeCells, onlyIf: true },
+      { label: "Split cell", cmd: splitCell, onlyIf: true },
+      { label: "Delete", danger: true, sub: [{ label: "Row", cmd: deleteRow }, { label: "Column", cmd: deleteColumn }, { label: "Table", cmd: deleteTable }] },
+      { label: "Properties…", run: () => this.openProps(at) },
+    ];
+    this.menu.replaceChildren(...this.items(items, state));
+    this.open(this.menu, at ?? this.cursorPoint());
+    (this.menu.querySelector("[role=menuitem], [role=menuitemcheckbox]") as HTMLElement | null)?.focus();
+  }
+
+  private items(items: Item[], state: EditorState): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    for (const it of items) {
+      if (it.onlyIf && it.cmd && !it.cmd(state)) continue; // merge and split only where they apply
+      const b = el("button", "mi" + (it.danger ? " danger" : "")) as HTMLButtonElement;
+      b.type = "button";
+      b.textContent = it.label;
+      b.setAttribute("role", it.check ? "menuitemcheckbox" : "menuitem");
+      if (it.check) b.setAttribute("aria-checked", String(it.check(state)));
+      if (it.cmd && !it.cmd(state)) b.disabled = true;
+      if (it.sub) {
+        b.setAttribute("aria-haspopup", "menu");
+        b.setAttribute("aria-expanded", "false");
+        const sub = el("div", "sub");
+        sub.setAttribute("role", "menu");
+        sub.setAttribute("aria-label", it.label);
+        sub.append(...this.items(it.sub, state));
+        sub.hidden = true;
+        const wrap = el("div", "has-sub");
+        const show = (on: boolean) => {
+          sub.hidden = !on;
+          b.setAttribute("aria-expanded", String(on));
+        };
+        wrap.addEventListener("mouseenter", () => { closeSubs(wrap.parentElement!); show(true); });
+        wrap.addEventListener("mouseleave", () => show(false));
+        b.addEventListener("click", (e) => { e.preventDefault(); show(true); (sub.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus(); });
+        b.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowRight") { e.preventDefault(); b.click(); }
+        });
+        sub.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowLeft" || e.key === "Escape") { e.preventDefault(); e.stopPropagation(); show(false); b.focus(); }
+        });
+        wrap.append(b, sub);
+        out.push(wrap);
+        continue;
+      }
+      b.addEventListener("mouseenter", () => closeSubs(b.parentElement!));
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.close();
+        const v = this.view();
+        if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
+        it.run?.();
+      });
+      out.push(b);
+    }
+    // arrow keys move through the items of a menu
+    for (const o of out) o.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const menu = (e.target as HTMLElement).closest("[role=menu]")!;
+      const all = [...menu.children].map((c) => (c.matches("button") ? c : c.querySelector(":scope > button")) as HTMLButtonElement)
+        .filter((x) => x && !x.disabled);
+      const i = all.indexOf(e.target as HTMLButtonElement);
+      if (i < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length].focus();
+    });
+    return out;
+  }
+
+  /** The Properties dialog of the table at the cursor: its size, stripes (and their
+   *  colours) and borders. */
+  openProps(at?: { x: number; y: number }) {
+    const cur = propsOf(this.view().state);
+    if (!cur) return;
+    let stripes = cur.stripes, borders = cur.borders;
+    let colors: [string, string] = cur.colors ?? this.colors.presets[0]?.colors ?? ["#ffffff", "#f3f4f6"];
+    let themed = !cur.colors; // no own colours: the theme's stripes
+
+    const head = el("div", "head");
+    const title = el("span", "title");
+    title.textContent = "Table Properties";
+    const x = iconButton("close", "Close", "x");
+    head.append(title, x);
+
+    const num = (cls: string, name: string, value: number, max: number) => {
+      const l = el("label", "num");
+      l.title = name;
+      l.innerHTML = icon(cls, 16);
+      const i = el("input", cls) as HTMLInputElement;
+      i.type = "number";
+      i.min = "1";
+      i.max = String(max);
+      i.value = String(value);
+      i.setAttribute("aria-label", name);
+      l.append(i);
+      return { l, i };
+    };
+    const rows = num("rows", "Rows", cur.rows, MAX_ROWS), cols = num("cols", "Columns", cur.cols, MAX_COLS);
+    const size = el("div", "size");
+    const times = el("span", "times");
+    times.textContent = "×";
+    size.append(rows.l, times, cols.l);
+
+    /** A row of icon buttons of which one is chosen. */
+    const choice = <T extends string>(cls: string, name: string, opts: [T | null, string][], value: T | null, set: (v: T | null) => void) => {
+      const g = el("div", "choice " + cls);
+      g.setAttribute("role", "radiogroup");
+      g.setAttribute("aria-label", name);
+      const bs = opts.map(([v, label]) => {
+        const b = iconButton(`${cls[0]}-${v ?? "none"}`, label, "opt");
+        b.setAttribute("role", "radio");
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          set(v);
+          bs.forEach((o, k) => o.setAttribute("aria-checked", String(opts[k][0] === v)));
+          sync();
+        });
+        b.setAttribute("aria-checked", String(v === value));
+        return b;
+      });
+      g.append(...bs);
+      return g;
+    };
+    const stripeRow = choice<Stripes>("stripes", "Stripes", [[null, "No stripes"], ["rows", "Striped rows"], ["columns", "Striped columns"]],
+      stripes, (v) => { stripes = v; });
+    const borderRow = choice<Borders>("borders", "Borders", [[null, "Grid"], ["outside", "Outside only"], ["rows", "Between rows"],
+      ["columns", "Between columns"], ["none", "No borders"]], borders, (v) => { borders = v; });
+
+    // the two stripe colours: squares with a picker each, and presets
+    const squares = ([0, 1] as const).map((k) => {
+      const b = el("button", "sq") as HTMLButtonElement;
+      b.type = "button";
+      b.setAttribute("aria-label", k === 0 ? "First stripe color" : "Second stripe color");
+      b.addEventListener("click", (e) => { e.preventDefault(); this.pickColor(b, (v) => { colors = k === 0 ? [v, colors[1]] : [colors[0], v]; themed = false; sync(); }); });
+      return b;
+    });
+    const preset = el("select", "preset") as HTMLSelectElement;
+    preset.setAttribute("aria-label", "Stripe colors");
+    preset.append(new Option("Theme", "theme"), ...this.colors.presets.map((p, k) => new Option(p.name, String(k))), new Option("Custom", "custom"));
+    preset.addEventListener("change", () => {
+      if (preset.value === "theme") themed = true;
+      else if (preset.value !== "custom") { colors = [...this.colors.presets[+preset.value].colors]; themed = false; }
+      sync();
+    });
+    const colorRow = el("div", "colors");
+    colorRow.append(...squares, preset);
+
+    const msg = el("div", "msg");
+    const ok = el("button", "lb apply") as HTMLButtonElement;
+    ok.type = "button";
+    ok.textContent = "Apply";
+    const btns = el("div", "btns");
+    btns.append(ok);
+    const line = (label: string, content: HTMLElement) => {
+      const r = el("div", "line");
+      r.innerHTML = `<span class="lbl" aria-hidden="true">${label}</span>`;
+      r.append(content);
+      return r;
+    };
+    this.colorPop.hidden = true;
+    this.props.replaceChildren(head, size, line("Stripes", stripeRow), colorRow, line("Borders", borderRow), msg, btns, this.colorPop);
+
+    const sync = () => {
+      colorRow.hidden = !stripes;
+      squares.forEach((b, k) => {
+        b.style.background = themed ? "" : colors[k];
+        b.classList.toggle("theme", themed);
+        b.title = themed ? "Theme color" : colors[k];
+      });
+      const k = this.colors.presets.findIndex((p) => p.colors[0] === colors[0] && p.colors[1] === colors[1]);
+      preset.value = themed ? "theme" : k >= 0 ? String(k) : "custom";
+    };
+    sync();
+
+    let confirmed = false;
+    const apply = () => {
+      const p: TableProps = {
+        rows: clamp(+rows.i.value, 1, MAX_ROWS), cols: clamp(+cols.i.value, 1, MAX_COLS),
+        stripes, colors: themed ? null : colors, borders,
+      };
+      const v = this.view();
+      if (!confirmed && dropsText(v.state, p.rows, p.cols)) {
+        confirmed = true;
+        msg.textContent = "Cells with text would be removed. Apply again to remove them.";
+        return;
+      }
+      this.close();
+      setTableProps(p)(v.state, v.dispatch);
+      v.focus();
+    };
+    for (const i of [rows.i, cols.i]) i.addEventListener("input", () => { confirmed = false; msg.textContent = ""; });
+    this.props.onkeydown = (e) => {
+      if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") { e.preventDefault(); apply(); }
+    };
+    ok.addEventListener("click", (e) => { e.preventDefault(); apply(); });
+    x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
+    this.open(this.props, at ?? this.cursorPoint());
+    rows.i.focus();
+    rows.i.select();
+  }
+
+  /** The colour picker of a stripe colour: the marker swatches, and the custom picker and
+   *  recent colours when the palette allows them (as for the marker colour). */
+  private pickColor(anchor: HTMLElement, set: (v: string) => void) {
+    this.colorPop.replaceChildren();
+    const done = (v: string) => { this.colorPop.hidden = true; set(v); };
+    const swatch = (v: string, label = v) => {
+      const b = el("button", "sw") as HTMLButtonElement;
+      b.type = "button";
+      b.style.background = v;
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.addEventListener("click", (e) => { e.preventDefault(); done(v); });
+      return b;
+    };
+    this.colorPop.append(...this.colors.swatches.map((v) => swatch(v)));
+    if (this.colors.custom) {
+      const picker = el("label", "pick");
+      picker.title = "Custom color…";
+      picker.innerHTML = icon("pick", 16) + '<input type="color" tabindex="-1" aria-label="Custom color">';
+      const input = picker.querySelector("input")!;
+      input.addEventListener("change", () => {
+        const v = hexColor(input.value);
+        if (v) { this.colors.addRecent(v); done(v); }
+      });
+      this.colorPop.append(picker, ...this.colors.recent().map((v) => swatch(v, "Recent: " + v)));
+    }
+    this.colorPop.hidden = false;
+    const p = this.props.getBoundingClientRect(), a = anchor.getBoundingClientRect();
+    this.colorPop.style.left = `${a.left - p.left}px`;
+    this.colorPop.style.top = `${a.bottom - p.top + 4}px`;
+  }
+
+  /** Shows one of the panels at a point of the window, inside the editor; the others close. */
+  private open(panel: HTMLElement, at: { x: number; y: number }) {
+    this.close();
+    panel.hidden = false;
+    const r = this.root.getBoundingClientRect();
+    panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
+    panel.style.top = `${at.y - r.top}px`;
+    this.outside = (e) => { if (!panel.contains(e.target as globalThis.Node)) this.close(); };
     document.addEventListener("mousedown", this.outside, true);
   }
 
-  closeGrid() {
-    if (this.grid.hidden) return;
-    this.grid.hidden = true;
+  private cursorPoint() {
+    const view = this.view();
+    const c = view.coordsAtPos(view.state.selection.head);
+    return { x: c.left, y: c.bottom + 4 };
+  }
+
+  get isOpen() { return !this.grid.hidden || !this.menu.hidden || !this.props.hidden; }
+
+  close() {
+    this.colorPop.hidden = true;
+    this.grid.hidden = this.menu.hidden = this.props.hidden = true;
     if (this.outside) document.removeEventListener("mousedown", this.outside, true);
     this.outside = undefined;
   }
 
-  /** Shows the table row of the toolbar while the cursor is in a table, with what is possible there. */
-  update(view: EditorView, readonly: boolean) {
-    const table = !readonly ? tableAt(view.state) : null;
-    this.bar.hidden = !table;
-    if (!table) return;
-    for (const { b, a } of this.buttons) {
-      b.disabled = !a.cmd(view.state);
-      if (a.cls === "hdr") b.setAttribute("aria-pressed", String(isHeaderRow(table.node)));
-    }
-  }
-
-  destroy() { this.closeGrid(); }
+  destroy() { this.close(); }
 }
 
 /** The table the selection is in, with its position. */
@@ -225,6 +533,21 @@ export function tableAt(state: EditorState): { node: Node; pos: number } | null 
     if ($from.node(d).type === schema.nodes.table) return { node: $from.node(d), pos: $from.before(d) };
   }
   return null;
+}
+
+/** Closes the open submenus of a menu (not the menu itself). */
+function closeSubs(menu: HTMLElement) {
+  menu.querySelectorAll<HTMLElement>(":scope > .has-sub > .sub").forEach((s) => { s.hidden = true; });
+  menu.querySelectorAll(":scope > .has-sub > [aria-expanded]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+}
+
+function iconButton(name: string, label: string, cls: string): HTMLButtonElement {
+  const b = el("button", cls) as HTMLButtonElement;
+  b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.innerHTML = icon(name, 20);
+  return b;
 }
 
 function el(tag: string, cls: string): HTMLElement {

@@ -1,6 +1,6 @@
 import { Fragment, type Mark, type Node } from "prosemirror-model";
 import { TableMap } from "prosemirror-tables";
-import { FLAGS, GUID, safeHref, schema, type Align } from "./schema";
+import { BORDERS, FLAGS, GUID, STRIPES, safeHref, schema, stripeColors, type Align, type Borders, type Stripes } from "./schema";
 
 // The stored form of rich text: JSON blocks whose text is a plain string
 // or a list of formatted runs. This is what the server validates, indexes
@@ -27,16 +27,20 @@ export interface Paragraph {
   level?: number;
 }
 
-/** A table: rows of cells; header marks the first row as the header row, widths are the
- *  column widths in pixels (null: automatic). A cell spanning several columns or rows is
- *  an object with its content; the cells it covers are left out (as in HTML). Cells hold
- *  anything but tables. */
+/** A table: rows of cells. stripes shades every other row or column (colors: the first and
+ *  second stripe's colour; absent: the theme's), borders draws only
+ *  some lines (absent: the full grid), widths are the column widths in pixels (null:
+ *  automatic). A formatted cell (a header cell, or one spanning several columns or rows)
+ *  is an object with its content; the cells a span covers are left out (as in HTML).
+ *  Cells hold anything but tables. */
 export interface Table {
-  header?: true;
+  stripes?: Stripes;
+  colors?: [string, string];
+  borders?: Borders;
   widths?: (number | null)[];
   table: Cell[][];
 }
-export type Cell = RichText | { content: RichText; colspan?: number; rowspan?: number };
+export type Cell = RichText | { content: RichText; header?: true; colspan?: number; rowspan?: number };
 
 export type Block = Paragraph | Table;
 
@@ -101,21 +105,25 @@ function blockNodes(value: RichText | null | undefined, inCell: boolean): Node[]
 }
 
 const span = (v: unknown) => (typeof v === "number" && v >= 1 ? Math.min(Math.trunc(v), 100) : 1);
-const spanned = (c: Cell) => (c !== null && typeof c === "object" && !Array.isArray(c) ? c : null);
+const formatted = (c: Cell) => (c !== null && typeof c === "object" && !Array.isArray(c) ? c : null);
 
 function tableNode(t: Table): Node | null {
-  const rows = (Array.isArray(t.table) ? t.table : []).filter(Array.isArray).map((row, r) => {
+  const rows = (Array.isArray(t.table) ? t.table : []).filter(Array.isArray).map((row) => {
     const cells = row.map((c) => {
-      const sp = spanned(c);
+      const sp = formatted(c);
       const content = blockNodes(sp ? sp.content : (c as RichText), true);
-      const type = t.header && r === 0 ? schema.nodes.table_header : schema.nodes.table_cell;
+      const type = sp?.header === true ? schema.nodes.table_header : schema.nodes.table_cell;
       return type.create({ colspan: span(sp?.colspan), rowspan: span(sp?.rowspan) },
         content.length ? content : [schema.node("paragraph")]);
     });
     return cells.length ? schema.node("table_row", null, cells) : null;
   }).filter((r): r is Node => !!r);
   if (!rows.length) return null;
-  const table = schema.node("table", null, rows);
+  const table = schema.node("table", {
+    stripes: STRIPES.includes(t.stripes as Stripes) ? t.stripes : null,
+    colors: stripeColors(t.colors),
+    borders: BORDERS.includes(t.borders as Borders) ? t.borders : null,
+  }, rows);
   const widths = Array.isArray(t.widths) ? t.widths : [];
   if (!widths.some((w) => typeof w === "number" && w > 0)) return table;
   // the widths go to the cells of their columns (the editor keeps them per cell)
@@ -206,26 +214,27 @@ function storeTable(n: Node): Table {
   const map = TableMap.get(n);
   const widths: (number | null)[] = Array(map.width).fill(null);
   const rows: Cell[][] = [];
-  let header = n.childCount > 0;
   n.forEach((row, rowOffset) => {
     const cells: Cell[] = [];
     row.forEach((cell, cellOffset) => {
-      if (rows.length === 0 && cell.type !== schema.nodes.table_header) header = false;
       const rect = map.findCell(rowOffset + 1 + cellOffset);
       ((cell.attrs.colwidth as number[] | null) ?? []).forEach((w, i) => {
         if (w > 0 && widths[rect.left + i] === null) widths[rect.left + i] = w;
       });
       const content = storeBlocks(cell);
       const { colspan, rowspan } = cell.attrs as { colspan: number; rowspan: number };
-      cells.push(colspan > 1 || rowspan > 1
-        ? { content, ...(colspan > 1 ? { colspan } : {}), ...(rowspan > 1 ? { rowspan } : {}) }
+      const header = cell.type === schema.nodes.table_header;
+      cells.push(header || colspan > 1 || rowspan > 1
+        ? { content, ...(header ? { header: true as const } : {}), ...(colspan > 1 ? { colspan } : {}), ...(rowspan > 1 ? { rowspan } : {}) }
         : content);
     });
     rows.push(cells);
   });
   // the rows last, so that in the file they follow on lines of their own
   const t = {} as Table;
-  if (header) t.header = true;
+  if (n.attrs.stripes) t.stripes = n.attrs.stripes;
+  if (n.attrs.stripes && n.attrs.colors) t.colors = n.attrs.colors;
+  if (n.attrs.borders) t.borders = n.attrs.borders;
   if (widths.some((w) => w !== null)) t.widths = widths;
   t.table = rows;
   return t;
@@ -279,7 +288,7 @@ export function plainText(value: RichText | null | undefined): string {
   for (const b of value) {
     if (isTable(b)) {
       stack.length = 0;
-      const cell = (c: Cell) => plainText(spanned(c)?.content ?? (c as RichText)).replace(/\n+/g, " ");
+      const cell = (c: Cell) => plainText(formatted(c)?.content ?? (c as RichText)).replace(/\n+/g, " ");
       for (const row of b.table ?? []) lines.push((row ?? []).map(cell).join(" | "));
       continue;
     }

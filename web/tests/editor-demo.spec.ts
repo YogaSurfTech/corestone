@@ -314,13 +314,27 @@ const insertMenu = async (page: import("@playwright/test").Page) => {
 test("tables: insert with the size grid, Tab through the cells, Tab in the last cell adds a row", async ({ page }) => {
   await page.locator(".cs-area .ProseMirror").click();
   await page.keyboard.type("Intro");
-  await (await insertMenu(page)).locator("[data-cmd=table]").click();
+  const item = (await insertMenu(page)).locator("[data-cmd=table]");
+  const ib = (await item.boundingBox())!;
+  await item.click();
   const grid = page.locator(".cs-tablegrid");
   await expect(grid).toBeVisible();
+  // the grid opens with its first cell under the mouse pointer
+  const fb = (await grid.locator("button").first().boundingBox())!;
+  expect(Math.abs(fb.x + fb.width / 2 - (ib.x + ib.width / 2))).toBeLessThan(2);
+  expect(Math.abs(fb.y + fb.height / 2 - (ib.y + ib.height / 2))).toBeLessThan(2);
+  await expect(page.locator(".cs-tableprops .title")).toBeHidden();
   await grid.locator('button[data-r="2"][data-c="3"]').hover();
   await expect(grid.locator(".size")).toHaveText("3 × 2");
   await grid.locator('button[data-r="2"][data-c="3"]').click();
   await expect(page.locator(".cs-area table tr")).toHaveCount(2);
+  // the properties come up right away; closing them goes back into the first cell
+  const dlg = page.locator(".cs-tableprops");
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator(".title")).toHaveText("Table Properties");
+  await expect(dlg.locator("input.rows")).toHaveValue("2");
+  await dlg.getByRole("button", { name: "Close" }).click();
+  await expect(dlg).toBeHidden();
   await expect(page.locator(".cs-area table th")).toHaveCount(3);
   for (const t of ["Name", "Value", "Unit", "Pressure", "16", "bar"]) {
     await page.keyboard.type(t);
@@ -330,7 +344,7 @@ test("tables: insert with the size grid, Tab through the cells, Tab in the last 
   await page.locator("#save").click();
   expect(await stored(page)).toEqual([
     { text: "Intro" },
-    { header: true, table: [["Name", "Value", "Unit"], ["Pressure", "16", "bar"], ["Temp", "", ""]] },
+    { table: [[H("Name"), H("Value"), H("Unit")], ["Pressure", "16", "bar"], ["Temp", "", ""]] },
   ]);
   // inside a table no table can be inserted
   await page.locator(".cs-area td", { hasText: "Temp" }).click();
@@ -339,16 +353,19 @@ test("tables: insert with the size grid, Tab through the cells, Tab in the last 
   await expect(page.locator("#plain")).toHaveText("Intro\nName | Value | Unit\nPressure | 16 | bar\nTemp |  | ");
 });
 
-test("tables: the table bar adds columns, merges cells and switches the header row", async ({ page }) => {
-  await page.locator("#json").fill(JSON.stringify([{ header: true, table: [["A", "B"], ["1", "2"]] }]));
+test("tables: the context menu inserts columns, merges cells and formats headers", async ({ page }) => {
+  await page.locator("#json").fill(JSON.stringify([{ table: [["A", "B"], ["1", "2"]] }]));
   await page.locator("#load").click();
-  await page.locator(".cs-area td", { hasText: "1" }).click();
-  const bar = page.locator(".cs-tablebar");
-  await expect(bar).toBeVisible();
-  await expect(bar.getByRole("button", { name: "Split" })).toBeDisabled();
-  await bar.getByRole("button", { name: "+ Column right" }).click();
+  const menu = page.locator(".cs-tablemenu");
+  await page.locator(".cs-area td", { hasText: "1" }).click({ button: "right" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Merge cells" })).toHaveCount(0); // only where it applies
+  await expect(menu.getByRole("menuitem", { name: "Split cell" })).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "Insert column" }).hover();
+  await menu.getByRole("menuitem", { name: "Right" }).click();
+  await expect(menu).toBeHidden();
   await page.locator("#save").click();
-  expect(await stored(page)).toEqual([{ header: true, table: [["A", "", "B"], ["1", "", "2"]] }]);
+  expect(await stored(page)).toEqual([{ table: [["A", "", "B"], ["1", "", "2"]] }]);
   // select two cells across the row and merge them
   await page.locator(".cs-area .ProseMirror").focus();
   await page.locator(".cs-area td", { hasText: "1" }).click();
@@ -357,22 +374,111 @@ test("tables: the table bar adds columns, merges cells and switches the header r
   await page.waitForTimeout(100);
   await page.keyboard.press("Shift+ArrowRight"); // over the cell border: the two cells are selected
   await expect(page.locator(".cs-area .selectedCell")).toHaveCount(2);
-  await bar.getByRole("button", { name: "Merge" }).click();
+  await page.locator(".cs-area td", { hasText: "1" }).click({ button: "right" });
+  await expect(page.locator(".cs-area .selectedCell")).toHaveCount(2); // the right click keeps the selection
+  await menu.getByRole("menuitem", { name: "Merge cells" }).click();
   await page.locator("#save").click();
   expect((await stored(page))[0].table[1]).toEqual([{ content: "1", colspan: 2 }, "2"]);
-  // the header row off (back in the table: the bar shows while the text has the focus)
-  await page.locator(".cs-area td", { hasText: "2" }).click();
-  await expect(bar.getByRole("button", { name: "Header row" })).toHaveAttribute("aria-pressed", "true");
-  await bar.getByRole("button", { name: "Header row" }).click();
+  // a column as header: select its two cells, then Format as header
+  await page.locator(".cs-area .ProseMirror").focus();
+  await page.locator(".cs-area td", { hasText: "B" }).click();
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(page.locator(".cs-area .selectedCell")).toHaveCount(2);
+  await page.locator(".cs-area td", { hasText: "B" }).click({ button: "right" });
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Format as header" })).toHaveAttribute("aria-checked", "false");
+  await menu.getByRole("menuitemcheckbox", { name: "Format as header" }).click();
   await page.locator("#save").click();
-  expect((await stored(page))[0].header).toBeUndefined();
+  expect((await stored(page))[0].table).toEqual([["A", "", H("B")], [{ content: "1", colspan: 2 }, H("2")]]);
+  // again on one header cell: back to a normal cell
+  await page.locator(".cs-area th", { hasText: "2" }).click();
+  await page.waitForTimeout(100);
+  await expect(page.locator(".cs-area .selectedCell")).toHaveCount(0);
+  await page.locator(".cs-area th", { hasText: "2" }).click({ button: "right" });
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Format as header" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemcheckbox", { name: "Format as header" }).click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].table).toEqual([["A", "", H("B")], [{ content: "1", colspan: 2 }, "2"]]);
+  // the menu from the keyboard, deleting a row
+  await page.locator(".cs-area .ProseMirror").focus();
+  await page.locator(".cs-area td", { hasText: "A" }).click();
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+F10");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await page.keyboard.press("Shift+F10");
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await menu.getByRole("menuitem", { name: "Row", exact: true }).click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].table).toEqual([[{ content: "1", colspan: 2 }, "2"]]);
+  // outside tables the browser's own menu stays
+  await page.locator("#json").fill(JSON.stringify([{ text: "plain" }]));
+  await page.locator("#load").click();
+  await page.locator(".cs-area p", { hasText: "plain" }).click({ button: "right" });
+  await expect(menu).toBeHidden();
+});
+
+test("tables: the properties set the size, stripes with their colors, and borders", async ({ page }) => {
+  await page.locator("#json").fill(JSON.stringify([{ table: [["a", "b"], ["c", "d"]] }]));
+  await page.locator("#load").click();
+  const dlg = page.locator(".cs-tableprops");
+  const props = async () => {
+    await page.locator(".cs-area td", { hasText: "a" }).click({ button: "right" });
+    await page.locator(".cs-tablemenu").getByRole("menuitem", { name: "Properties…" }).click();
+    await expect(dlg).toBeVisible();
+  };
+  await props();
+  await expect(dlg.locator("input.rows")).toHaveValue("2");
+  await expect(dlg.locator("input.cols")).toHaveValue("2");
+  await expect(dlg.getByRole("radio", { name: "Grid" })).toHaveAttribute("aria-checked", "true");
+  await expect(dlg.locator(".colors")).toBeHidden(); // colours only with stripes
+  await dlg.locator("input.rows").fill("4");
+  await dlg.locator("input.cols").fill("3");
+  await dlg.getByRole("radio", { name: "Striped rows" }).click();
+  await expect(dlg.locator(".colors")).toBeVisible();
+  await expect(dlg.locator("select.preset")).toHaveValue("theme");
+  await dlg.locator("select.preset").selectOption({ label: "Blue" });
+  // the second colour from the picker: the preset becomes "Custom"
+  await dlg.getByRole("button", { name: "Second stripe color" }).click();
+  await dlg.locator(".colorpop .sw").nth(3).click(); // the yellow marker
+  await expect(dlg.locator(".colorpop")).toBeHidden();
+  await expect(dlg.locator("select.preset")).toHaveValue("custom");
+  await dlg.getByRole("radio", { name: "Outside only" }).click();
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(dlg).toBeHidden();
+  await expect(page.locator(".cs-area table")).toHaveClass(/cs-s-rows/);
+  await expect(page.locator(".cs-area table")).toHaveClass(/cs-b-outside/);
+  await expect(page.locator(".cs-area tr").nth(1).locator("td").first()).toHaveCSS("background-color", "rgb(255, 245, 157)");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ stripes: "rows", colors: ["#ffffff", "#fff59d"], borders: "outside", table: [
+    ["a", "b", ""], ["c", "d", ""], ["", "", ""], ["", "", ""]] }]);
+  // shrinking over cells with text asks first; no stripes drops the colours
+  await props();
+  await expect(dlg.locator("select.preset")).toHaveValue("custom");
+  await dlg.locator("input.rows").fill("1");
+  await dlg.getByRole("radio", { name: "Grid" }).click();
+  await dlg.getByRole("radio", { name: "No stripes" }).click();
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(dlg.locator(".msg")).toContainText("Apply again");
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(dlg).toBeHidden();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ table: [["a", "b", ""]] }]);
+  // the X closes without changes
+  await props();
+  await dlg.locator("input.cols").fill("5");
+  await dlg.getByRole("button", { name: "Close" }).click();
+  await expect(dlg).toBeHidden();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ table: [["a", "b", ""]] }]);
 });
 
 test("tables: stored widths, spans and cell content come back unchanged", async ({ page }) => {
   const value = [
     { text: "Before" },
-    { header: true, widths: [200, null, 90], table: [
-      ["Property", "Value", "Unit"],
+    { stripes: "columns", borders: "rows", widths: [200, null, 90], table: [
+      [H("Property"), H("Value"), H("Unit")],
       [{ content: [{ text: [{ text: "Material", bold: true }] }, { list: "ul", text: "stainless" }], rowspan: 2 }, "1.4404", ""],
       ["316L", [{ text: "alt", align: "right" }]],
       [{ content: "Note across", colspan: 3 }],
@@ -423,10 +529,13 @@ test("tables: pasted tables keep what the editor supports; a table in a table be
   await page.locator("#save").click();
   const v = await stored(page);
   const t = v.find((b: { table?: unknown }) => b.table);
-  expect(t).toEqual({ header: true, table: [
-    [[{ text: [{ text: "Name", color: "#c62828" }] }], "Value"],
+  expect(t).toEqual({ table: [
+    [H([{ text: [{ text: "Name", color: "#c62828" }] }]), H("Value")],
     [[{ text: [{ text: "Pressure", bold: true }] }], "inner a | inner b\nc | d"],
     [{ content: "wide", colspan: 2 }],
   ] });
   await expect(page.locator(".cs-area table table")).toHaveCount(0);
 });
+
+/** A cell formatted as header, as stored. */
+function H(content: unknown) { return { content, header: true }; }

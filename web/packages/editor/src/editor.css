@@ -2,6 +2,7 @@
 /* The --cs-* colours are the editor's theme; a host page may set them (the Corestone app maps its light/dark tokens). */
 .cs-editor { --cs-border: #d0d7de; --cs-hover: #eef1f5; --cs-pressed: #dde6f3; --cs-muted: #57606a; --cs-text: #1f2328; --cs-panel: #fff;
   --cs-disabled: #a5acb4; --cs-focus: rgba(21,101,192,.25); --cs-link: #1565c0; --cs-error: #c62828;
+  --cs-stripe: color-mix(in srgb, var(--cs-hover) 60%, transparent); --cs-guide: color-mix(in srgb, var(--cs-border) 70%, transparent);
   position: relative;
   max-width: 640px; color: var(--cs-text); font: 14px/1.5 Inter, Arial, sans-serif; }
 .cs-editor *, .cs-editor *::before, .cs-editor *::after { box-sizing: border-box; }
@@ -104,19 +105,69 @@
 .cs-area .ProseMirror.resize-cursor { cursor: col-resize; }
 .cs-editor.readonly .cs-area .ProseMirror .column-resize-handle { display: none; }
 
-.cs-tablegrid { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
+/* table style: stripes, and which lines are drawn (absent: the full grid). While editing, lines
+   that are not drawn show as faint dashes so that the cells can be found. */
+.cs-area .ProseMirror table.cs-s-rows tr:nth-child(odd) > td,
+.cs-area .ProseMirror table.cs-s-columns tr > td:nth-child(odd) { background: var(--cs-s1, transparent); color: var(--cs-s1-ink, inherit); }
+.cs-area .ProseMirror table.cs-s-rows tr:nth-child(even) > td,
+.cs-area .ProseMirror table.cs-s-columns tr > td:nth-child(even) { background: var(--cs-s2, var(--cs-stripe)); color: var(--cs-s2-ink, inherit); }
+.cs-area .ProseMirror table:is(.cs-b-none, .cs-b-outside) :is(td, th) { border-style: none; }
+.cs-area .ProseMirror table.cs-b-rows :is(td, th) { border-left-style: none; border-right-style: none; }
+.cs-area .ProseMirror table.cs-b-columns :is(td, th) { border-top-style: none; border-bottom-style: none; }
+.cs-area .ProseMirror table.cs-b-outside { border: 1px solid var(--cs-border); }
+.cs-editor:not(.readonly) .cs-area .ProseMirror table:is(.cs-b-none, .cs-b-outside) :is(td, th) { border: 1px dashed var(--cs-guide); }
+.cs-editor:not(.readonly) .cs-area .ProseMirror table.cs-b-rows :is(td, th) { border-left: 1px dashed var(--cs-guide); border-right: 1px dashed var(--cs-guide); }
+.cs-editor:not(.readonly) .cs-area .ProseMirror table.cs-b-columns :is(td, th) { border-top: 1px dashed var(--cs-guide); border-bottom: 1px dashed var(--cs-guide); }
+
+/* table panels: the size grid, the context menu, the properties dialog */
+.cs-tablegrid, .cs-tablemenu, .cs-tablemenu .sub, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
+  border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-tablegrid { padding: 8px; }
 .cs-tablegrid .size { color: var(--cs-muted); margin-bottom: 6px; }
 .cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .cs-tablegrid .cells button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--cs-border); border-radius: 3px; background: var(--cs-panel); cursor: pointer; }
 .cs-tablegrid .cells button.on { background: var(--cs-pressed); border-color: var(--cs-link); }
-/* the table row of the toolbar, shown while the cursor is in a table */
-.cs-tablebar { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 4px; padding-top: 4px;
-  border-top: 1px solid var(--cs-border); font-size: 13px; }
-.cs-tablebar .what { color: var(--cs-muted); margin-right: 6px; }
-.cs-tablebar .sep { width: 10px; } /* a gap, not a line: the row wraps on narrow editors */
-.cs-tablebar .lb:disabled { color: var(--cs-disabled); cursor: default; background: transparent; }
-.cs-tablebar .lb.danger:not(:disabled) { color: var(--cs-error); }
-.cs-tablebar .lb[aria-pressed="true"] { background: var(--cs-pressed); }
-.cs-tablegrid[hidden], .cs-tablebar[hidden] { display: none; }
+.cs-tablemenu, .cs-tablemenu .sub { padding: 4px; min-width: 170px; display: flex; flex-direction: column; }
+.cs-tablemenu .has-sub { position: relative; display: flex; flex-direction: column; }
+.cs-tablemenu .sub { left: 100%; top: -5px; min-width: 110px; }
+.cs-tablemenu .mi { display: flex; align-items: center; height: 28px; padding: 0 10px 0 26px; border: 0; border-radius: 5px; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; position: relative; }
+.cs-tablemenu .mi:hover:not(:disabled), .cs-tablemenu .mi:focus-visible, .cs-tablemenu .mi[aria-expanded="true"] { background: var(--cs-hover); outline: none; }
+.cs-tablemenu .mi:disabled { color: var(--cs-disabled); cursor: default; }
+.cs-tablemenu .mi.danger:not(:disabled) { color: var(--cs-error); }
+.cs-tablemenu .mi[aria-haspopup]::after { content: "▸"; margin-left: auto; padding-left: 16px; color: var(--cs-muted); }
+.cs-tablemenu .mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 9px; }
+.cs-tableprops { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; width: 262px; }
+.cs-tableprops .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
+.cs-tableprops .title { font-weight: 600; }
+.cs-tableprops button.x, .cs-tableprops button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--cs-text); cursor: pointer; }
+.cs-tableprops button.x { width: 26px; height: 26px; color: var(--cs-muted); }
+.cs-tableprops button.x:hover, .cs-tableprops button.opt:hover { background: var(--cs-hover); }
+.cs-tableprops button.opt[aria-checked="true"] { background: var(--cs-pressed); box-shadow: inset 0 0 0 1px var(--cs-link); }
+.cs-tableprops .size { display: flex; align-items: center; gap: 6px; }
+.cs-tableprops .num { display: inline-flex; align-items: center; gap: 4px; color: var(--cs-muted); }
+.cs-tableprops .times { color: var(--cs-muted); }
+.cs-tableprops .line { display: flex; flex-direction: column; gap: 2px; }
+.cs-tableprops .lbl { color: var(--cs-muted); font-size: 12px; }
+.cs-tableprops .choice { display: flex; gap: 2px; }
+.cs-tableprops .colors { display: flex; align-items: center; gap: 6px; }
+.cs-tableprops .colors[hidden] { display: none; }
+.cs-tableprops .sq { width: 26px; height: 26px; border: 1px solid var(--cs-border); border-radius: 5px; padding: 0; cursor: pointer; background: var(--cs-panel); }
+.cs-tableprops .sq.theme { background: repeating-linear-gradient(45deg, var(--cs-panel) 0 4px, var(--cs-hover) 4px 8px); }
+.cs-tableprops input, .cs-tableprops select { height: 28px; border: 1px solid var(--cs-border); border-radius: 5px; padding: 0 6px; font: inherit;
+  font-size: 13px; background: var(--cs-panel); color: var(--cs-text); }
+.cs-tableprops input { width: 64px; }
+.cs-tableprops select { flex: 1; min-width: 0; }
+.cs-tableprops .msg { color: var(--cs-error); font-size: 12px; }
+.cs-tableprops .msg:empty { display: none; }
+.cs-tableprops .btns { display: flex; justify-content: flex-end; }
+.cs-tableprops .colorpop { position: absolute; z-index: 1; display: grid; grid-template-columns: repeat(8, 24px); gap: 4px; padding: 6px;
+  background: var(--cs-panel); border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.cs-tableprops .colorpop[hidden] { display: none; }
+.cs-tableprops .colorpop .sw { width: 24px; height: 24px; border-radius: 5px; border: 1px solid var(--cs-border); cursor: pointer; padding: 0; }
+.cs-tableprops .colorpop .pick { position: relative; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px; cursor: pointer; color: var(--cs-text); }
+.cs-tableprops .colorpop .pick:hover { background: var(--cs-hover); }
+.cs-tableprops .colorpop .pick input { position: absolute; width: 0; height: 0; opacity: 0; border: 0; padding: 0; }
+.cs-tablegrid[hidden], .cs-tablemenu[hidden], .cs-tablemenu .sub[hidden], .cs-tableprops[hidden] { display: none; }

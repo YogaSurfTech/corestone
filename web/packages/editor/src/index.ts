@@ -9,7 +9,7 @@ import type { Palette } from "./toolbar";
 export { RichTextEditor, type EditorOptions } from "./editor";
 export { type ItemLinks } from "./links";
 export { fromStorage, isTable, plainText, toStorage, type Block, type Cell, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
-export { DEFAULT_PALETTE, type Palette } from "./toolbar";
+export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
 
 /** <cs-richtext>: set .value (and optionally .palette, readonly) and listen for "change" (detail: the value). */

@@ -11,8 +11,8 @@ const SAMPLE: RichText = [
   { list: "ul", text: "Tolerances follow ISO 2768-m" },
   { list: "ul", text: [{ text: "Surface: " }, { text: "Ra 0.8", bg: "#fff59d" }] },
   { align: "center", text: [{ text: "H" }, { text: "2", sub: true }, { text: "O at 20 °C" }] },
-  { header: true, table: [
-    ["Property", "Value", "Unit"],
+  { stripes: "rows", table: [
+    [{ content: "Property", header: true }, { content: "Value", header: true }, { content: "Unit", header: true }],
     ["Pressure", [{ text: [{ text: "16", bold: true }] }], "bar"],
     [{ content: "Material: stainless steel 1.4404", colspan: 3 }],
   ] },

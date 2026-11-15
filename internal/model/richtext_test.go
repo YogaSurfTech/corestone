@@ -93,8 +93,8 @@ func TestRichTextRefs(t *testing.T) {
 }
 
 func TestRichTextTables(t *testing.T) {
-	good := `[{"text": "before"}, {"header": true, "widths": [120, null], "table": [
-		["Name", "Value"],
+	good := `[{"text": "before"}, {"stripes": "rows", "colors": ["#ffffff", "#e3f2fd"], "borders": "outside", "widths": [120, null], "table": [
+		[{"content": "Name", "header": true}, "Value"],
 		[[{"text": [{"text": "bold", "bold": true}]}, {"list": "ul", "text": "item"}], ""],
 		[{"content": "both columns", "colspan": 2}]]}]`
 	if err := ValidateRichText("f", parse(t, good)); err != nil {
@@ -104,9 +104,14 @@ func TestRichTextTables(t *testing.T) {
 		t.Error("a value with a table is rich text")
 	}
 	bad := map[string]string{
-		`[{"table": []}]`:                                                      "list of rows",
-		`[{"table": [[]]}]`:                                                    "list of cells",
-		`[{"table": [["a"]], "header": false}]`:                                "header is true",
+		`[{"table": []}]`:   "list of rows",
+		`[{"table": [[]]}]`: "list of cells",
+		`[{"table": [[{"content": "a", "header": false}]]}]`:                   "header is true",
+		`[{"table": [["a"]], "header": true}]`:                                 "unknown property",
+		`[{"table": [["a"]], "stripes": "diagonal"}]`:                          "stripes is rows or columns",
+		`[{"table": [["a"]], "colors": ["#ffffff"]}]`:                          "two stripe colors",
+		`[{"table": [["a"]], "colors": ["#ffffff", "blue"]}]`:                  "#rrggbb",
+		`[{"table": [["a"]], "borders": "thick"}]`:                             "borders is outside",
 		`[{"table": [["a"]], "widths": [5]}]`:                                  "10 to 4000",
 		`[{"table": [["a"]], "border": 1}]`:                                    "unknown property",
 		`[{"table": [[{"content": "a", "colspan": 0}]]}]`:                      "colspan is 1",

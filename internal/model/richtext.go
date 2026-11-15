@@ -14,16 +14,19 @@ import (
 //	{"text": "plain line"}
 //	{"align": "center", "text": [{"text": "Housing", "bold": true, "color": "#1565c0"}]}
 //	{"list": "ol", "level": 2, "text": "one.one"}
-//	{"header": true, "widths": [120, null], "table": [["Name", "Value"], [{"content": "both", "colspan": 2}]]}
+//	{"stripes": "rows", "widths": [120, null], "table": [[{"content": "Name", "header": true}, "Value"], [{"content": "both", "colspan": 2}]]}
 //
 // text is a string or a list of runs (text with its formatting); "\n"
 // inside a text is a line break within the paragraph. A run may be a link:
 // href to a web address (http(s), ftp(s), mailto), or ref to an item (GUID). list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
 // A table has rows of cells; a cell is rich text itself (anything but a
-// table), or an object with its content and colspan/rowspan; the cells a
-// spanning cell covers are left out, as in HTML. header makes the first row
-// the header row, widths are the column widths in pixels (null: automatic).
+// table), or, when formatted, an object with its content, header (formatted
+// as a header cell) and colspan/rowspan; the cells a spanning cell covers are
+// left out, as in HTML. stripes shades every other row or column (colors:
+// the two stripe colours, absent: the theme's), borders
+// draws only some lines (absent: the full grid), widths are the column widths
+// in pixels (null: automatic).
 // The editor (web/packages/editor) writes this form; see its model.ts.
 
 const (
@@ -87,9 +90,23 @@ func validateTable(at string, o *ojson.Object) (int, error) {
 		v, _ := o.Get(k)
 		switch k {
 		case "table":
-		case "header":
-			if v != true {
-				return 0, Invalid("%s: header is true or absent", at)
+		case "stripes":
+			if v != "rows" && v != "columns" {
+				return 0, Invalid("%s: stripes is rows or columns", at)
+			}
+		case "colors":
+			cs, ok := v.([]any)
+			if !ok || len(cs) != 2 {
+				return 0, Invalid("%s: colors is the two stripe colors", at)
+			}
+			for _, c := range cs {
+				if s, _ := c.(string); !hexColor.MatchString(s) {
+					return 0, Invalid("%s: a stripe color is #rrggbb", at)
+				}
+			}
+		case "borders":
+			if v != "outside" && v != "rows" && v != "columns" && v != "none" {
+				return 0, Invalid("%s: borders is outside, rows, columns or none", at)
 			}
 		case "widths":
 			ws, ok := v.([]any)
@@ -139,11 +156,15 @@ func validateCell(at string, v any) (int, error) {
 	if o, ok := v.(*ojson.Object); ok {
 		content, has := o.Get("content")
 		if !has {
-			return 0, Invalid("%s: a spanning cell has a content", at)
+			return 0, Invalid("%s: a formatted cell has a content", at)
 		}
 		for _, k := range o.Keys() {
 			switch k {
 			case "content":
+			case "header":
+				if hv, _ := o.Get(k); hv != true {
+					return 0, Invalid("%s: header is true or absent", at)
+				}
 			case "colspan", "rowspan":
 				sv, _ := o.Get(k)
 				if n, ok := integer(sv); !ok || n < 1 || n > maxSpan {

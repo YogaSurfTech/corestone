@@ -69,11 +69,58 @@ const nodes: Record<string, NodeSpec> = {
   bullet_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ul" }], toDOM: () => ["ul", 0] },
   ordered_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ol" }], toDOM: () => ["ol", 0] },
   list_item: { content: "paragraph cellblock*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
-  // table, table_row, table_cell, table_header (colspan, rowspan, colwidth)
-  ...tableNodes({ tableGroup: "block", cellContent: "cellblock+", cellAttributes: {} }),
+  // table (stripes, borders), table_row, table_cell, table_header (colspan, rowspan, colwidth);
+  // a header cell is formatting: it looks like a header and is a <th> for screen readers
+  ...tables(),
   text: { group: "inline" },
   hard_break: { inline: true, group: "inline", selectable: false, parseDOM: [{ tag: "br" }], toDOM: () => ["br"] },
 };
+
+export const STRIPES = ["rows", "columns"] as const;
+export const BORDERS = ["outside", "rows", "columns", "none"] as const; // absent: the full grid
+export type Stripes = (typeof STRIPES)[number];
+export type Borders = (typeof BORDERS)[number];
+const oneOf = <T extends string>(v: string | null, all: readonly T[]): T | null => (all.includes(v as T) ? (v as T) : null);
+
+function tables() {
+  const nodes = tableNodes({ tableGroup: "block", cellContent: "cellblock+", cellAttributes: {} });
+  nodes.table = {
+    ...nodes.table,
+    attrs: { stripes: { default: null }, colors: { default: null }, borders: { default: null } },
+    parseDOM: [{ tag: "table", getAttrs: (d) => {
+      const e = d as HTMLElement;
+      return { stripes: oneOf(e.getAttribute("data-stripes"), STRIPES), colors: stripeColors(e.getAttribute("data-colors")?.split(" ")),
+        borders: oneOf(e.getAttribute("data-borders"), BORDERS) };
+    } }],
+    toDOM: (n) => ["table", { class: tableClass(n), style: tableStyle(n), "data-stripes": n.attrs.stripes,
+      "data-colors": n.attrs.colors?.join(" ") ?? null, "data-borders": n.attrs.borders }, ["tbody", 0]],
+  };
+  return nodes;
+}
+
+/** Two stripe colours, or null. */
+export function stripeColors(v: unknown): [string, string] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null;
+  const c = v.map((x) => (typeof x === "string" ? hexColor(x) : null));
+  return c[0] && c[1] ? [c[0], c[1]] : null;
+}
+
+/** A readable text colour on a background: dark ink on light colours, white on dark ones. */
+export function inkOn(bg: string): string {
+  const n = parseInt(bg.slice(1), 16);
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.55 ? "#1f2328" : "#ffffff";
+}
+
+/** The stripe colours of a table as CSS variables (with readable text on them). */
+export function tableStyle(n: Node): string {
+  const c = n.attrs.colors as [string, string] | null;
+  return c ? `--cs-s1: ${c[0]}; --cs-s1-ink: ${inkOn(c[0])}; --cs-s2: ${c[1]}; --cs-s2-ink: ${inkOn(c[1])}` : "";
+}
+
+/** The classes that show a table's style (the editor's table view sets them too). */
+export function tableClass(n: Node): string {
+  return ["cs-table", n.attrs.stripes ? `cs-s-${n.attrs.stripes}` : "", n.attrs.borders ? `cs-b-${n.attrs.borders}` : ""].filter(Boolean).join(" ");
+}
 
 const flag = (tags: string[], style: [string, string] | null, dom: string): MarkSpec => ({
   parseDOM: [...tags.map((tag) => ({ tag })),

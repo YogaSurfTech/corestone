@@ -93,7 +93,7 @@ func TestRichTextTableFile(t *testing.T) {
 	putConfig(t, f, "", "entries/types.json", `{"types":[{"id":"note","fields":["notes"]}]}`)
 	req, err := ojson.ParseBody([]byte(`{"path":"n","type":"note","title":"Table","fields":{"notes":[
 		{"text":"Intro"},
-		{"header":true,"widths":[120,null],"table":[["Name","Value"],["Pressure",[{"text":[{"text":"16","bold":true}]}]]]}]}}`))
+		{"stripes":"rows","widths":[120,null],"table":[[{"content":"Name","header":true},"Value"],["Pressure",[{"text":[{"text":"16","bold":true}]}]]]}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +107,8 @@ func TestRichTextTableFile(t *testing.T) {
 	}
 	want := `    "notes": [
       {"text": "Intro"},
-      {"header": true, "widths": [120, null], "table": [
-        ["Name", "Value"],
+      {"stripes": "rows", "widths": [120, null], "table": [
+        [{"content": "Name", "header": true}, "Value"],
         ["Pressure", [{"text": [{"text": "16", "bold": true}]}]]
       ]}
     ]`
