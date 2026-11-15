@@ -12,7 +12,7 @@
 [![Source of truth](https://img.shields.io/badge/Source%20of%20truth-Git-F05032?logo=git&logoColor=white)](#how-it-works)
 [![License](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
-<img src="docs/screenshot.png" alt="Corestone web client: folder and type navigation, the artifact overview with HIDs and workflow states, and a schema-generated detail view" width="900">
+<img src="docs/screenshot.png" alt="Corestone web client: a measurement specification with schema-generated fields (dropdowns, tags) and a rich-text field with formulas, a striped table, an inline figure, a numbered list and code" width="800">
 
 *The generic client renders itself from the repository's schemas: navigation, overview columns,
 detail sections, workflows and relationship types all come from configuration.*
