@@ -9,6 +9,7 @@ import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } fro
 import { fromStorage, toStorage, type RichText } from "./model";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
 import { FileUI, ImageView, addFiles, imageImporter, insertImage, type EntryFiles } from "./files";
+import { FormulaUI, FormulaView, formulaPictures, selectedFormula } from "./formulas";
 import { LinkUI, openLink, type ItemLinks } from "./links";
 import { StyledTableView, TableUI, flattenNestedTables, nextCell, prevCell, tableAt, tableEdges } from "./tables";
 import { safeHref, schema } from "./schema";
@@ -36,6 +37,7 @@ export class RichTextEditor {
   private readonly links: LinkUI;
   private readonly tables: TableUI;
   private readonly files: FileUI;
+  private readonly formulas: FormulaUI;
 
   constructor(host: HTMLElement, private readonly opts: EditorOptions = {}) {
     const items = () => opts.items?.();
@@ -47,7 +49,8 @@ export class RichTextEditor {
     // the toolbar's own inputs are internal: their change events are not the editor's
     this.root.addEventListener("change", (e) => e.stopPropagation());
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), files: () => !!files(),
-      image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at) },
+      image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at),
+      formula: (at) => this.formulas.edit(at) },
       opts.palette ?? DEFAULT_PALETTE);
     const area = document.createElement("div");
     area.className = "cs-area";
@@ -57,9 +60,20 @@ export class RichTextEditor {
     this.links = new LinkUI(() => this.view, this.root, items, files,
       (chosen) => this.files.pick({ images: false, chosen: (name) => chosen(name) }));
     this.tables = new TableUI(() => this.view, this.root, this.toolbar.colorChoices());
+    this.formulas = new FormulaUI(() => this.view, this.root);
     // copied images carry the address of their file, so another entry can take a copy
     const base = DOMSerializer.fromSchema(schema);
-    const clipboardSerializer = new DOMSerializer({ ...base.nodes, image: (n) => {
+    const clipboardSerializer = new DOMSerializer({ ...base.nodes, formula: (n) => {
+      // a formula carries its LaTeX (its picture is made again where it is pasted) and,
+      // for other programs, the address of its picture
+      const img = document.createElement("img");
+      img.setAttribute("data-latex", n.attrs.latex);
+      if (n.attrs.display) img.setAttribute("data-display", "");
+      const u = n.attrs.png ? files()?.url(n.attrs.png) : null;
+      if (u) img.src = new URL(u, location.href).href;
+      img.alt = n.attrs.latex;
+      return img;
+    }, image: (n) => {
       const img = document.createElement("img");
       img.setAttribute("data-file", n.attrs.src ?? "");
       const u = n.attrs.src ? files()?.url(n.attrs.src) : null;
@@ -70,7 +84,7 @@ export class RichTextEditor {
     } }, base.marks);
     this.view = new EditorView(area, {
       state: this.state(opts.value, files),
-      nodeViews: { image: (node, view, getPos) => new ImageView(node, view, getPos, files) },
+      nodeViews: { image: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files) },
       clipboardSerializer,
       editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
@@ -105,6 +119,16 @@ export class RichTextEditor {
             this.files.openMenu({ x: e.clientX, y: e.clientY });
             return true;
           }
+          // a formula: its menu
+          const formula = (e.target as HTMLElement).closest(".cs-formula");
+          if (formula && area.contains(formula)) {
+            const pos = view.posAtDOM(formula, 0);
+            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.formula) return false;
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+            e.preventDefault();
+            this.formulas.openMenu({ x: e.clientX, y: e.clientY });
+            return true;
+          }
           if (!(e.target as HTMLElement).closest("td, th")) return false;
           const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
           // a click outside the selected cells moves the cursor there; inside, the selection stays (merge)
@@ -114,6 +138,17 @@ export class RichTextEditor {
           if (!tableAt(view.state)) return false;
           e.preventDefault();
           this.tables.openMenu({ x: e.clientX, y: e.clientY });
+          return true;
+        },
+        // a double click on a formula edits it
+        dblclick: (view, e) => {
+          const formula = (e.target as HTMLElement).closest(".cs-formula");
+          if (this.readonly || !formula || !area.contains(formula)) return false;
+          const pos = view.posAtDOM(formula, 0);
+          if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.formula) return false;
+          view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+          e.preventDefault();
+          this.formulas.edit({ x: e.clientX, y: e.clientY + 12 });
           return true;
         },
         focus: (view) => { this.links.update(view, this.readonly); return false; },
@@ -174,12 +209,12 @@ export class RichTextEditor {
     if (on === this.readonly) return;
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
-    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); }
+    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); }
     this.view.setProps({}); // editable is asked again
   }
 
   focus() { this.view.focus(); }
-  destroy() { this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.view.destroy(); this.root.remove(); }
+  destroy() { this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.formulas.destroy(); this.view.destroy(); this.root.remove(); }
 
   private tableMenu(state: EditorState): boolean {
     if (this.readonly || !tableAt(state)) return false;
@@ -198,12 +233,17 @@ export class RichTextEditor {
       "Mod-b": toggleFlag("bold"), "Mod-i": toggleFlag("italic"), "Mod-u": toggleFlag("underline"),
       "Mod-,": toggleFlag("sub"), "Mod-.": toggleFlag("sup"), "Mod-\\": clearFormatting,
       "Mod-l": setAlign("left"), "Mod-e": setAlign("center"), "Mod-r": setAlign("right"), "Mod-j": setAlign("justify"),
-      // a new paragraph or list item keeps the alignment of the one it was split from
-      "Enter": keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter)),
+      // a new paragraph or list item keeps the alignment of the one it was split from (below: Enter)
       // in a list: indent; in a table: the next / previous cell
       "Tab": chainCommands(indent, nextCell), "Shift-Tab": chainCommands(outdent, prevCell),
       // the table menu from the keyboard
       "ContextMenu": (state) => this.tableMenu(state), "Shift-F10": (state) => this.tableMenu(state),
+      // Enter on a selected formula edits it
+      "Enter": (state, dispatch) => {
+        if (this.readonly || !selectedFormula(state)) return keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter))(state, dispatch);
+        this.formulas.edit();
+        return true;
+      },
       "Mod-k": () => { if (this.readonly) return false; this.links.edit(); return true; },
       "Shift-Enter": (state, dispatch) => {
         dispatch?.(state.tr.replaceSelectionWith(schema.nodes.hard_break.create()).scrollIntoView());
@@ -211,7 +251,8 @@ export class RichTextEditor {
       },
     };
     const state = EditorState.create({ doc: fromStorage(value),
-      plugins: [history(), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, imageImporter(files, (m) => this.files.notice(m)), keymap(keys), keymap(baseKeymap)] });
+      plugins: [history(), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, imageImporter(files, (m) => this.files.notice(m)),
+        formulaPictures(files, (m) => this.files.notice(m)), keymap(keys), keymap(baseKeymap)] });
     // irregular stored tables (rows of different lengths) are completed, outside the undo history
     const fix = fixTables(state);
     return fix ? state.apply(fix.setMeta("addToHistory", false)) : state;

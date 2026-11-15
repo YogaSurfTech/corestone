@@ -185,6 +185,37 @@
 .cs-area .ProseMirror a.cs-file::before { content: ""; display: inline-block; width: .9em; height: .9em; margin-right: 2px; vertical-align: -.1em;
   background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E") center / contain no-repeat; }
 
+/* formulas: their picture as a mask in the colour of the text; the LaTeX while there is none */
+.cs-area .ProseMirror .cs-formula { display: inline-block; line-height: 0; border-radius: 2px; }
+.cs-area .ProseMirror .cs-formula .glyph { display: inline-block; background: currentColor;
+  -webkit-mask: var(--cs-formula) center / 100% 100% no-repeat; mask: var(--cs-formula) center / 100% 100% no-repeat; }
+.cs-area .ProseMirror .cs-formula.display { display: block; width: fit-content; margin: .5em auto; }
+.cs-area .ProseMirror .cs-formula.source { line-height: inherit; font-family: ui-monospace, monospace; font-size: .9em; color: var(--cs-muted); }
+.cs-area .ProseMirror .cs-formula.pending { opacity: .5; }
+.cs-area .ProseMirror .cs-formula.selected { outline: 2px solid var(--cs-link); outline-offset: 2px; }
+.cs-editor:not(.readonly) .cs-area .ProseMirror .cs-formula { cursor: pointer; }
+.cs-formulapop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; padding: 8px 10px 10px; width: min(420px, 100%);
+  display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+.cs-formulapop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
+.cs-formulapop .title { font-weight: 600; }
+.cs-formulapop button.x, .cs-formulapop button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px;
+  padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.cs-formulapop button.x { width: 26px; height: 26px; color: var(--cs-muted); }
+.cs-formulapop button.x:hover, .cs-formulapop button.opt:hover { background: var(--cs-hover); }
+.cs-formulapop button.opt[aria-checked="true"] { background: var(--cs-pressed); box-shadow: inset 0 0 0 1px var(--cs-link); }
+.cs-formulapop .latex { width: 100%; height: auto; min-height: 0; flex: none; box-sizing: border-box; resize: vertical; border: 1px solid var(--cs-border); border-radius: 5px; padding: 6px 8px;
+  font: 13px/1.4 ui-monospace, monospace; background: var(--cs-panel); color: inherit; }
+.cs-formulapop .preview { min-height: 40px; max-height: 200px; overflow: auto; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--cs-border); border-radius: 5px; padding: 6px; }
+.cs-formulapop .preview img { max-width: none; }
+.cs-formulapop .lb.apply[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.cs-formulapop .msg { color: #c62828; min-height: 1em; }
+.cs-formulapop .msg:empty { display: none; }
+.cs-formulapop .foot { display: flex; align-items: center; justify-content: space-between; }
+.cs-formulapop .choice { display: flex; gap: 2px; }
+.cs-formulapop[hidden] { display: none; }
+
 /* the file picker, the alternative text, notices */
 .cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }

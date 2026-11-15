@@ -23,11 +23,21 @@ export type Run = { text: string } & Marks;
 /** An image in the text: a file of the entry; width in pixels (absent: its own size). */
 export interface ImageRun { image: string; alt?: string; width?: number }
 
-export const isImage = (r: Run | ImageRun): r is ImageRun => "image" in r;
+export const isImage = (r: Run | ImageRun | FormulaRun): r is ImageRun => "image" in r;
+
+/** A formula: its LaTeX and the picture of it, a PNG file of the entry;
+ *  display: on a line of its own, centred (absent: in the text). */
+export interface FormulaRun { formula: string; png: string; display?: true }
+
+export const isFormula = (r: Run | ImageRun | FormulaRun): r is FormulaRun => "formula" in r;
+
+/** What a paragraph's text is made of. */
+export type Inline = Run | ImageRun | FormulaRun;
+export const MAX_FORMULA = 4000; // bytes of LaTeX, as the server allows
 
 /** A paragraph; with list it is a list item (level 1 when absent). */
 export interface Paragraph {
-  text: string | (Run | ImageRun)[];
+  text: string | Inline[];
   align?: Exclude<Align, "left">;
   list?: "ul" | "ol";
   level?: number;
@@ -152,7 +162,7 @@ function tableNode(t: Table): Node | null {
   }
 }
 
-function inline(text: string | (Run | ImageRun)[] | undefined): Fragment {
+function inline(text: string | Inline[] | undefined): Fragment {
   const out: Node[] = [];
   const add = (t: string, marks: Mark[]) => {
     t.split("\n").forEach((part, i) => {
@@ -167,6 +177,10 @@ function inline(text: string | (Run | ImageRun)[] | undefined): Fragment {
       const src = safeFileName(r.image);
       const w = typeof r.width === "number" && r.width >= 16 ? Math.min(Math.round(r.width), 4000) : null;
       if (src) out.push(schema.nodes.image.create({ src, alt: typeof r.alt === "string" ? r.alt : "", width: w }));
+    } else if (isFormula(r)) {
+      if (typeof r.formula === "string" && r.formula.trim()) {
+        out.push(schema.nodes.formula.create({ latex: r.formula, display: r.display === true, png: safeFileName(r.png) }));
+      }
     } else if (typeof r.text === "string") add(r.text, marksOf(r));
   }
   return Fragment.from(out);
@@ -255,11 +269,18 @@ function storeTable(n: Node): Table {
 }
 
 /** A paragraph's text: a plain string when nothing is formatted, else runs. */
-function storeInline(p: Node): string | (Run | ImageRun)[] {
-  const runs: (Run | ImageRun)[] = [];
+function storeInline(p: Node): string | Inline[] {
+  const runs: Inline[] = [];
   p.forEach((c) => {
     const last = runs[runs.length - 1];
-    const prev = last && !isImage(last) ? last : undefined;
+    const prev = last && !isImage(last) && !isFormula(last) ? last : undefined;
+    if (c.type === schema.nodes.formula) {
+      if (!c.attrs.png) return; // its picture is still being made
+      const f: FormulaRun = { formula: c.attrs.latex, png: c.attrs.png };
+      if (c.attrs.display) f.display = true;
+      runs.push(f);
+      return;
+    }
     if (c.type === schema.nodes.image) {
       if (!c.attrs.src) return; // still being stored
       const img: ImageRun = { image: c.attrs.src };
@@ -291,7 +312,8 @@ function storeInline(p: Node): string | (Run | ImageRun)[] {
     else runs.push({ text, ...marks });
   });
   if (!runs.length) return "";
-  if (runs.length === 1 && !isImage(runs[0]) && Object.keys(runs[0]).length === 1) return runs[0].text;
+  const only = runs[0];
+  if (runs.length === 1 && !isImage(only) && !isFormula(only) && Object.keys(only).length === 1) return only.text;
   return runs;
 }
 
@@ -303,7 +325,7 @@ function sameMarks(run: Run, b: Marks): boolean {
 
 /** The plain text of a value, as search sees it: one line per paragraph, list items with
  *  their marker, numbered lists numbered across levels as the editor shows them (1.2.3.),
- *  a table row per line with its cells separated by " | ".
+ *  a table row per line with its cells separated by " | ", formulas as their LaTeX.
  *  The server computes the same (RichTextPlain in internal/model/richtext.go). */
 export function plainText(value: RichText | null | undefined): string {
   if (typeof value === "string" || value == null) return value ?? "";
@@ -316,7 +338,7 @@ export function plainText(value: RichText | null | undefined): string {
       for (const row of b.table ?? []) lines.push((row ?? []).map(cell).join(" | "));
       continue;
     }
-    const text = typeof b.text === "string" ? b.text : b.text.map((r) => (isImage(r) ? "" : r.text)).join("");
+    const text = typeof b.text === "string" ? b.text : b.text.map((r) => (isImage(r) ? "" : isFormula(r) ? r.formula : r.text)).join("");
     if (!b.list) {
       stack.length = 0;
       lines.push(text);

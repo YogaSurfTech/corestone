@@ -138,6 +138,17 @@ func TestRichTextTables(t *testing.T) {
 	}
 }
 
+func TestRichTextFormulas(t *testing.T) {
+	good := `[{"text": [{"text": "Energy: "}, {"formula": "E = mc^2", "png": "formula-abc.png"}]},
+		{"text": [{"formula": "\\int_0^1 x\\,dx", "png": "formula-def.png", "display": true}]}]`
+	if err := ValidateRichText("f", parse(t, good)); err != nil {
+		t.Fatal(err)
+	}
+	if got := RichTextPlain(parse(t, good)); got != "Energy: E = mc^2\n\\int_0^1 x\\,dx" {
+		t.Errorf("plain %q", got)
+	}
+}
+
 func TestRichTextImagesAndFileLinks(t *testing.T) {
 	good := `[{"align": "center", "text": [{"image": "photo.png", "alt": "The pump", "width": 320}]},
 		{"text": [{"text": "See "}, {"text": "the manual", "file": "manual.pdf"}, {"image": "icon.png"}]},
@@ -149,6 +160,11 @@ func TestRichTextImagesAndFileLinks(t *testing.T) {
 		t.Errorf("plain %q", got)
 	}
 	bad := map[string]string{
+		`[{"text": [{"formula": "x^2"}]}]`:                                            "needs its png",
+		`[{"text": [{"formula": " ", "png": "f.png"}]}]`:                              "formula is LaTeX",
+		`[{"text": [{"formula": "x", "png": "f.jpg"}]}]`:                              "PNG file",
+		`[{"text": [{"formula": "x", "png": "f.png", "display": false}]}]`:            "display is true",
+		`[{"text": [{"formula": "x", "png": "f.png", "bold": true}]}]`:                "unknown formula property",
 		`[{"text": [{"image": "../x.png"}]}]`:                                         "name of a file",
 		`[{"text": [{"image": ".corestone.json"}]}]`:                                  "name of a file",
 		`[{"text": [{"image": "a.png", "width": 5}]}]`:                                "16 to 4000",

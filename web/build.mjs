@@ -1,31 +1,31 @@
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
 
 const watch = process.argv.includes("--watch");
+rmSync("dist/chunks", { recursive: true, force: true }); // chunks of earlier builds
 mkdirSync("dist", { recursive: true });
 cpSync("index.html", "dist/index.html");
 cpSync("src/styles.css", "dist/styles.css");
 // The standalone editor demo (/editor-demo.html): the editor package only.
 cpSync("packages/editor/demo/editor-demo.html", "dist/editor-demo.html");
 cpSync("packages/editor/src/editor.css", "dist/editor.css");
+// Code splitting: parts loaded only when needed (MathJax, for writing formulas) are chunks
+// of their own next to the entry points.
+const common = { bundle: true, format: "esm", splitting: true, outdir: "dist", chunkNames: "chunks/[name]-[hash]" };
 const demo = {
-  entryPoints: ["packages/editor/demo/demo.ts"],
-  bundle: true,
-  format: "esm",
+  ...common,
+  entryPoints: { "editor-demo": "packages/editor/demo/demo.ts" },
   target: "es2022",
   minify: !watch,
   sourcemap: true,
-  outfile: "dist/editor-demo.js",
   logLevel: "info",
 };
 const options = {
-  entryPoints: ["src/main.ts"],
-  bundle: true,
-  format: "esm",
+  ...common,
+  entryPoints: { main: "src/main.ts" },
   target: "es2022",
   minify: !watch,
   sourcemap: true,
-  outfile: "dist/main.js",
   logLevel: "info",
 };
 if (watch) {

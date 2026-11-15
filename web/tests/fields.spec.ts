@@ -338,8 +338,37 @@ test("rich text: a pasted image and an uploaded file are stored with Save, as fi
   expect(await rich.locator(".cs-img img").getAttribute("src")).toBe(`/api/artifacts/${entry.meta.guid}/files/${encodeURIComponent(name)}`);
 });
 
-test("rich text: invalid images and file links are refused by the server", async () => {
-  const bad = [[{ text: [{ image: "../x.png" }] }], [{ text: [{ text: "x", file: ".corestone.json" }] }]];
+test("rich text: a formula is stored with Save as LaTeX and a PNG file of the entry", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Formula entry", fields: { rich: "Energy:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await rich.locator(".cs-tb .sp:has([data-cmd=formula]) .c").click();
+  await rich.locator(".cs-tb .pop.open [data-cmd=formula]").click();
+  const dlg = rich.locator(".cs-formulapop");
+  await dlg.locator("textarea").fill("E = mc^2");
+  await expect(dlg.locator(".preview img")).toBeVisible({ timeout: 15000 });
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string; size: number }[] }>(`/entries/${entry.meta.guid}`);
+  const runs = (stored.data.fields.rich as { text: { formula?: string; png?: string }[] }[])[0].text;
+  const png = runs[1]?.png ?? "";
+  expect(runs).toEqual([{ text: "Energy:" }, { formula: "E = mc^2", png: "formula-E_mc_2.png" }]);
+  expect(stored.attachments.map((a) => a.name)).toEqual([png]);
+  expect(stored.attachments[0].size).toBeGreaterThan(100);
+  // after a reload the picture comes from the server
+  await page.reload();
+  await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
+});
+
+test("rich text: invalid images, file links and formulas are refused by the server", async () => {
+  const bad = [[{ text: [{ image: "../x.png" }] }], [{ text: [{ text: "x", file: ".corestone.json" }] }],
+    [{ text: [{ formula: "x^2" }] }], [{ text: [{ formula: "x^2", png: "x.svg" }] }]];
   for (const rich of bad) {
     const res = await fetch(api + "/entries", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: folder, type: "all", title: "Bad image", fields: { rich } }) });

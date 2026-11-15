@@ -20,7 +20,10 @@ import (
 // inside a text is a line break within the paragraph. A run may be a link:
 // href to a web address (http(s), ftp(s), mailto), ref to an item (GUID), or
 // file to a file of the entry. A run may instead be an image, a file of the
-// entry: {"image": "photo.png", "alt": "…", "width": 320}. list makes the
+// entry: {"image": "photo.png", "alt": "…", "width": 320}, or a formula: its
+// LaTeX and the picture of it, a PNG file of the entry
+// ({"formula": "E = mc^2", "png": "formula-….png", "display": true; display:
+// on a line of its own, centred). list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
 // A table has rows of cells; a cell is rich text itself (anything but a
 // table), or, when formatted, an object with its content, header (formatted
@@ -244,6 +247,12 @@ func validateInline(at string, v any) (int, error) {
 			}
 			continue
 		}
+		if _, f := o.Get("formula"); f {
+			if err := validateFormula(at, o); err != nil {
+				return 0, err
+			}
+			continue
+		}
 		s, ok := o.Get("text")
 		text, isStr := s.(string)
 		if !ok || !isStr || text == "" {
@@ -330,6 +339,40 @@ func validateImage(at string, o *ojson.Object) error {
 			}
 		default:
 			return Invalid("%s: unknown image property %q", at, k)
+		}
+	}
+	return nil
+}
+
+// MaxFormulaLen is the longest LaTeX source of a formula, in bytes.
+const MaxFormulaLen = 4000
+
+// validateFormula checks a formula run: {"formula": LaTeX, "png": file name, "display": true}.
+func validateFormula(at string, o *ojson.Object) error {
+	if _, ok := o.Get("png"); !ok {
+		return Invalid("%s: a formula needs its png", at)
+	}
+	for _, k := range o.Keys() {
+		v, _ := o.Get(k)
+		switch k {
+		case "formula":
+			s, ok := v.(string)
+			if !ok || strings.TrimSpace(s) == "" || len(s) > MaxFormulaLen {
+				return Invalid("%s: formula is LaTeX of at most %d bytes", at, MaxFormulaLen)
+			}
+			if err := ValidateText(at, s, MaxFormulaLen); err != nil {
+				return err
+			}
+		case "png":
+			if s, _ := v.(string); ValidateFileName(s) != nil || !strings.HasSuffix(s, ".png") {
+				return Invalid("%s: png is the name of a PNG file of the entry", at)
+			}
+		case "display":
+			if v != true {
+				return Invalid("%s: display is true or absent", at)
+			}
+		default:
+			return Invalid("%s: unknown formula property %q", at, k)
 		}
 	}
 	return nil
@@ -506,6 +549,7 @@ func inlinePlain(o *ojson.Object) string {
 	for _, r := range runs {
 		if ro, ok := r.(*ojson.Object); ok {
 			b.WriteString(ro.String("text"))
+			b.WriteString(ro.String("formula")) // a formula is found by its LaTeX
 		}
 	}
 	return b.String()

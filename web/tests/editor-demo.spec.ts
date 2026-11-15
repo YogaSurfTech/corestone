@@ -667,3 +667,91 @@ test("file links: from the link popover, and by dropping a file", async ({ page 
   await page.locator("#save").click();
   expect(await stored(page)).toEqual([{ text: [{ text: "Manual", file: "manual.pdf" }] }, { text: [{ text: "data.csv", file: "data.csv" }] }]);
 });
+
+test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG; menu, editing, pasting", async ({ page }) => {
+  const area = page.locator(".cs-area .ProseMirror");
+  await area.click();
+  await page.keyboard.type("Energy ");
+  await (await insertMenu(page)).locator("[data-cmd=formula]").click();
+  const dlg = page.locator(".cs-formulapop");
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator(".title")).toHaveText("Formula");
+  const apply = dlg.getByRole("button", { name: "Apply" });
+  // wrong LaTeX: MathJax's message, nothing to apply
+  await dlg.locator("textarea").fill("\\frac{1}");
+  await expect(dlg.locator(".msg")).not.toBeEmpty({ timeout: 15000 });
+  await expect(apply).toBeDisabled();
+  // Ctrl+Enter right after typing checks the text as it is now
+  await dlg.locator("textarea").fill("x^");
+  await page.keyboard.press("Control+Enter");
+  await expect(dlg.locator(".msg")).toHaveText("ERROR: Missing superscript or subscript argument");
+  await expect(dlg.locator(".msg strong")).toHaveText("ERROR:");
+  await expect(apply).toBeDisabled();
+  await expect(apply).toHaveAttribute("title", "ERROR: Missing superscript or subscript argument");
+  await expect(dlg).toBeVisible();
+  await dlg.locator("textarea").fill("E = mc^2");
+  await expect(dlg.locator(".preview img")).toBeVisible();
+  await expect(dlg.locator(".msg")).toBeEmpty();
+  await apply.click();
+  const formula = page.locator(".cs-area .cs-formula");
+  await expect(formula.locator(".glyph")).toHaveCount(1);
+  await page.locator("#save").click();
+  let runs = (await stored(page))[0].text;
+  expect(runs[0]).toEqual({ text: "Energy " });
+  expect(runs[1]).toEqual({ formula: "E = mc^2", png: "formula-E_mc_2.png" });
+  const inlinePng = runs[1].png;
+  await expect(page.locator("#plain")).toHaveText("Energy E = mc^2");
+  // the picture: a PNG of the entry, shown in its proportions, at the text's size
+  const size = await page.evaluate(async (name) => {
+    const f = (window as unknown as { demoFiles: Map<string, File> }).demoFiles.get(name)!;
+    const b = await createImageBitmap(f);
+    return { type: f.type, w: b.width, h: b.height };
+  }, inlinePng);
+  expect(size.type).toBe("image/png");
+  expect(size.w).toBeGreaterThan(60);
+  const glyph = (await formula.locator(".glyph").boundingBox())!;
+  expect(Math.abs(glyph.width / glyph.height - size.w / size.h)).toBeLessThan(0.05);
+  const fontSize = await area.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  expect(Math.abs(glyph.width - (size.w / 2) * (fontSize / 16))).toBeLessThan(1.5);
+  // the menu: on a line of its own (a new picture), then edit with a double click
+  await formula.click({ button: "right" });
+  const menu = page.locator(".cs-formulamenu");
+  await menu.getByRole("menuitemcheckbox", { name: "On a line of its own" }).click();
+  await expect(page.locator(".cs-area .cs-formula.display .glyph")).toHaveCount(1);
+  await page.locator("#save").click();
+  runs = (await stored(page))[0].text;
+  expect(runs[1]).toMatchObject({ formula: "E = mc^2", display: true });
+  expect(runs[1].png).toBe("formula-E_mc_2-2.png"); // a new picture, in a file of its own
+  await formula.dblclick();
+  await expect(dlg.locator("textarea")).toHaveValue("E = mc^2");
+  await expect(dlg.getByRole("radio", { name: "On a line of its own" })).toHaveAttribute("aria-checked", "true");
+  await dlg.getByRole("radio", { name: "In the text" }).click();
+  await dlg.locator("textarea").fill("\\sqrt{a^2 + b^2}");
+  await expect(apply).toBeEnabled();
+  await page.keyboard.press("Control+Enter");
+  await expect(dlg).toBeHidden();
+  await expect(page.locator(".cs-area .cs-formula:not(.display) .glyph")).toHaveCount(1);
+  await page.locator("#save").click();
+  runs = (await stored(page))[0].text;
+  expect(runs[1]).toEqual({ formula: "\\sqrt{a^2 + b^2}", png: "formula-sqrt_a_2_b_2.png" });
+  // a pasted formula (LaTeX only) gets a picture of its own
+  await area.focus();
+  await page.keyboard.press("Control+End");
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData("text/html", '<p> and <img data-latex="\\sqrt{a^2 + b^2}"> or <img data-latex="x_1" data-display=""></p>');
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".cs-area .cs-formula .glyph")).toHaveCount(3);
+  await page.locator("#save").click();
+  runs = (await stored(page))[0].text;
+  expect(runs.filter((r: { formula?: string }) => r.formula).map((r: { formula: string; display?: boolean }) => [r.formula, !!r.display]))
+    .toEqual([["\\sqrt{a^2 + b^2}", false], ["\\sqrt{a^2 + b^2}", false], ["x_1", true]]);
+  expect(runs.filter((r: { png?: string }) => r.png).map((r: { png: string }) => r.png))
+    .toEqual(["formula-sqrt_a_2_b_2.png", "formula-sqrt_a_2_b_2-2.png", "formula-x_1.png"]);
+  // delete from the menu
+  await formula.first().click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(page.locator(".cs-area .cs-formula")).toHaveCount(2);
+});

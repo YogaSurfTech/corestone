@@ -91,6 +91,17 @@ const nodes: Record<string, NodeSpec> = {
     } }],
     toDOM: (n) => ["img", { "data-file": n.attrs.src, alt: n.attrs.alt, width: n.attrs.width }],
   },
+  // a formula: its LaTeX, and the picture of it (png, a PNG file of the entry; null while it is
+  // being made); display: on a line of its own, centred. Pasted formulas get their picture again.
+  formula: {
+    inline: true, group: "inline", draggable: true, atom: true,
+    attrs: { latex: { default: "" }, display: { default: false }, png: { default: null } },
+    parseDOM: [{ tag: "img[data-latex]", priority: 60, getAttrs: (d) => {
+      const latex = (d as HTMLElement).getAttribute("data-latex") ?? "";
+      return latex.trim() ? { latex, display: (d as HTMLElement).hasAttribute("data-display"), png: null } : false;
+    } }],
+    toDOM: (n) => ["img", { "data-latex": n.attrs.latex, "data-display": n.attrs.display ? "" : null, alt: n.attrs.latex }],
+  },
   hard_break: { inline: true, group: "inline", selectable: false, parseDOM: [{ tag: "br" }], toDOM: () => ["br"] },
 };
 
