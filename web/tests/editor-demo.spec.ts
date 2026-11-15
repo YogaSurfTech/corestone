@@ -785,3 +785,82 @@ test("resize: the bottom edge sets the height (remembered), the text scrolls; a 
   await page.reload();
   await expect(area).not.toHaveClass(/sized/);
 });
+
+// Diagrams run against the draw.io stand-in (tests/drawio-stub: -drawio web/tests/drawio-stub).
+test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edited again, discarded, deleted", async ({ page }) => {
+  const area = page.locator(".cs-area .ProseMirror");
+  await area.click();
+  await page.keyboard.type("Flow: ");
+  // the demo asks the server where draw.io is
+  await page.waitForFunction(() => !!(document.querySelector("cs-richtext") as unknown as { diagrams?: string }).diagrams);
+  const insert = async () => {
+    const item = (await insertMenu(page)).locator("[data-cmd=diagram]");
+    await expect(item).not.toHaveAttribute("aria-disabled", "true");
+    await item.click();
+  };
+  await insert();
+  const pop = page.locator(".cs-diagrampop");
+  await expect(pop.locator(".title")).toHaveText("New diagram");
+  const drawio = page.frameLocator(".cs-diagrampop iframe");
+  await expect(drawio.locator("body[data-loaded]")).toHaveCount(1);
+  await drawio.locator("#xml").fill("<mxfile>first</mxfile>");
+  await drawio.getByRole("button", { name: "Save & Exit" }).click();
+  await expect(pop).toBeHidden();
+  const img = page.locator(".cs-area .cs-diagram img");
+  await expect(img).toHaveJSProperty("naturalWidth", 600);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "Flow: " }, { diagram: "diagram.drawio.png", width: 300 }] }]);
+  // the file holds the diagram (draw.io's tEXt chunk "mxfile")
+  const holds = (name: string) => page.evaluate(async (name) => {
+    const f = (window as unknown as { demoFiles: Map<string, File> }).demoFiles.get(name);
+    return f ? decodeURIComponent(new TextDecoder("latin1").decode(await f.arrayBuffer()).split("mxfile\0")[1]?.split("\0")[0] ?? "") : null;
+  }, name);
+  expect(await holds("diagram.drawio.png")).toContain("<mxfile>first</mxfile>");
+
+  // a double click edits it: draw.io gets the diagram back; the new version is a file of its own
+  await img.click({ button: "right" });
+  await page.locator(".cs-imagemenu").getByRole("menuitem", { name: "Alternative text…" }).click();
+  await page.locator(".cs-altpop input").fill("The flow");
+  await page.keyboard.press("Enter");
+  await img.dblclick();
+  await expect(pop.locator(".title")).toHaveText("Diagram");
+  await expect(drawio.locator("#xml")).toHaveValue("<mxfile>first</mxfile>");
+  await drawio.locator("#xml").fill("<mxfile>second</mxfile>");
+  await drawio.getByRole("button", { name: "Save & Exit" }).click();
+  await expect(pop).toBeHidden();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[1]).toEqual({ diagram: "diagram-2.drawio.png", alt: "The flow", width: 300 });
+  expect(await holds("diagram-2.drawio.png")).toContain("second");
+
+  // closing with changes asks first; keep editing, then discard
+  await img.click({ button: "right" });
+  await page.locator(".cs-imagemenu").getByRole("menuitem", { name: "Edit diagram…" }).click();
+  await expect(drawio.locator("#xml")).toHaveValue("<mxfile>second</mxfile>");
+  await drawio.locator("#xml").fill("<mxfile>third</mxfile>");
+  await pop.getByRole("button", { name: "Close" }).click();
+  await expect(pop.locator(".ask")).toContainText("Discard the changes?");
+  await pop.getByRole("button", { name: "Keep editing" }).click();
+  await expect(pop.locator(".ask")).toBeHidden();
+  await pop.getByRole("button", { name: "Close" }).click();
+  await pop.getByRole("button", { name: "Discard" }).click();
+  await expect(pop).toBeHidden();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[1].diagram).toBe("diagram-2.drawio.png");
+
+  // draw.io's own Exit closes without saving; Delete removes the diagram
+  await img.dblclick();
+  await drawio.getByRole("button", { name: "Exit", exact: true }).click();
+  await expect(pop).toBeHidden();
+  await img.click({ button: "right" });
+  await page.locator(".cs-imagemenu").getByRole("menuitem", { name: "Delete" }).click();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual("Flow: ");
+
+  // without draw.io on the server the button says why
+  await page.evaluate(() => { (document.querySelector("cs-richtext") as unknown as { diagrams?: string }).diagrams = undefined; });
+  await area.click();
+  const item = (await insertMenu(page)).locator("[data-cmd=diagram]");
+  await expect(item).toHaveAttribute("aria-disabled", "true");
+  await item.hover();
+  await expect(page.locator(".cs-tip.on")).toContainText("draw.io is not installed");
+});

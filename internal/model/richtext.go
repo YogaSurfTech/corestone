@@ -20,7 +20,9 @@ import (
 // inside a text is a line break within the paragraph. A run may be a link:
 // href to a web address (http(s), ftp(s), mailto), ref to an item (GUID), or
 // file to a file of the entry. A run may instead be an image, a file of the
-// entry: {"image": "photo.png", "alt": "…", "width": 320}, or a formula: its
+// entry: {"image": "photo.png", "alt": "…", "width": 320}, a diagram, a draw.io
+// PNG of the entry with the diagram inside it ({"diagram": "flow.drawio.png",
+// "alt": "…", "width": 480}), or a formula: its
 // LaTeX and the picture of it, a PNG file of the entry
 // ({"formula": "E = mc^2", "png": "formula-….png", "display": true; display:
 // on a line of its own, centred). list makes the
@@ -242,7 +244,13 @@ func validateInline(at string, v any) (int, error) {
 			return 0, Invalid("%s: a run is not an object", at)
 		}
 		if _, img := o.Get("image"); img {
-			if err := validateImage(at, o); err != nil {
+			if err := validateImage(at, o, "image"); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if _, d := o.Get("diagram"); d {
+			if err := validateImage(at, o, "diagram"); err != nil {
 				return 0, err
 			}
 			continue
@@ -316,14 +324,20 @@ func validateInline(at string, v any) (int, error) {
 	return n, nil
 }
 
-// validateImage checks an image run: {"image": file name, "alt": text, "width": pixels}.
-func validateImage(at string, o *ojson.Object) error {
+// validateImage checks an image or diagram run: {"image" or "diagram": file
+// name, "alt": text, "width": pixels}. A diagram is a draw.io PNG (with the
+// diagram inside it).
+func validateImage(at string, o *ojson.Object, kind string) error {
 	for _, k := range o.Keys() {
 		v, _ := o.Get(k)
 		switch k {
-		case "image":
-			if s, _ := v.(string); ValidateFileName(s) != nil {
-				return Invalid("%s: image is the name of a file of the entry", at)
+		case kind:
+			s, _ := v.(string)
+			if ValidateFileName(s) != nil {
+				return Invalid("%s: %s is the name of a file of the entry", at, kind)
+			}
+			if kind == "diagram" && !strings.HasSuffix(strings.ToLower(s), ".png") {
+				return Invalid("%s: diagram is the name of a PNG file of the entry", at)
 			}
 		case "alt":
 			s, ok := v.(string)
@@ -335,10 +349,10 @@ func validateImage(at string, o *ojson.Object) error {
 			}
 		case "width":
 			if n, ok := integer(v); !ok || n < 16 || n > 4000 {
-				return Invalid("%s: an image width is 16 to 4000 pixels", at)
+				return Invalid("%s: an %s width is 16 to 4000 pixels", at, kind)
 			}
 		default:
-			return Invalid("%s: unknown image property %q", at, k)
+			return Invalid("%s: unknown %s property %q", at, kind, k)
 		}
 	}
 	return nil

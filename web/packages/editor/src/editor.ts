@@ -8,7 +8,8 @@ import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { fromStorage, toStorage, type RichText } from "./model";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
-import { FileUI, ImageView, addFiles, imageImporter, insertImage, type EntryFiles } from "./files";
+import { FileUI, ImageView, addFiles, imageImporter, insertImage, isPicture, type EntryFiles } from "./files";
+import { DiagramUI, selectedDiagram } from "./diagrams";
 import { FormulaUI, FormulaView, formulaPictures, selectedFormula } from "./formulas";
 import { LinkUI, openLink, type ItemLinks } from "./links";
 import { StyledTableView, TableUI, flattenNestedTables, nextCell, prevCell, tableAt, tableEdges } from "./tables";
@@ -29,6 +30,8 @@ export interface EditorOptions {
   /** Under which name a height the user dragged the bottom edge to is remembered in this
    *  browser (e.g. the field's type and name); without it the height is not remembered. */
   sizeKey?: string;
+  /** The address of the draw.io web app, for diagrams (asked each time; absent: no diagrams). */
+  diagrams?: () => string | undefined;
 }
 
 const MIN_HEIGHT = 80;
@@ -44,6 +47,7 @@ export class RichTextEditor {
   private readonly tables: TableUI;
   private readonly files: FileUI;
   private readonly formulas: FormulaUI;
+  private readonly diagrams: DiagramUI;
   private readonly area: HTMLElement;
   private readonly edge: HTMLElement;
   private key?: string;
@@ -59,7 +63,8 @@ export class RichTextEditor {
     this.root.addEventListener("change", (e) => e.stopPropagation());
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), files: () => !!files(),
       image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at),
-      formula: (at) => this.formulas.edit(at) },
+      formula: (at) => this.formulas.edit(at),
+      diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); } },
       opts.palette ?? DEFAULT_PALETTE);
     const area = document.createElement("div");
     area.className = "cs-area";
@@ -89,6 +94,7 @@ export class RichTextEditor {
       (chosen) => this.files.pick({ images: false, chosen: (name) => chosen(name) }));
     this.tables = new TableUI(() => this.view, this.root, this.toolbar.colorChoices());
     this.formulas = new FormulaUI(() => this.view, this.root);
+    this.diagrams = new DiagramUI(() => this.view, this.root, files, () => opts.diagrams?.(), (m) => this.files.notice(m));
     // copied images carry the address of their file, so another entry can take a copy
     const base = DOMSerializer.fromSchema(schema);
     const clipboardSerializer = new DOMSerializer({ ...base.nodes, formula: (n) => {
@@ -101,6 +107,15 @@ export class RichTextEditor {
       if (u) img.src = new URL(u, location.href).href;
       img.alt = n.attrs.latex;
       return img;
+    }, diagram: (n) => {
+      // a diagram carries the address of its PNG (with the diagram inside), as an image does
+      const img = document.createElement("img");
+      img.setAttribute("data-diagram", n.attrs.src ?? "");
+      const u = n.attrs.src ? files()?.url(n.attrs.src) : null;
+      if (u) img.src = new URL(u, location.href).href;
+      img.alt = n.attrs.alt;
+      if (n.attrs.width) img.width = n.attrs.width;
+      return img;
     }, image: (n) => {
       const img = document.createElement("img");
       img.setAttribute("data-file", n.attrs.src ?? "");
@@ -112,7 +127,8 @@ export class RichTextEditor {
     } }, base.marks);
     this.view = new EditorView(area, {
       state: this.state(opts.value, files),
-      nodeViews: { image: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files) },
+      nodeViews: { image: (node, view, getPos) => new ImageView(node, view, getPos, files),
+        diagram: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files) },
       clipboardSerializer,
       editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
@@ -141,10 +157,10 @@ export class RichTextEditor {
           const img = (e.target as HTMLElement).closest(".cs-img");
           if (img && area.contains(img)) {
             const pos = view.posAtDOM(img, 0);
-            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.image) return false;
+            if (!isPicture(view.state.doc.nodeAt(pos))) return false;
             view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
             e.preventDefault();
-            this.files.openMenu({ x: e.clientX, y: e.clientY });
+            this.files.openMenu({ x: e.clientX, y: e.clientY }, this.diagramsOn() ? () => { void this.diagrams.edit(); } : undefined);
             return true;
           }
           // a formula: its menu
@@ -170,6 +186,16 @@ export class RichTextEditor {
         },
         // a double click on a formula edits it
         dblclick: (view, e) => {
+          // a diagram: draw.io
+          const diagram = (e.target as HTMLElement).closest(".cs-diagram");
+          if (diagram && area.contains(diagram) && !this.readonly && this.diagramsOn()) {
+            const pos = view.posAtDOM(diagram, 0);
+            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.diagram) return false;
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+            e.preventDefault();
+            void this.diagrams.edit();
+            return true;
+          }
           const formula = (e.target as HTMLElement).closest(".cs-formula");
           if (this.readonly || !formula || !area.contains(formula)) return false;
           const pos = view.posAtDOM(formula, 0);
@@ -237,7 +263,7 @@ export class RichTextEditor {
     if (on === this.readonly) return;
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
-    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); }
+    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); this.diagrams.close(); }
     this.view.setProps({}); // editable is asked again
   }
 
@@ -280,14 +306,20 @@ export class RichTextEditor {
     this.edge.addEventListener("pointercancel", up);
   }
 
+  /** Shows the toolbar again for what the host now offers (e.g. diagrams). */
+  refresh() { this.toolbar.update(this.view.state); }
+
   focus() { this.view.focus(); }
-  destroy() { this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.formulas.destroy(); this.view.destroy(); this.root.remove(); }
+  destroy() { this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.formulas.destroy(); this.diagrams.destroy(); this.view.destroy(); this.root.remove(); }
 
   private tableMenu(state: EditorState): boolean {
     if (this.readonly || !tableAt(state)) return false;
     this.tables.openMenu();
     return true;
   }
+
+  /** Whether diagrams can be drawn: the entry's files and draw.io are there. */
+  private diagramsOn() { return !!this.opts.files?.() && !!this.opts.diagrams?.(); }
 
   private run(cmd: Command) {
     cmd(this.view.state, this.view.dispatch);
@@ -307,6 +339,7 @@ export class RichTextEditor {
       "ContextMenu": (state) => this.tableMenu(state), "Shift-F10": (state) => this.tableMenu(state),
       // Enter on a selected formula edits it
       "Enter": (state, dispatch) => {
+        if (!this.readonly && selectedDiagram(state) && this.diagramsOn()) { void this.diagrams.edit(); return true; }
         if (this.readonly || !selectedFormula(state)) return keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter))(state, dispatch);
         this.formulas.edit();
         return true;

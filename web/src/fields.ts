@@ -2,7 +2,7 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
-import { api } from "./api";
+import { api, server } from "./api";
 import { store } from "./store";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
@@ -162,7 +162,7 @@ export class FieldEditor extends LitElement {
       case "richtext":
         // plain text (older values, or nothing formatted) or paragraphs; empty is unset
         return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} .files=${this.files} ?readonly=${this.disabled}
-          .sizeKey=${`${this.typeId}/${this.field.id}`}
+          .sizeKey=${`${this.typeId}/${this.field.id}`} .diagrams=${server.diagrams || undefined}
           @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();

@@ -10,7 +10,7 @@ import type { Palette } from "./toolbar";
 export { RichTextEditor, type EditorOptions } from "./editor";
 export { type ItemLinks } from "./links";
 export { type EntryFiles } from "./files";
-export { fromStorage, isTable, plainText, toStorage, type Block, type Cell, type FormulaRun, type ImageRun, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
+export { fromStorage, isTable, plainText, toStorage, type Block, type Cell, type DiagramRun, type FormulaRun, type ImageRun, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
 export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
 
@@ -24,6 +24,13 @@ export class RichTextElement extends HTMLElement {
   items?: ItemLinks;
   /** The entry's files, for images, file links and formulas; without it none is offered. */
   files?: EntryFiles;
+  private drawio?: string;
+  /** The address of the draw.io web app; without it no diagrams are offered. */
+  get diagrams(): string | undefined { return this.drawio; }
+  set diagrams(v: string | undefined) {
+    this.drawio = v;
+    this.editor?.refresh(); // the toolbar offers diagrams (or not)
+  }
   private key?: string;
   /** Under which name a height dragged with the bottom edge is remembered in this browser
    *  (e.g. the field's type and name); without it the height is not remembered. */
@@ -50,6 +57,7 @@ export class RichTextElement extends HTMLElement {
       items: () => this.items,
       files: () => this.files,
       sizeKey: this.key,
+      diagrams: () => this.drawio,
       onChange: (value) => { this.pending = value; this.dispatchEvent(new CustomEvent("change", { detail: value, bubbles: true })); },
     });
   }

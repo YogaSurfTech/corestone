@@ -18,7 +18,12 @@ export interface EntryFiles {
   url(name: string): string;
   /** The names of the entry's files, to pick one. */
   list(): Promise<string[]>;
+  /** A file's content (to edit a diagram: draw.io reads the diagram from its PNG). */
+  get?(name: string): Promise<Blob>;
 }
+
+/** Image and diagram nodes: pictures that are files of the entry. */
+export const isPicture = (n: Node | null | undefined) => !!n && (n.type === schema.nodes.image || n.type === schema.nodes.diagram);
 
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i;
 export const isImageName = (n: string) => IMAGE.test(n);
@@ -51,7 +56,7 @@ export class ImageView implements NodeView {
 
   constructor(private node: Node, private readonly view: EditorView, private readonly getPos: () => number | undefined,
     private readonly files: () => EntryFiles | undefined) {
-    this.dom = el("span", "cs-img");
+    this.dom = el("span", node.type === schema.nodes.diagram ? "cs-img cs-diagram" : "cs-img");
     this.img = document.createElement("img");
     this.img.draggable = false;
     this.handle = el("span", "handle");
@@ -130,7 +135,7 @@ export function imageImporter(files: () => EntryFiles | undefined, notice: (msg:
     const name = done.get(key);
     const tr = view.state.tr;
     const found: { pos: number; node: Node }[] = [];
-    view.state.doc.descendants((n, pos) => { if (n.type === schema.nodes.image && n.attrs.pending === key) found.push({ pos, node: n }); });
+    view.state.doc.descendants((n, pos) => { if (isPicture(n) && n.attrs.pending === key) found.push({ pos, node: n }); });
     for (const { pos, node } of found.reverse()) {
       if (name) tr.setNodeMarkup(pos, null, { ...node.attrs, src: name, pending: null });
       else tr.delete(pos, pos + node.nodeSize);
@@ -143,7 +148,7 @@ export function imageImporter(files: () => EntryFiles | undefined, notice: (msg:
       update: (view, prev) => {
         if (view.state.doc === prev.doc) return;
         const keys = new Set<string>();
-        view.state.doc.descendants((n) => { if (n.type === schema.nodes.image && n.attrs.pending) keys.add(n.attrs.pending); });
+        view.state.doc.descendants((n) => { if (isPicture(n) && n.attrs.pending) keys.add(n.attrs.pending); });
         for (const key of keys) {
           if (done.has(key)) { finish(view, key); continue; }
           if (started.has(key)) continue;
@@ -325,23 +330,26 @@ export class FileUI {
     (list.querySelector("button") as HTMLElement | null ?? upload).focus();
   }
 
-  /** The menu of the image at pos (selected). */
-  openMenu(at: { x: number; y: number }) {
+  /** The menu of the selected image or diagram; editDiagram: opens draw.io (absent: diagrams are off). */
+  openMenu(at: { x: number; y: number }, editDiagram?: () => void) {
     const view = this.view();
     const sel = view.state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type !== schema.nodes.image) return;
+    if (!(sel instanceof NodeSelection) || !isPicture(sel.node)) return;
     const node = sel.node, pos = sel.from;
+    const diagram = node.type === schema.nodes.diagram;
     const set = (attrs: Record<string, unknown>): Command => (state, dispatch) => {
       dispatch?.(state.tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs }));
       return true;
     };
     const items: MenuItem[] = [
+      ...(diagram ? [{ label: "Edit diagram…", run: () => editDiagram?.(), disabled: !editDiagram || !node.attrs.src }] : []),
       { label: "Alternative text…", run: () => this.editAlt(at) },
       { label: "Original size", cmd: set({ width: null }), disabled: !node.attrs.width },
-      { label: "Open image", run: () => { const u = node.attrs.src && this.files()?.url(node.attrs.src); if (u) window.open(u, "_blank", "noopener"); },
+      { label: diagram ? "Open picture" : "Open image", run: () => { const u = node.attrs.src && this.files()?.url(node.attrs.src); if (u) window.open(u, "_blank", "noopener"); },
         disabled: !node.attrs.src || !this.files() },
       { label: "Delete", danger: true, cmd: (state, dispatch) => { dispatch?.(state.tr.delete(pos, pos + node.nodeSize)); return true; } },
     ];
+    this.menu.setAttribute("aria-label", diagram ? "Diagram" : "Image");
     this.menu.replaceChildren(...buildMenu(items, view.state, (it) => {
       this.close();
       const v = this.view();
@@ -356,12 +364,12 @@ export class FileUI {
   editAlt(at?: { x: number; y: number }) {
     const view = this.view();
     const sel = view.state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type !== schema.nodes.image) return;
+    if (!(sel instanceof NodeSelection) || !isPicture(sel.node)) return;
     const pos = sel.from, node = sel.node;
     const input = el("input", "alt") as HTMLInputElement;
     input.value = node.attrs.alt;
     input.maxLength = 1000;
-    input.placeholder = "What the image shows";
+    input.placeholder = node.type === schema.nodes.diagram ? "What the diagram shows" : "What the image shows";
     input.setAttribute("aria-label", "Alternative text");
     const ok = el("button", "lb apply") as HTMLButtonElement;
     ok.type = "button";

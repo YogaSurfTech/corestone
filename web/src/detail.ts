@@ -418,6 +418,14 @@ export class Detail extends LitElement {
     list: async () => [...new Set([
       ...(this.view?.attachments ?? []).map((a) => a.name).filter((n) => !this.pending.removedFiles.includes(n)),
       ...this.pending.files.map((f) => f.name)])],
+    // a file's bytes: a pending one from the browser, else from the server
+    get: async (name) => {
+      const p = this.pending.files.find((f) => f.name === name);
+      if (p) return p;
+      const res = await fetch(this.entryFiles.url(name), { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`the file could not be read (${res.status})`);
+      return res.blob();
+    },
   };
 
   private touched() {

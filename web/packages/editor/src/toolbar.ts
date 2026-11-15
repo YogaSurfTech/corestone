@@ -26,6 +26,10 @@ export interface ToolbarHost {
   table(at?: { x: number; y: number }): void;
   /** Opens the formula dialog (for the selected formula, or a new one). */
   formula(at?: { x: number; y: number }): void;
+  /** Whether diagrams can be drawn (the entry's files and draw.io are there). */
+  diagrams(): boolean;
+  /** Opens draw.io for a new diagram. */
+  diagram(): void;
 }
 
 /** A colour palette, e.g. from company design guidelines. */
@@ -94,7 +98,6 @@ const load = <T>(key: string, fallback: T): T => {
 };
 const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
 
-const SOON = "Not available yet: diagrams come with TSK-15.";
 
 export class Toolbar {
   readonly el: HTMLElement;
@@ -178,7 +181,9 @@ export class Toolbar {
         run: () => this.host.table(this.pointer) },
       { i: "image", tip: { t: "Image…", dis: () => (this.host.files() ? null : "Images are kept with a saved item; not available here.") },
         run: () => this.host.image(this.pointer) },
-      { i: "diagram", tip: { t: "Insert diagram…", dis: () => SOON }, run: () => undefined },
+      { i: "diagram", tip: { t: "Diagram…", dis: () => (this.host.diagrams() ? null
+        : this.host.files() ? "Diagrams are not available: draw.io is not installed on this server." : "Diagrams are kept with a saved item; not available here.") },
+        run: () => this.host.diagram() },
       { i: "formula", tip: { t: "Formula…", dis: () => (this.host.files() ? null : "Formulas are kept with a saved item; not available here.") },
         run: () => this.host.formula(this.pointer) },
     ]);

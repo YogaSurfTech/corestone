@@ -91,6 +91,22 @@ const nodes: Record<string, NodeSpec> = {
     } }],
     toDOM: (n) => ["img", { "data-file": n.attrs.src, alt: n.attrs.alt, width: n.attrs.width }],
   },
+  // a diagram: a draw.io PNG of the entry with the diagram's source inside it (src), shown
+  // like an image; edited in draw.io. pending as for images (a pasted diagram being copied).
+  diagram: {
+    inline: true, group: "inline", draggable: true, atom: true,
+    attrs: { src: { default: null }, alt: { default: "" }, width: { default: null }, pending: { default: null } },
+    parseDOM: [{ tag: "img[data-diagram]", priority: 60, getAttrs: (d) => {
+      const e = d as HTMLImageElement;
+      const file = safeFileName(e.getAttribute("data-diagram"));
+      const from = e.getAttribute("src") ?? "";
+      if (!file && !from) return false;
+      const w = Number(e.getAttribute("width")) || null;
+      return { src: null, alt: (e.getAttribute("alt") ?? "").slice(0, 1000), width: w && w >= 16 ? Math.min(Math.round(w), 4000) : null,
+        pending: JSON.stringify({ file, from }) };
+    } }],
+    toDOM: (n) => ["img", { "data-diagram": n.attrs.src, alt: n.attrs.alt, width: n.attrs.width }],
+  },
   // a formula: its LaTeX, and the picture of it (png, a PNG file of the entry; null while it is
   // being made); display: on a line of its own, centred. Pasted formulas get their picture again.
   formula: {

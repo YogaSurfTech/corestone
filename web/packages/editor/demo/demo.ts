@@ -62,9 +62,16 @@ const files: EntryFiles = {
   },
   url: (name) => urls.get(name) ?? "",
   list: async () => [...store.keys()],
+  get: async (name) => {
+    const f = store.get(name);
+    if (!f) throw new Error("no such file");
+    return f;
+  },
 };
 ed.files = files;
 ed.sizeKey = "demo"; // a dragged height is remembered
+// diagrams: where the server serves draw.io (absent: no diagrams)
+void fetch("/api/auth").then((r) => r.json()).then((a: { diagrams?: string }) => { ed.diagrams = a.diagrams; }).catch(() => undefined);
 (window as unknown as { demoFiles: Map<string, File> }).demoFiles = store;
 
 ed.value = saved() ?? SAMPLE;

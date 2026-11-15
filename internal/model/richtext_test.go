@@ -138,6 +138,13 @@ func TestRichTextTables(t *testing.T) {
 	}
 }
 
+func TestRichTextDiagrams(t *testing.T) {
+	good := `[{"align": "center", "text": [{"diagram": "flow.drawio.png", "alt": "The flow", "width": 480}]}]`
+	if err := ValidateRichText("f", parse(t, good)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRichTextFormulas(t *testing.T) {
 	good := `[{"text": [{"text": "Energy: "}, {"formula": "E = mc^2", "png": "formula-abc.png"}]},
 		{"text": [{"formula": "\\int_0^1 x\\,dx", "png": "formula-def.png", "display": true}]}]`
@@ -160,17 +167,20 @@ func TestRichTextImagesAndFileLinks(t *testing.T) {
 		t.Errorf("plain %q", got)
 	}
 	bad := map[string]string{
-		`[{"text": [{"formula": "x^2"}]}]`:                                            "needs its png",
-		`[{"text": [{"formula": " ", "png": "f.png"}]}]`:                              "formula is LaTeX",
-		`[{"text": [{"formula": "x", "png": "f.jpg"}]}]`:                              "PNG file",
-		`[{"text": [{"formula": "x", "png": "f.png", "display": false}]}]`:            "display is true",
-		`[{"text": [{"formula": "x", "png": "f.png", "bold": true}]}]`:                "unknown formula property",
-		`[{"text": [{"image": "../x.png"}]}]`:                                         "name of a file",
-		`[{"text": [{"image": ".corestone.json"}]}]`:                                  "name of a file",
-		`[{"text": [{"image": "a.png", "width": 5}]}]`:                                "16 to 4000",
-		`[{"text": [{"image": "a.png", "bold": true}]}]`:                              "unknown image property",
-		`[{"text": [{"text": "x", "file": "a/b.pdf"}]}]`:                              "name of a file",
-		`[{"text": [{"text": "x", "file": "a.pdf", "href": "https://example.com"}]}]`: "goes to one place",
+		`[{"text": [{"diagram": "flow.drawio.png", "width": 480, "alt": "Flow"}, {"diagram": "x.svg"}]}]`: "PNG file",
+		`[{"text": [{"diagram": "../flow.png"}]}]`:                                                        "diagram is the name of a file",
+		`[{"text": [{"diagram": "flow.png", "bold": true}]}]`:                                             "unknown diagram property",
+		`[{"text": [{"formula": "x^2"}]}]`:                                                                "needs its png",
+		`[{"text": [{"formula": " ", "png": "f.png"}]}]`:                                                  "formula is LaTeX",
+		`[{"text": [{"formula": "x", "png": "f.jpg"}]}]`:                                                  "PNG file",
+		`[{"text": [{"formula": "x", "png": "f.png", "display": false}]}]`:                                "display is true",
+		`[{"text": [{"formula": "x", "png": "f.png", "bold": true}]}]`:                                    "unknown formula property",
+		`[{"text": [{"image": "../x.png"}]}]`:                                                             "name of a file",
+		`[{"text": [{"image": ".corestone.json"}]}]`:                                                      "name of a file",
+		`[{"text": [{"image": "a.png", "width": 5}]}]`:                                                    "16 to 4000",
+		`[{"text": [{"image": "a.png", "bold": true}]}]`:                                                  "unknown image property",
+		`[{"text": [{"text": "x", "file": "a/b.pdf"}]}]`:                                                  "name of a file",
+		`[{"text": [{"text": "x", "file": "a.pdf", "href": "https://example.com"}]}]`:                     "goes to one place",
 	}
 	for s, want := range bad {
 		err := ValidateRichText("f", parse(t, s))

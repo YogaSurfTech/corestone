@@ -225,6 +225,21 @@
 .cs-formulapop .choice { display: flex; gap: 2px; }
 .cs-formulapop[hidden] { display: none; }
 
+/* diagrams: shown like images, on white (draw.io draws for a light page); draw.io in a large panel */
+.cs-area .ProseMirror .cs-diagram img { background: #fff; }
+.cs-diagrampop { position: fixed; inset: 3vh 3vw; z-index: 1000; display: flex; flex-direction: column; background: var(--cs-panel);
+  color: var(--cs-text); border: 1px solid var(--cs-border); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,.28); overflow: hidden; }
+.cs-diagrampop[hidden] { display: none; }
+.cs-diagrampop .head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--cs-border); font-size: 13px; }
+.cs-diagrampop .title { font-weight: 600; flex: 1; }
+.cs-diagrampop .ask { display: inline-flex; align-items: center; gap: 6px; }
+.cs-diagrampop .ask[hidden] { display: none; }
+.cs-diagrampop .lb.danger { color: #c62828; }
+.cs-diagrampop button.x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
+  border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
+.cs-diagrampop button.x:hover { background: var(--cs-hover); }
+.cs-diagrampop iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+
 /* the file picker, the alternative text, notices */
 .cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }

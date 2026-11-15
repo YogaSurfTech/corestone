@@ -12,6 +12,14 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run typecheck && npm run build
 
+# draw.io for diagrams in rich text (a pinned release)
+FROM debian:bookworm-slim AS drawio
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+ && rm -rf /var/lib/apt/lists/*
+COPY scripts/fetch-drawio.sh /fetch-drawio.sh
+RUN /fetch-drawio.sh /out/drawio
+
 FROM golang:1.24-bookworm AS server
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -28,9 +36,12 @@ RUN apt-get update \
  && useradd --system --uid 10001 --home /data --create-home corestone
 COPY --from=server /out/corestone /usr/local/bin/corestone
 COPY --from=web /src/web/dist /srv/web
+COPY --from=drawio /out/drawio /srv/drawio
+# CORESTONE_DRAWIO= (empty) turns diagrams off
 ENV CORESTONE_REPO=/data/corestone.git \
     CORESTONE_ADDR=0.0.0.0:8080 \
-    CORESTONE_WEB=/srv/web
+    CORESTONE_WEB=/srv/web \
+    CORESTONE_DRAWIO=/srv/drawio
 VOLUME ["/data"]
 EXPOSE 8080
 USER corestone

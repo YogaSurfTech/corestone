@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>draw.io stand-in</title>
+<!-- A stand-in for draw.io in the browser tests (make test-ui*, -drawio web/tests/drawio-stub):
+     it speaks draw.io's embed protocol (proto=json) without the 120 MB app. -->
+<style>body { font: 14px sans-serif; margin: 12px; } textarea { width: 100%; height: 120px; }</style>
+</head>
+<body>
+<p>draw.io stand-in</p>
+<textarea id="xml" aria-label="Diagram source"></textarea>
+<p><button id="save" type="button">Save &amp; Exit</button> <button id="exit" type="button">Exit</button></p>
+<script src="stub.js"></script>
+</body>
+</html>

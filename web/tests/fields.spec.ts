@@ -366,9 +366,36 @@ test("rich text: a formula is stored with Save as LaTeX and a PNG file of the en
   await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
 });
 
+test("rich text: a diagram is drawn in draw.io and stored with Save as a PNG file of the entry", async ({ page }) => {
+  // the test server serves the draw.io stand-in (tests/drawio-stub)
+  const entry = await post("/entries", { path: folder, type: "all", title: "Diagram entry", fields: { rich: "Flow:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await rich.locator(".cs-tb .sp:has([data-cmd=formula]) .c").click();
+  await rich.locator(".cs-tb .pop.open [data-cmd=diagram]").click();
+  const drawio = page.frameLocator(".cs-diagrampop iframe");
+  await expect(drawio.locator("body[data-loaded]")).toHaveCount(1);
+  await drawio.locator("#xml").fill("<mxfile>flow</mxfile>");
+  await drawio.getByRole("button", { name: "Save & Exit" }).click();
+  await expect(rich.locator(".cs-diagram img")).toHaveJSProperty("naturalWidth", 600);
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  expect((stored.data.fields.rich as { text: unknown[] }[])[0].text).toEqual([{ text: "Flow:" }, { diagram: "diagram.drawio.png", width: 300 }]);
+  expect(stored.attachments.map((a) => a.name)).toEqual(["diagram.drawio.png"]);
+  // after a reload draw.io gets the stored diagram back from the server
+  await page.reload();
+  await rich.locator(".cs-diagram img").dblclick();
+  await expect(drawio.locator("#xml")).toHaveValue("<mxfile>flow</mxfile>");
+});
+
 test("rich text: invalid images, file links and formulas are refused by the server", async () => {
   const bad = [[{ text: [{ image: "../x.png" }] }], [{ text: [{ text: "x", file: ".corestone.json" }] }],
-    [{ text: [{ formula: "x^2" }] }], [{ text: [{ formula: "x^2", png: "x.svg" }] }]];
+    [{ text: [{ formula: "x^2" }] }], [{ text: [{ formula: "x^2", png: "x.svg" }] }], [{ text: [{ diagram: "flow.svg" }] }]];
   for (const rich of bad) {
     const res = await fetch(api + "/entries", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: folder, type: "all", title: "Bad image", fields: { rich } }) });

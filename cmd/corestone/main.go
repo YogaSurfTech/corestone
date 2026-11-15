@@ -35,6 +35,7 @@ func main() {
 		dsn       = flag.String("db", os.Getenv("CORESTONE_DB"), "PostgreSQL connection string (required), e.g. postgres://user:pass@localhost/corestone?sslmode=disable")
 		addr      = flag.String("addr", envOr("CORESTONE_ADDR", "127.0.0.1:8080"), "listen address")
 		web       = flag.String("web", envOr("CORESTONE_WEB", "web/dist"), "directory with the built web client (empty to disable)")
+		drawio    = flag.String("drawio", envOr("CORESTONE_DRAWIO", "web/drawio"), "directory with the draw.io web app, for diagrams in rich text (empty or missing: no diagrams; see scripts/fetch-drawio.sh)")
 		watch     = flag.Duration("watch", envDuration("CORESTONE_WATCH", 3*time.Second), "how often to check for direct Git pushes (0 disables)")
 		origins   = flag.String("allow-origin", os.Getenv("CORESTONE_ALLOW_ORIGIN"), "comma-separated extra origins allowed to open WebSocket sessions (same-origin is always allowed)")
 		accessLog = flag.Bool("access-log", os.Getenv("CORESTONE_ACCESS_LOG") == "1", "log every HTTP request")
@@ -103,6 +104,15 @@ func main() {
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Corestone API: see /api/repository", http.StatusNotFound)
 			})
+		}
+	}
+	if *drawio != "" {
+		if st, err := os.Stat(filepath.Join(*drawio, "index.html")); err == nil && !st.IsDir() {
+			mux.Handle("/drawio/", http.StripPrefix("/drawio/", drawioApp(*drawio)))
+			api.Diagrams = "/drawio/"
+			log.Printf("corestone: diagrams: serving draw.io from %s", *drawio)
+		} else {
+			log.Printf("corestone: diagrams off (no draw.io at %s)", *drawio)
 		}
 	}
 	handler := secureHeaders(mux)
@@ -206,6 +216,26 @@ func clientIP(r *http.Request) string {
 		return strings.TrimSpace(xff)
 	}
 	return r.RemoteAddr
+}
+
+// drawioApp serves the draw.io web app, which the rich-text editor shows in a
+// sandboxed frame (no access to Corestone's origin, cookies or API). draw.io
+// needs eval and inline styles; it may fetch nothing but its own files.
+func drawioApp(dir string) http.Handler {
+	const csp = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; " +
+		"object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+	fs := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", csp)
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("Cache-Control", "public, max-age=86400")
+		// the sandboxed frame has no origin of its own ("null"): draw.io reads its
+		// resource files with XMLHttpRequest, which needs CORS; they are public files
+		h.Set("Access-Control-Allow-Origin", "*")
+		fs.ServeHTTP(w, r)
+	})
 }
 
 // spa serves static files and falls back to index.html for client routes.

@@ -7,8 +7,9 @@
 #   make e2e              REST end-to-end script against a temporary server (needs CORESTONE_TEST_DSN)
 #   make lint             golangci-lint (https://golangci-lint.run) over the Go code
 #   make run              serve http://127.0.0.1:8080 (needs CORESTONE_DB; AUTH=none skips signing in)
+#   make drawio           fetch the draw.io web app into web/drawio (diagrams in rich text)
 #   make docker           build the container image (tag corestone:$(VERSION))
-.PHONY: build web test test-ui test-ui-all test-ui-auth lint e2e fuzz run docker clean
+.PHONY: build web drawio test test-ui test-ui-all test-ui-auth lint e2e fuzz run docker clean
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -33,6 +34,9 @@ test:
 	test -z "$$(gofmt -l .)"
 	go test -race ./...
 
+drawio:
+	./scripts/fetch-drawio.sh web/drawio
+
 lint:
 	golangci-lint run ./...
 
@@ -46,7 +50,7 @@ fuzz:
 # sign-in mode (default none, so the suites need no account).
 define with_server
 	rm -rf /tmp/corestone-$(1).git /tmp/corestone-$(1).accounts.json*; \
-	./bin/corestone -repo /tmp/corestone-$(1).git -addr 127.0.0.1:$(2) -web web/dist -db "$(CORESTONE_E2E_DSN)" \
+	./bin/corestone -repo /tmp/corestone-$(1).git -addr 127.0.0.1:$(2) -web web/dist -drawio web/tests/drawio-stub -db "$(CORESTONE_E2E_DSN)" \
 	  -auth $(or $(4),none) -accounts /tmp/corestone-$(1).accounts.json > /tmp/corestone-$(1).log 2>&1 & pid=$$!; \
 	for i in $$(seq 1 50); do curl -sf http://127.0.0.1:$(2)/api/health >/dev/null && break; sleep 0.2; done; \
 	$(3); status=$$?; \

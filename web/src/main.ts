@@ -1,4 +1,4 @@
-import { api, setUnauthorizedHandler } from "./api";
+import { api, server, setUnauthorizedHandler } from "./api";
 import { installRouter } from "./router";
 import { store } from "./store";
 import { connectSession } from "./ws";
@@ -9,6 +9,7 @@ import { SignIn } from "./account";
 // sign-in page (or, on a new server, "create the first account") replaces it.
 async function start() {
   const auth = await api.auth().catch(() => null); // unreachable: start anyway and show "server unreachable"
+  server.diagrams = auth?.diagrams ?? "";
   if (auth?.mode === "local" && !auth.account) {
     const page = new SignIn();
     page.setup = !!auth.setup;
