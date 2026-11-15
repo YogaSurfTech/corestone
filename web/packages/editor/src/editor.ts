@@ -23,10 +23,15 @@ export class RichTextEditor {
   readonly view: EditorView;
   private readonly toolbar: Toolbar;
   private readonly root: HTMLElement;
+  private readonly: boolean;
 
   constructor(host: HTMLElement, opts: EditorOptions = {}) {
+    this.readonly = !!opts.readonly;
     this.root = document.createElement("div");
     this.root.className = "cs-editor";
+    this.root.classList.toggle("readonly", this.readonly);
+    // the toolbar's own inputs are internal: their change events are not the editor's
+    this.root.addEventListener("change", (e) => e.stopPropagation());
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd) }, opts.palette ?? DEFAULT_PALETTE);
     const area = document.createElement("div");
     area.className = "cs-area";
@@ -34,7 +39,7 @@ export class RichTextEditor {
     host.append(this.root);
     this.view = new EditorView(area, {
       state: this.state(opts.value),
-      editable: () => !opts.readonly,
+      editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
         this.view.updateState(this.view.state.apply(tr));
         this.toolbar.update(this.view.state);
@@ -51,6 +56,14 @@ export class RichTextEditor {
   set value(v: RichText | null) {
     this.view.updateState(this.state(v));
     this.toolbar.update(this.view.state);
+  }
+
+  /** Read-only shows the text without the toolbar. */
+  setReadonly(on: boolean) {
+    if (on === this.readonly) return;
+    this.readonly = on;
+    this.root.classList.toggle("readonly", on);
+    this.view.setProps({}); // editable is asked again
   }
 
   focus() { this.view.focus(); }

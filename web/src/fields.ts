@@ -1,10 +1,12 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "@corestone/editor";
 import "./enum-control";
 import { api } from "./api";
 import { store } from "./store";
+import type { RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
-import { label, safeHref } from "./util";
+import { label, safeHref, showValue } from "./util";
 
 // Schema-driven field editor (design guide §4.6, §7.10): one element per
 // field definition, rendering the right input for the field type and
@@ -69,7 +71,7 @@ export class FieldEditor extends LitElement {
       ? html`<div class="inherited" title=${OVERLAY_HELP}>inherited from base <b>${o.from}</b> ·
           <button type="button" data-test="override" @click=${() => this.overlayEvent("overlay-unlock")}>🔓 override</button></div>`
       : html`<div class="inherited overridden" title=${OVERLAY_HELP}>overrides base <b>${o.from}</b> ·
-          <button type="button" data-test="revert" title=${"Base value: " + (typeof o.baseValue === "object" ? JSON.stringify(o.baseValue) : String(o.baseValue))}
+          <button type="button" data-test="revert" title=${"Base value: " + showValue(o.baseValue)}
             @click=${() => this.overlayEvent("overlay-revert")}>↩ revert to base</button></div>`;
   }
 
@@ -142,9 +144,12 @@ export class FieldEditor extends LitElement {
           @input=${(e: Event) => { const t = (e.target as HTMLInputElement).value; this.emit(t ? new Date(t).toISOString() : null); }} />`;
       }
       case "multiline":
-      case "richtext":
-        return html`<textarea id=${id} .value=${this.value == null ? "" : String(this.value)} ?disabled=${this.disabled} rows=${f.type === "richtext" ? 6 : 3}
+        return html`<textarea id=${id} .value=${this.value == null ? "" : String(this.value)} ?disabled=${this.disabled} rows="3"
           @input=${(e: Event) => this.emit((e.target as HTMLTextAreaElement).value || null)}></textarea>`;
+      case "richtext":
+        // plain text (older values, or nothing formatted) or paragraphs; empty is unset
+        return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} ?readonly=${this.disabled}
+          @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();
       case "hyperlink":

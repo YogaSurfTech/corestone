@@ -1,5 +1,7 @@
 /* @corestone/editor: toolbar from docs/design/Corestone editor toolbar demo.html, and the text area. */
+/* The --cs-* colours are the editor's theme; a host page may set them (the Corestone app maps its light/dark tokens). */
 .cs-editor { --cs-border: #d0d7de; --cs-hover: #eef1f5; --cs-pressed: #dde6f3; --cs-muted: #57606a; --cs-text: #1f2328; --cs-panel: #fff;
+  --cs-disabled: #a5acb4; --cs-focus: rgba(21,101,192,.25);
   max-width: 640px; color: var(--cs-text); font: 14px/1.5 Inter, Arial, sans-serif; }
 .cs-editor *, .cs-editor *::before, .cs-editor *::after { box-sizing: border-box; }
 
@@ -9,19 +11,19 @@
   border-radius: 6px; color: var(--cs-text); font: inherit; padding: 0 6px; cursor: pointer; }
 .cs-tb .b:hover, .cs-tb .b:focus-visible { background: var(--cs-hover); outline: none; }
 .cs-tb .b[aria-pressed="true"] { background: var(--cs-pressed); }
-.cs-tb .b[aria-disabled="true"] { color: #a5acb4; cursor: not-allowed; background: transparent; }
-.cs-tb .c { height: 32px; width: 12px; border: 0; background: transparent; border-left: 1px solid #e1e4e8; color: var(--cs-muted); padding: 0;
+.cs-tb .b[aria-disabled="true"] { color: var(--cs-disabled); cursor: not-allowed; background: transparent; }
+.cs-tb .c { height: 32px; width: 12px; border: 0; background: transparent; border-left: 1px solid var(--cs-border); color: var(--cs-muted); padding: 0;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 0 6px 6px 0; }
-.cs-tb .c:hover, .cs-tb .c[aria-expanded="true"] { background: #e3e8ef; }
+.cs-tb .c:hover, .cs-tb .c[aria-expanded="true"] { background: var(--cs-pressed); }
 .cs-tb .sp { position: relative; display: inline-flex; align-items: center; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--cs-border); }
 .cs-tb .sp > .b { border-radius: 6px 0 0 6px; }
 .cs-tb .sp.gap { margin-left: 10px; }
-.cs-tb .sep { width: 1px; height: 22px; background: var(--cs-border); margin: 0 6px; }
+.cs-tb .sep { width: 1px; height: 22px; background: var(--cs-border); margin: 0 3px; }
 .cs-tb .cw { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; }
 .cs-tb .cw i { display: block; width: 16px; height: 3px; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
 .cs-tb .sz { width: 36px; height: 26px; border: 1px solid var(--cs-border); border-radius: 5px; text-align: center; font: inherit; margin: 0 2px; padding: 0; }
 .cs-tb .sz.bad { border-color: #c62828; color: #c62828; }
-.cs-tb .fontsel { justify-content: flex-start; padding: 0 4px; width: 110px; }
+.cs-tb .fontsel { justify-content: flex-start; padding: 0 4px; width: 84px; }
 .cs-tb .fn { display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .cs-tb .pop { position: absolute; top: 36px; left: 0; background: var(--cs-panel); border: 1px solid var(--cs-border); border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,.1); padding: 6px; display: none; gap: 2px; z-index: 10; white-space: nowrap; }
@@ -30,9 +32,9 @@
 .cs-tb .pop.col { flex-direction: column; min-width: 160px; }
 .cs-tb .f { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 15px; color: var(--cs-text); cursor: pointer; }
 .cs-tb .f:hover { background: var(--cs-hover); }
-.cs-tb .sw { width: 24px; height: 24px; border-radius: 5px; border: 1px solid #c9d1d9; cursor: pointer; padding: 0; }
+.cs-tb .sw { width: 24px; height: 24px; border-radius: 5px; border: 1px solid var(--cs-border); cursor: pointer; padding: 0; }
 .cs-tb .sw:hover { outline: 2px solid #1565c0; outline-offset: 1px; }
-.cs-tb .sw.empty { background: repeating-linear-gradient(45deg, #fff 0 3px, #eef1f5 3px 6px); border-style: dashed; cursor: default; outline: none; }
+.cs-tb .sw.empty { background: repeating-linear-gradient(45deg, var(--cs-panel) 0 3px, var(--cs-hover) 3px 6px); border-style: dashed; cursor: default; outline: none; }
 .cs-tb label.b input[type=color] { width: 0; height: 0; opacity: 0; border: 0; padding: 0; position: absolute; }
 .cs-tb .none { grid-column: 1 / -1; justify-content: flex-start; }
 .cs-tb .none::after { content: attr(aria-label); font-size: 13px; }
@@ -60,4 +62,9 @@
 .cs-area .ProseMirror ul ul ul > li > p:first-child::before { content: "▪"; }
 .cs-area .ProseMirror ol > li > p:first-child::before { content: counters(cs-item, ".") "."; }
 .cs-area .ProseMirror li > p[style*="text-align"]:first-child::before { min-width: 0; margin-left: 0; }
-.cs-area .ProseMirror:focus-within { box-shadow: inset 0 0 0 2px rgba(21,101,192,.25); border-radius: 0 0 10px 10px; }
+.cs-area .ProseMirror:focus-within { box-shadow: inset 0 0 0 2px var(--cs-focus); border-radius: 0 0 10px 10px; }
+
+/* read-only: the text alone, without the toolbar */
+.cs-editor.readonly .cs-tb { display: none; }
+.cs-editor.readonly .cs-area { border-top: 1px solid var(--cs-border); border-radius: 10px; }
+.cs-editor.readonly .cs-area .ProseMirror { min-height: 0; }

@@ -166,6 +166,27 @@ func integer(v any) (int, bool) {
 	return int(f), true
 }
 
+// IsRichText reports whether a value has the shape of rich text in
+// paragraphs: a non-empty list of objects that all have "text". Rich text
+// is the only field type with that shape, so a value can be recognised
+// without its field definition (search, file layout).
+func IsRichText(v any) bool {
+	blocks, ok := v.([]any)
+	if !ok || len(blocks) == 0 {
+		return false
+	}
+	for _, b := range blocks {
+		o, ok := b.(*ojson.Object)
+		if !ok {
+			return false
+		}
+		if _, ok := o.Get("text"); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // RichTextPlain is the plain text of a rich-text value, for search and
 // previews: one line per paragraph, list items with their marker, numbered
 // lists numbered across levels as the editor shows them (1.2.1.).

@@ -5,7 +5,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type Route, type State } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtSize, fmtTime, hidLabel, label, undeclaredField } from "./util";
+import { commentTypeOf, deepEqual, fmtSize, fmtTime, hidLabel, label, showValue, undeclaredField } from "./util";
 import "./type-icon";
 import "./table";
 import type { TableColumn } from "./table";
@@ -452,7 +452,7 @@ export class Detail extends LitElement {
   private conflictDialog(c: SaveConflict) {
     const v = this.view!;
     const fmt = (x: unknown) => x === undefined || x === null || x === "" ? html`<span class="muted">empty</span>`
-      : typeof x === "object" ? JSON.stringify(x) : String(x);
+      : html`<span class="pre-line">${showValue(x)}</span>`;
     const row = (it: SaveConflictItem) => html`<tr data-test="conflict-row">
       <th>${this.conflictLabel(it.key)}</th>
       <td>${fmt(it.theirs)}<div class="muted small">${it.author ?? "someone"}${it.time ? html` · ${fmtTime(it.time)}` : nothing}</div></td>
@@ -997,7 +997,7 @@ export class Detail extends LitElement {
         ${ov.overlays.length ? html`<span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>
           <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
       </div>
-      ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`}`,
+      ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${showValue(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`}`,
       this.historic ? nothing : html`${this.baseActions(!!base)}<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
   }
 
@@ -1049,7 +1049,7 @@ export class Detail extends LitElement {
     const ids = Object.keys(own);
     const base = this.view.meta.base;
     const name = (id: string) => this.schema?.fields?.find((f) => f.id === id)?.name || id;
-    const show = (v: unknown) => typeof v === "object" ? JSON.stringify(v) : String(v);
+    const show = (v: unknown) => html`<span class="pre-line">${showValue(v)}</span>`;
     return html`<div class="base-change" data-test="underlay">
       <div class="title">Create a new base for this entry</div>
       <label class="underlay-title small">Title of the new base
@@ -1120,7 +1120,7 @@ export class Detail extends LitElement {
     const changed = rows.filter((r) => r.changed);
     const ownCount = Object.keys(((this.view.data as Record<string, unknown>).fields ?? {}) as object).length;
     const overlays = this.overlay.overlays.length;
-    const show = (v: unknown) => v === undefined || v === "" ? html`<span class="muted">—</span>` : typeof v === "object" ? JSON.stringify(v) : String(v);
+    const show = (v: unknown) => v === undefined || v === "" ? html`<span class="muted">—</span>` : html`<span class="pre-line">${showValue(v)}</span>`;
     return html`<div class="base-change" data-test="base-change">
       <div class="title">${c.to ? html`Change the base to <b>${label(c.to)}</b>` : html`Remove the base <b>${this.levelLabel(this.view.meta.base ?? "")}</b>`}</div>
       ${cycle ? html`<div class="notice error">${label(c.to)} inherits from this entry, so it cannot become its base (cycle).</div>`

@@ -6,7 +6,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State } from "./store";
 import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, safeImageSrc, undeclaredField } from "./util";
+import { blockId, commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, safeImageSrc, showValue, undeclaredField } from "./util";
 import "./type-icon";
 import "./fields";
 
@@ -331,7 +331,7 @@ export class DocumentView extends LitElement {
         body = meta ? html`<div class="entry-card" data-entry=${b.guid ?? ""} @click=${() => navigate({ guid: b.guid! })}>
             <div class="head"><corestone-type-icon kind="entry" .type=${meta.type} .folder=${meta.folder}></corestone-type-icon>${meta.hid ? html`<span class="hid">${meta.hid}</span>` : nothing}<b>${meta.title}</b><span class="muted small">${meta.type}</span>
               ${Object.entries(meta.workflows ?? {}).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
-            <div class="fields">${Object.entries(meta.fields ?? {}).slice(0, 6).map(([k, v]) => html`<span><b>${k}</b>: ${typeof v === "object" ? JSON.stringify(v) : String(v)}</span>`)}</div></div>`
+            <div class="fields">${Object.entries(meta.fields ?? {}).slice(0, 6).map(([k, v]) => html`<span><b>${k}</b>: ${showValue(v)}</span>`)}</div></div>`
           : html`<div class="entry-card missing" data-entry=${b.guid ?? ""}>${this.entries.has(b.guid ?? "") ? html`Entry <code>${b.guid}</code> is missing` : "Loading entry…"}</div>`;
         break;
       }
@@ -444,7 +444,7 @@ export class DocumentView extends LitElement {
         const focusedBlock = this.focused ? this.locate(this.focused)?.list[this.locate(this.focused)!.index] : null;
         const meta = focusedBlock?.type === "entry" ? this.entries.get(focusedBlock.guid ?? "") : null;
         return html`<h4>Current entry</h4>${meta ? html`<div><b>${meta.hid ?? ""}</b> ${meta.title}</div>
-          <dl class="kv">${Object.entries(meta.fields ?? {}).map(([k, val]) => html`<dt>${k}</dt><dd>${typeof val === "object" ? JSON.stringify(val) : String(val)}</dd>`)}</dl>
+          <dl class="kv">${Object.entries(meta.fields ?? {}).map(([k, val]) => html`<dt>${k}</dt><dd class="pre-line">${showValue(val)}</dd>`)}</dl>
           <button class="btn sm" @click=${() => navigate({ guid: meta.guid })}>Open entry</button>` : html`<div class="muted small">Select an entry reference in the document.</div>`}`;
       }
       case "rel":

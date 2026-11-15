@@ -171,3 +171,23 @@ test("a line break within a paragraph is stored as \\n", async ({ page }) => {
   await page.locator("#load").click();
   await expect(page.locator(".cs-area p br")).toHaveCount(1);
 });
+
+test("read-only shows the text without the toolbar, and can be switched", async ({ page }) => {
+  const ed = page.locator("#ed");
+  await ed.evaluate((el) => el.setAttribute("readonly", ""));
+  await expect(page.locator(".cs-tb")).toBeHidden();
+  await expect(page.locator(".cs-area .ProseMirror")).toHaveAttribute("contenteditable", "false");
+  await ed.evaluate((el) => el.removeAttribute("readonly"));
+  await expect(page.locator(".cs-tb")).toBeVisible();
+  await expect(page.locator(".cs-area .ProseMirror")).toHaveAttribute("contenteditable", "true");
+});
+
+test("setting the same value again keeps the cursor", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("abc");
+  // a host re-rendering hands back the value it got from the change event
+  await page.locator("#ed").evaluate((el) => { const e = el as HTMLElement & { value: unknown }; e.value = e.value; });
+  await page.keyboard.type("d");
+  await page.locator("#save").click();
+  expect(await stored(page)).toBe("abcd"); // a reset editor would have put the cursor at the start
+});
