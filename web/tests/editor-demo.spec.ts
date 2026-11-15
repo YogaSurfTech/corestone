@@ -191,3 +191,24 @@ test("setting the same value again keeps the cursor", async ({ page }) => {
   await page.locator("#save").click();
   expect(await stored(page)).toBe("abcd"); // a reset editor would have put the cursor at the start
 });
+
+test("background colours are light markers of the font colours, swatch for swatch", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("marked");
+  await page.keyboard.press("Control+a");
+  const menu = async (cmd: string) => {
+    await page.locator(`.cs-tb .sp:has([data-cmd=${cmd}]) .c`).click();
+    return page.locator(".cs-tb .pop.open .sw:not(.empty)");
+  };
+  const inks = await (await menu("fcolor")).evaluateAll((s) => s.map((e) => e.getAttribute("aria-label")));
+  await page.locator(".cs-tb .sp:has([data-cmd=fcolor]) .c").click(); // closes the menu again
+  const marks = await menu("bcolor");
+  const markers = await marks.evaluateAll((s) => s.map((e) => e.getAttribute("aria-label")));
+  expect(inks.slice(0, 8)).toEqual(["#1f2328", "#c62828", "#e65100", "#f9a825", "#2e7d32", "#1565c0", "#6a1b9a", "#ffffff"]);
+  expect(markers.slice(0, 8)).toEqual(["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#ffffff"]);
+  // the blue swatch in both menus: blue ink on a light blue marker
+  await marks.nth(5).click();
+  await (await menu("fcolor")).nth(5).click();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "marked", color: "#1565c0", bg: "#bbdefb" }] }]);
+});

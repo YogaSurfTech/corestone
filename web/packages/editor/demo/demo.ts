@@ -9,7 +9,7 @@ const SAMPLE: RichText = [
     { text: "stainless steel 1.4404", italic: true, color: "#1565c0" }, { text: " and must withstand 16 bar." },
   ] },
   { list: "ul", text: "Tolerances follow ISO 2768-m" },
-  { list: "ul", text: [{ text: "Surface: " }, { text: "Ra 0.8", bg: "#f9a825" }] },
+  { list: "ul", text: [{ text: "Surface: " }, { text: "Ra 0.8", bg: "#fff59d" }] },
   { align: "center", text: [{ text: "H" }, { text: "2", sub: true }, { text: "O at 20 °C" }] },
 ];
 

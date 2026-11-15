@@ -19,7 +19,11 @@ export interface ToolbarHost {
 
 /** A colour palette, e.g. from company design guidelines. */
 export interface Palette {
+  /** Font colours. */
   colors: string[];
+  /** Background (marker) colours, in the same order: a light tint of each font colour, so the
+   *  same swatch gives dark ink on a light marker. Missing ones are tinted from the font colours. */
+  backgrounds?: string[];
   names?: string[];
   /** false: only palette colours, no picker and no history. */
   allowCustom?: boolean;
@@ -27,6 +31,7 @@ export interface Palette {
 
 export const DEFAULT_PALETTE: Palette = {
   colors: ["#1f2328", "#c62828", "#e65100", "#f9a825", "#2e7d32", "#1565c0", "#6a1b9a", "#ffffff"],
+  backgrounds: ["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#ffffff"],
   allowCustom: true,
 };
 
@@ -34,6 +39,13 @@ export const DEFAULT_PALETTE: Palette = {
 interface Tip { t: string; k?: string; dis?: () => string | null }
 type El = HTMLElement & { _tip?: Tip | null };
 type Btn = HTMLButtonElement & { _tip?: Tip | null };
+
+/** A light tint of a colour (three quarters white), for markers. */
+function tint(c: string): string {
+  const n = parseInt(c.slice(1), 16);
+  const mix = (v: number) => Math.round(v + (255 - v) * 0.75).toString(16).padStart(2, "0");
+  return "#" + mix(n >> 16) + mix((n >> 8) & 255) + mix(n & 255);
+}
 
 const LAST_KEY = "cs-editor-last";
 const HISTORY_KEY = "cs-editor-colors";
@@ -99,7 +111,7 @@ export class Toolbar {
     this.split("fmt", "Text format", flags.map((f) => ({ i: f.i, tip: { t: f.t, k: f.k }, run: () => this.run(toggleFlag(f.i)),
       pressed: (s: EditorState) => flagActive(s, f.i) })));
     this.colour("color", "fcolor", "Font color", "#c62828");
-    this.colour("bg", "bcolor", "Background color", "#f9a825");
+    this.colour("bg", "bcolor", "Background color", "#fff59d");
     this.font();
     this.size();
     this.sep();
@@ -204,7 +216,11 @@ export class Toolbar {
   /** Font or background colour: the main button applies the last colour, ▾ opens palette, picker and history. */
   private colour(mark: "color" | "bg", name: string, label: string, fallback: string) {
     const type = schema.marks[mark];
+    const colors = this.colors(mark);
     let c = this.last[mark] ?? fallback;
+    // a font colour remembered as background from before markers had their own colours: its marker
+    const ink = this.palette.colors.indexOf(c);
+    if (mark === "bg" && ink >= 0 && colors[ink] !== c) c = colors[ink];
     const main = this.button(name, { t: label }, () => this.run(setValue(type, c)));
     const draw = () => {
       main.innerHTML = `<span class="cw">${icon(name)}<i style="background:${c}"></i></span>`;
@@ -228,7 +244,7 @@ export class Toolbar {
       s.onclick = (e) => { e.stopPropagation(); pick(v); };
       return s;
     };
-    this.palette.colors.forEach((v, n) => menu.append(swatch(v, this.palette.names?.[n])));
+    colors.forEach((v, n) => menu.append(swatch(v, this.palette.names?.[n])));
     const custom = this.palette.allowCustom !== false;
     if (custom) {
       const picker: El = document.createElement("label");
@@ -269,8 +285,14 @@ export class Toolbar {
     this.wrap(main, label, menu);
   }
 
+  /** The swatches of the font or the background colour menu. */
+  private colors(mark: "color" | "bg"): string[] {
+    if (mark === "color") return this.palette.colors;
+    return this.palette.colors.map((c, i) => this.palette.backgrounds?.[i] ?? tint(c));
+  }
+
   private addHistory(v: string) {
-    if (this.palette.colors.includes(v)) return;
+    if (this.colors("color").includes(v) || this.colors("bg").includes(v)) return;
     this.history = [...this.history.filter((x) => x !== v), v].slice(-8);
     store(HISTORY_KEY, this.history);
     this.historyViews.forEach((f) => f());
