@@ -215,3 +215,93 @@ test("background colours are light markers of the font colours, swatch for swatc
   await page.locator("#save").click();
   expect(await stored(page)).toEqual([{ text: [{ text: "marked", color: "#1565c0", bg: "#bbdefb" }] }]);
 });
+
+test("links: Ctrl+K links the selection; the bubble edits and removes; bad addresses are refused", async ({ page }) => {
+  const area = page.locator(".cs-area .ProseMirror");
+  await area.click();
+  await page.keyboard.type("see the spec here");
+  // select "spec"
+  await page.evaluate(() => {
+    const t = document.querySelector(".cs-area .ProseMirror p")!.firstChild!;
+    const r = document.createRange(); r.setStart(t, 8); r.setEnd(t, 12);
+    const s = getSelection()!; s.removeAllRanges(); s.addRange(r);
+  });
+  await page.keyboard.press("Control+k");
+  const pop = page.locator(".cs-linkpop");
+  await expect(pop).toBeVisible();
+  await expect(pop.locator(".pick")).toBeHidden(); // the demo has no items to link to
+  await pop.locator(".addr").fill("javascript:alert(1)");
+  await pop.locator(".addr").press("Enter");
+  await expect(pop.locator(".msg")).toContainText("Enter a web address");
+  await pop.locator(".addr").fill("www.example.org/spec");
+  await pop.locator(".addr").press("Enter");
+  await expect(pop).toBeHidden();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "see the " }, { text: "spec", href: "https://www.example.org/spec" }, { text: " here" }] }]);
+
+  // the cursor in the link shows the bubble; Edit changes the address
+  await area.locator("a").click();
+  const bubble = page.locator(".cs-linkbubble");
+  await expect(bubble.locator(".tgt")).toHaveText("https://www.example.org/spec");
+  await bubble.locator(".edit").click();
+  await expect(pop.locator(".addr")).toHaveValue("https://www.example.org/spec");
+  await pop.locator(".addr").fill("https://example.org/v2");
+  await pop.locator(".apply").click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[1]).toEqual({ text: "spec", href: "https://example.org/v2" });
+  // typing after the link is plain text
+  await area.locator("a").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[2]).toEqual({ text: " here!" });
+  // Remove keeps the text (the cursor goes into the link by keyboard: a third click there would be a triple click)
+  await area.focus(); // back from the Save button
+  await page.keyboard.press("End");
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowLeft");
+  await bubble.locator(".unlink").click();
+  await page.locator("#save").click();
+  expect(await stored(page)).toBe("see the spec here!");
+});
+
+test("links: a pasted address links the selection or is inserted as a link", async ({ page }) => {
+  const paste = (text: string) => page.evaluate((t) => {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", t);
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, text);
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("docs ");
+  await paste("https://example.org/docs");
+  await page.keyboard.type(" and ");
+  await page.keyboard.type("mail");
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowLeft");
+  await page.waitForTimeout(100); // the editor takes over a keyboard selection a moment later; a scripted paste is faster
+  await paste("mailto:team@example.org");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [
+    { text: "docs " }, { text: "https://example.org/docs", href: "https://example.org/docs" },
+    { text: " and " }, { text: "mail", href: "mailto:team@example.org" },
+  ] }]);
+  // text that is not an address pastes as text
+  await page.locator(".cs-area .ProseMirror").focus(); // back from the Save button
+  await page.keyboard.press("End");
+  await page.waitForTimeout(100);
+  await paste(" no link");
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[4]).toEqual({ text: " no link" });
+});
+
+test("links: open on Ctrl+click while editing, on a click when read-only", async ({ page }) => {
+  await page.evaluate(() => { (window as unknown as { opened: string[] }).opened = []; window.open = (u?: string | URL) => { (window as unknown as { opened: string[] }).opened.push(String(u)); return null; }; });
+  await page.locator("#json").fill(JSON.stringify([{ text: [{ text: "go ", }, { text: "there", href: "https://example.org/" }] }]));
+  await page.locator("#load").click();
+  const a = page.locator(".cs-area a");
+  await a.click();
+  expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual([]);
+  await a.click({ modifiers: ["Control"] });
+  await page.locator("#ed").evaluate((el) => el.setAttribute("readonly", ""));
+  await a.click();
+  expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(["https://example.org/", "https://example.org/"]);
+  await expect(page.locator(".cs-linkbubble")).toBeHidden();
+});

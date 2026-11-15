@@ -205,6 +205,9 @@ func scalarStrings(v any) []string {
 }
 
 func guidsIn(v any) []string {
+	if model.IsRichText(v) {
+		return model.RichTextRefs(v) // the items its links go to
+	}
 	switch t := v.(type) {
 	case string:
 		if model.IsGUID(t) {

@@ -1,5 +1,5 @@
 import { Fragment, type Mark, type Node } from "prosemirror-model";
-import { FLAGS, schema, type Align } from "./schema";
+import { FLAGS, GUID, safeHref, schema, type Align } from "./schema";
 
 // The stored form of rich text: JSON blocks whose text is a plain string
 // or a list of formatted runs. This is what the server validates, indexes
@@ -11,6 +11,8 @@ export interface Marks {
   bg?: string;    // #rrggbb
   font?: string;  // one of FONTS
   size?: number;  // points
+  href?: string;  // a link to a web address (http(s), mailto, ftp)
+  ref?: string;   // a link to an item of the host application (GUID)
 }
 
 /** A piece of text with its formatting; "\n" in it is a line break within the paragraph. */
@@ -82,6 +84,8 @@ function inline(text: string | Run[] | undefined): Fragment {
 
 function marksOf(m: Marks): Mark[] {
   const out: Mark[] = [];
+  if (typeof m.ref === "string" && GUID.test(m.ref)) out.push(schema.marks.link.create({ ref: m.ref }));
+  else if (safeHref(m.href)) out.push(schema.marks.link.create({ href: safeHref(m.href) }));
   for (const f of FLAGS) if (m[f]) out.push(schema.marks[f].create());
   for (const k of ["color", "bg", "font", "size"] as const) {
     if (m[k] !== undefined && m[k] !== null) out.push(schema.marks[k].create({ value: m[k] }));
@@ -129,6 +133,11 @@ function storeInline(p: Node): string | Run[] {
     }
     const marks: Marks = {};
     for (const m of c.marks) {
+      if (m.type === schema.marks.link) {
+        if (m.attrs.ref) marks.ref = m.attrs.ref;
+        else marks.href = m.attrs.href;
+        continue;
+      }
       if ((FLAGS as readonly string[]).includes(m.type.name)) (marks as Record<string, unknown>)[m.type.name] = true;
       else (marks as Record<string, unknown>)[m.type.name] = m.attrs.value;
     }

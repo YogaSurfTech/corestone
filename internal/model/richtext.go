@@ -16,7 +16,8 @@ import (
 //	{"list": "ol", "level": 2, "text": "one.one"}
 //
 // text is a string or a list of runs (text with its formatting); "\n"
-// inside a text is a line break within the paragraph. list makes the
+// inside a text is a line break within the paragraph. A run may be a link:
+// href to a web address (http(s), ftp(s), mailto), or ref to an item (GUID). list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
 // The editor (web/packages/editor) writes this form; see its model.ts.
 
@@ -132,8 +133,21 @@ func validateInline(at string, v any) (int, error) {
 				if f, ok := number(v); !ok || f < 6 || f > 96 {
 					return 0, Invalid("%s: size is 6 to 96 points", at)
 				}
+			case "href":
+				if s, _ := v.(string); len(s) > 2048 || !SafeURL(s) {
+					return 0, Invalid("%s: href is a web address (http, https, ftp or mailto)", at)
+				}
+			case "ref":
+				if s, _ := v.(string); !IsGUID(s) {
+					return 0, Invalid("%s: ref is an item id (GUID)", at)
+				}
 			default:
 				return 0, Invalid("%s: unknown formatting %q", at, k)
+			}
+		}
+		if _, href := o.Get("href"); href {
+			if _, ref := o.Get("ref"); ref {
+				return 0, Invalid("%s: a link goes to a web address or an item, not both", at)
 			}
 		}
 		if _, sub := o.Get("sub"); sub {
@@ -164,6 +178,25 @@ func integer(v any) (int, bool) {
 		return 0, false
 	}
 	return int(f), true
+}
+
+// RichTextRefs returns the items a rich-text value links to (ref of its runs).
+func RichTextRefs(v any) []string {
+	blocks, _ := v.([]any)
+	var out []string
+	for _, b := range blocks {
+		o, _ := b.(*ojson.Object)
+		text, _ := o.Get("text")
+		list, _ := text.([]any)
+		for _, r := range list {
+			if ro, ok := r.(*ojson.Object); ok {
+				if g := ro.String("ref"); g != "" {
+					out = append(out, g)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // IsRichText reports whether a value has the shape of rich text in

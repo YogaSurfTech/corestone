@@ -3,9 +3,11 @@
 // RichTextEditor directly. The stored form is described in ./model.ts.
 import { RichTextEditor } from "./editor";
 import type { RichText } from "./model";
+import type { ItemLinks } from "./links";
 import type { Palette } from "./toolbar";
 
 export { RichTextEditor, type EditorOptions } from "./editor";
+export { type ItemLinks } from "./links";
 export { fromStorage, plainText, toStorage, type Block, type Marks, type RichText, type Run } from "./model";
 export { DEFAULT_PALETTE, type Palette } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
@@ -16,6 +18,8 @@ export class RichTextElement extends HTMLElement {
   private editor?: RichTextEditor;
   private pending: RichText | null = null;
   palette?: Palette;
+  /** Links to items of the host application; without it only web links are offered. */
+  items?: ItemLinks;
 
   get value(): RichText | null { return this.editor ? this.editor.value : this.pending; }
   set value(v: RichText | null) {
@@ -30,6 +34,7 @@ export class RichTextElement extends HTMLElement {
       value: this.pending,
       palette: this.palette,
       readonly: this.hasAttribute("readonly"),
+      items: () => this.items,
       onChange: (value) => { this.pending = value; this.dispatchEvent(new CustomEvent("change", { detail: value, bubbles: true })); },
     });
   }

@@ -4,7 +4,7 @@ import "@corestone/editor";
 import "./enum-control";
 import { api } from "./api";
 import { store } from "./store";
-import type { RichText } from "@corestone/editor";
+import type { ItemLinks, RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
 import { label, safeHref, showValue } from "./util";
 
@@ -51,6 +51,17 @@ export class FieldEditor extends LitElement {
   @state() private globalUsed: string[] = [];
   private usedKey = "";
   private refCache = new Map<string, Summary | null>();
+  /** Links in rich text to items: chosen with the item picker, opened like references. */
+  private readonly itemLinks: ItemLinks = {
+    pick: () => new Promise((resolve) => {
+      store.set({ picker: { kind: "pick", title: "Link to an item", onPick: (s: Summary) => resolve({ ref: s.guid, label: label(s) }) } });
+    }),
+    label: (g) => api.get(g).then((v) => label(v.meta)).catch(() => "Missing item"),
+    open: (g, newTab) => {
+      if (newTab) window.open(`/artifact/${g}`, "_blank", "noopener");
+      else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
+    },
+  };
 
   override createRenderRoot() { return this; }
 
@@ -148,7 +159,7 @@ export class FieldEditor extends LitElement {
           @input=${(e: Event) => this.emit((e.target as HTMLTextAreaElement).value || null)}></textarea>`;
       case "richtext":
         // plain text (older values, or nothing formatted) or paragraphs; empty is unset
-        return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} ?readonly=${this.disabled}
+        return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} ?readonly=${this.disabled}
           @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();

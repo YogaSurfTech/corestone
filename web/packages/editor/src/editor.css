@@ -1,7 +1,8 @@
 /* @corestone/editor: toolbar from docs/design/Corestone editor toolbar demo.html, and the text area. */
 /* The --cs-* colours are the editor's theme; a host page may set them (the Corestone app maps its light/dark tokens). */
 .cs-editor { --cs-border: #d0d7de; --cs-hover: #eef1f5; --cs-pressed: #dde6f3; --cs-muted: #57606a; --cs-text: #1f2328; --cs-panel: #fff;
-  --cs-disabled: #a5acb4; --cs-focus: rgba(21,101,192,.25);
+  --cs-disabled: #a5acb4; --cs-focus: rgba(21,101,192,.25); --cs-link: #1565c0; --cs-error: #c62828;
+  position: relative;
   max-width: 640px; color: var(--cs-text); font: 14px/1.5 Inter, Arial, sans-serif; }
 .cs-editor *, .cs-editor *::before, .cs-editor *::after { box-sizing: border-box; }
 
@@ -68,3 +69,24 @@
 .cs-editor.readonly .cs-tb { display: none; }
 .cs-editor.readonly .cs-area { border-top: 1px solid var(--cs-border); border-radius: 10px; }
 .cs-editor.readonly .cs-area .ProseMirror { min-height: 0; }
+
+/* links: web links underlined, item links dashed; they open on Ctrl/⌘+click while editing, on a click when reading */
+.cs-area .ProseMirror a { color: var(--cs-link); text-decoration: underline; cursor: text; }
+.cs-area .ProseMirror a.cs-item { text-decoration-style: dashed; }
+.cs-editor.readonly .cs-area .ProseMirror a { cursor: pointer; }
+.cs-linkpop, .cs-linkbubble { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
+.cs-linkpop { padding: 8px; width: min(440px, 100%); }
+.cs-linkpop .row { display: flex; gap: 4px; align-items: center; }
+.cs-linkpop .addr { flex: 1; min-width: 0; height: 28px; border: 1px solid var(--cs-border); border-radius: 5px; padding: 0 8px;
+  font: inherit; background: var(--cs-panel); color: inherit; }
+.cs-linkpop .addr.bad { border-color: var(--cs-error); }
+.cs-linkpop .msg { color: var(--cs-muted); font-size: 12px; margin-top: 4px; }
+.cs-linkpop .msg:empty { display: none; }
+.cs-linkpop .addr.bad ~ .msg, .cs-linkpop:has(.addr.bad) .msg { color: var(--cs-error); }
+.cs-linkbubble { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; max-width: min(440px, 100%); }
+.cs-linkbubble .tgt { color: var(--cs-link); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; margin-right: 6px; cursor: pointer; }
+.cs-editor .lb { height: 26px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text); font: inherit; cursor: pointer; white-space: nowrap; }
+.cs-editor .lb:hover { background: var(--cs-hover); }
+.cs-editor .lb.apply { background: var(--cs-pressed); }
+.cs-linkpop[hidden], .cs-linkbubble[hidden], .cs-editor .lb[hidden] { display: none; }

@@ -269,3 +269,27 @@ test("rich text: invalid values are refused by the server", async () => {
     body: JSON.stringify({ path: folder, type: "all", title: "Bad rich", fields: { rich: [{ text: "x", align: "left" }] } }) });
   expect(r.status).toBe(400);
 });
+
+test("rich text: links to items are picked, shown by name, opened, and kept by the server", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Linking entry", fields: { rich: "read the target" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Control+ArrowLeft"); // "target"
+  await page.waitForTimeout(150); // the editor reads a selection made by the browser a moment later
+  await page.keyboard.press("Control+k");
+  await rich.locator(".cs-linkpop .pick").click();
+  await page.locator("corestone-picker input").fill(target.title);
+  await page.locator(".picker-results .row", { hasText: target.title }).click();
+  await expect(rich.locator(".ProseMirror a.cs-item")).toHaveText("target");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
+  expect(stored.data.fields.rich).toEqual([{ text: [{ text: "read the " }, { text: "target", ref: target.guid }] }]);
+  // the bubble names the item and opens it
+  await rich.locator(".ProseMirror a.cs-item").click();
+  await expect(rich.locator(".cs-linkbubble .tgt")).toContainText(target.title);
+  await rich.locator(".cs-linkbubble .tgt").click();
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(target.title);
+});

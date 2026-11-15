@@ -23,6 +23,7 @@ func TestValidateRichText(t *testing.T) {
 		`[{"text": ""}, {"text": "a\nb", "align": "right"}]`,
 		`[{"text": [{"text": "x", "bold": true, "color": "#1565c0", "font": "Georgia", "size": 14}, {"text": "y", "sup": true}]}]`,
 		`[{"list": "ol", "text": "one"}, {"list": "ol", "level": 2, "text": "one.one"}, {"list": "ul", "align": "center", "text": "b"}]`,
+		`[{"text": [{"text": "spec", "href": "https://example.org/a?b=1"}, {"text": "mail", "href": "mailto:a@b.org"}, {"text": "REQ-1", "ref": "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f", "bold": true}]}]`,
 	}
 	for _, s := range good {
 		if err := ValidateRichText("f", parse(t, s)); err != nil {
@@ -34,17 +35,21 @@ func TestValidateRichText(t *testing.T) {
 		`["x"]`:                            "not an object",
 		`[{"align": "left", "text": "x"}]`: "align",
 		`[{"text": "x", "level": 2}]`:      "level without list",
-		`[{"list": "ol", "level": 12, "text": "x"}]`:            "level is 1",
-		`[{"list": "dl", "text": "x"}]`:                         "list is ul or ol",
-		`[{"type": "table", "text": "x"}]`:                      "unknown property",
-		`[{"align": "center"}]`:                                 "has no text",
-		`[{"text": [{"text": ""}]}]`:                            "needs a text",
-		`[{"text": [{"text": "x", "bold": false}]}]`:            "true or absent",
-		`[{"text": [{"text": "x", "color": "red"}]}]`:           "#rrggbb",
-		`[{"text": [{"text": "x", "size": 200}]}]`:              "6 to 96",
-		`[{"text": [{"text": "x", "blink": true}]}]`:            "unknown formatting",
-		`[{"text": [{"text": "x", "sub": true, "sup": true}]}]`: "at once",
-		`[{"text": "bell\u0007"}]`:                              "control",
+		`[{"list": "ol", "level": 12, "text": "x"}]`:                 "level is 1",
+		`[{"list": "dl", "text": "x"}]`:                              "list is ul or ol",
+		`[{"type": "table", "text": "x"}]`:                           "unknown property",
+		`[{"align": "center"}]`:                                      "has no text",
+		`[{"text": [{"text": ""}]}]`:                                 "needs a text",
+		`[{"text": [{"text": "x", "bold": false}]}]`:                 "true or absent",
+		`[{"text": [{"text": "x", "color": "red"}]}]`:                "#rrggbb",
+		`[{"text": [{"text": "x", "size": 200}]}]`:                   "6 to 96",
+		`[{"text": [{"text": "x", "blink": true}]}]`:                 "unknown formatting",
+		`[{"text": [{"text": "x", "sub": true, "sup": true}]}]`:      "at once",
+		`[{"text": "bell\u0007"}]`:                                   "control",
+		`[{"text": [{"text": "x", "href": "javascript:alert(1)"}]}]`: "href is a web address",
+		`[{"text": [{"text": "x", "href": "example.org"}]}]`:         "href is a web address",
+		`[{"text": [{"text": "x", "ref": "REQ-1"}]}]`:                "ref is an item id",
+		`[{"text": [{"text": "x", "href": "https://a.org", "ref": "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f"}]}]`: "not both",
 	}
 	for s, want := range bad {
 		err := ValidateRichText("f", parse(t, s))
@@ -72,5 +77,17 @@ func TestRichTextPlain(t *testing.T) {
 	}
 	if got := RichTextPlain("just\ntext"); got != "just\ntext" {
 		t.Errorf("plain string: %q", got)
+	}
+}
+
+func TestRichTextRefs(t *testing.T) {
+	g := "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f"
+	v := parse(t, `[{"text": "plain"}, {"text": [{"text": "a", "href": "https://a.org"}, {"text": "b", "ref": "`+g+`"}]}]`)
+	if got := RichTextRefs(v); len(got) != 1 || got[0] != g {
+		t.Errorf("refs %v", got)
+	}
+	f := &Field{ID: "notes", Type: FieldRichText}
+	if got := f.ReferencedGUIDs(v); len(got) != 1 || got[0] != g {
+		t.Errorf("field refs %v", got)
 	}
 }

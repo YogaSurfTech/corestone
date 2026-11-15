@@ -81,7 +81,33 @@ const valued = (style: string, read: (css: string) => string | number | null, cs
   toDOM: (m: Mark) => ["span", { style: css(String(m.attrs.value)) }, 0],
 });
 
+/** A web address the editor links to: http(s), mailto or ftp only (no javascript: and the like). */
+export function safeHref(v: string | null | undefined): string | null {
+  const t = (v ?? "").trim();
+  if (!t || /\s/.test(t) || t.length > 2048) return null;
+  if (/^(https?:\/\/|mailto:|ftp:\/\/)/i.test(t)) return t;
+  if (/^www\.[^/]+\.[a-z]{2,}/i.test(t)) return "https://" + t; // typed without the scheme
+  return null;
+}
+
+export const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 const marks: Record<string, MarkSpec> = {
+  // first, so a link encloses the other formatting of its text
+  link: {
+    attrs: { href: { default: null }, ref: { default: null } }, // a web address, or an item (GUID) of the host application
+    inclusive: false, // typing at the end of a link does not extend it
+    parseDOM: [{ tag: "a", getAttrs: (d) => {
+      const el = d as HTMLElement;
+      const ref = el.getAttribute("data-ref");
+      if (ref && GUID.test(ref)) return { href: null, ref };
+      const href = safeHref(el.getAttribute("href"));
+      return href ? { href, ref: null } : false;
+    } }],
+    toDOM: (m: Mark) => m.attrs.ref
+      ? ["a", { "data-ref": m.attrs.ref, class: "cs-item" }, 0]
+      : ["a", { href: m.attrs.href, title: m.attrs.href, rel: "noopener noreferrer", target: "_blank" }, 0],
+  },
   bold: { parseDOM: [{ tag: "strong" }, { tag: "b", getAttrs: (d) => ((d as HTMLElement).style.fontWeight !== "normal" ? null : false) },
     { style: "font-weight", getAttrs: (v) => (/^(bold(er)?|[6-9]\d\d)$/.test(v as string) ? null : false) }], toDOM: () => ["strong", 0] },
   italic: flag(["i", "em"], ["font-style", "italic"], "em"),

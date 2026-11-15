@@ -243,7 +243,19 @@ func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Objec
 			if err := def.ValidateValue(v); err != nil {
 				return err
 			}
+			// links in a text are checked when added: a text that links to an item
+			// deleted later can still be edited (the link shows as missing)
+			linked := map[string]bool{}
+			if def.Type == model.FieldRichText {
+				old, _ := prev.Get(k)
+				for _, g := range def.ReferencedGUIDs(old) {
+					linked[g] = true
+				}
+			}
 			for _, g := range def.ReferencedGUIDs(v) {
+				if linked[g] {
+					continue
+				}
 				if _, err := t.exists(g); err != nil {
 					return fmt.Errorf("field %q: %w", k, err)
 				}

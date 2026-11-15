@@ -262,6 +262,8 @@ func (f *Field) ReferencedGUIDs(v any) []string {
 		if arr, ok := v.([]any); ok {
 			return stringsOf(arr)
 		}
+	case FieldRichText:
+		return RichTextRefs(v)
 	}
 	return nil
 }

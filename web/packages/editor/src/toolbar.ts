@@ -1,7 +1,7 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
 import type { Command, EditorState } from "prosemirror-state";
 import {
-  alignAt, clearFormatting, flagActive, indent, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
+  alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
@@ -15,6 +15,8 @@ import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Fl
 export interface ToolbarHost {
   state(): EditorState;
   run(cmd: Command): void;
+  /** Opens the link popover for the selection. */
+  link(): void;
 }
 
 /** A colour palette, e.g. from company design guidelines. */
@@ -59,7 +61,7 @@ const load = <T>(key: string, fallback: T): T => {
 };
 const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
 
-const SOON = "Not part of this demo yet: links, images, tables, diagrams and formulas come with TSK-15.";
+const SOON = "Not available yet: images, tables, diagrams and formulas come with TSK-15.";
 
 export class Toolbar {
   readonly el: HTMLElement;
@@ -134,8 +136,10 @@ export class Toolbar {
     this.split("align", "Alignment", aligns.map((x) => ({ i: x.i, tip: { t: x.t, k: x.k }, run: () => this.run(setAlign(x.a)),
       pressed: (s: EditorState) => alignAt(s) === x.a })));
     this.sep();
-    this.split("ins", "Insert", ["link", "image", "table", "diagram", "formula"].map((i) => ({
-      i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })));
+    this.split("ins", "Insert", [
+      { i: "link", tip: { t: "Link…", k: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
+      ...["image", "table", "diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
+    ]);
   }
 
   // --- building blocks ---
