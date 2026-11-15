@@ -22,7 +22,9 @@ export interface Palette {
   /** Font colours. */
   colors: string[];
   /** Background (marker) colours, in the same order: a light tint of each font colour, so the
-   *  same swatch gives dark ink on a light marker. Missing ones are tinted from the font colours. */
+   *  same swatch gives dark ink on a light marker; a light font colour (white) gets a dark marker.
+   *  No marker should equal a font colour, or text can be made unreadable (blacked out).
+   *  Missing ones are derived from the font colours. */
   backgrounds?: string[];
   names?: string[];
   /** false: only palette colours, no picker and no history. */
@@ -31,7 +33,7 @@ export interface Palette {
 
 export const DEFAULT_PALETTE: Palette = {
   colors: ["#1f2328", "#c62828", "#e65100", "#f9a825", "#2e7d32", "#1565c0", "#6a1b9a", "#ffffff"],
-  backgrounds: ["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#ffffff"],
+  backgrounds: ["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#57606a"],
   allowCustom: true,
 };
 
@@ -40,11 +42,14 @@ interface Tip { t: string; k?: string; dis?: () => string | null }
 type El = HTMLElement & { _tip?: Tip | null };
 type Btn = HTMLButtonElement & { _tip?: Tip | null };
 
-/** A light tint of a colour (three quarters white), for markers. */
+/** The marker for a font colour: a light tint (three quarters white), or for a light
+ *  colour a dark shade (three fifths black), so the ink stays readable on it. */
 function tint(c: string): string {
   const n = parseInt(c.slice(1), 16);
-  const mix = (v: number) => Math.round(v + (255 - v) * 0.75).toString(16).padStart(2, "0");
-  return "#" + mix(n >> 16) + mix((n >> 8) & 255) + mix(n & 255);
+  const rgb = [n >> 16, (n >> 8) & 255, n & 255];
+  const light = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 > 0.8;
+  const mix = (v: number) => Math.round(light ? v * 0.4 : v + (255 - v) * 0.75).toString(16).padStart(2, "0");
+  return "#" + rgb.map(mix).join("");
 }
 
 const LAST_KEY = "cs-editor-last";

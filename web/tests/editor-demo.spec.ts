@@ -205,7 +205,9 @@ test("background colours are light markers of the font colours, swatch for swatc
   const marks = await menu("bcolor");
   const markers = await marks.evaluateAll((s) => s.map((e) => e.getAttribute("aria-label")));
   expect(inks.slice(0, 8)).toEqual(["#1f2328", "#c62828", "#e65100", "#f9a825", "#2e7d32", "#1565c0", "#6a1b9a", "#ffffff"]);
-  expect(markers.slice(0, 8)).toEqual(["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#ffffff"]);
+  expect(markers.slice(0, 8)).toEqual(["#e6e8eb", "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#bbdefb", "#e1bee7", "#57606a"]);
+  // no marker is an ink colour: text cannot be blacked out with the palette
+  expect(markers.slice(0, 8).filter((m) => inks.slice(0, 8).includes(m))).toEqual([]);
   // the blue swatch in both menus: blue ink on a light blue marker
   await marks.nth(5).click();
   await (await menu("fcolor")).nth(5).click();
