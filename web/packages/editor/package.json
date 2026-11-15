@@ -7,15 +7,18 @@
   "description": "Rich-text editor for Corestone fields: ProseMirror with a toolbar, storing text as JSON blocks and formatted runs. Knows nothing about Corestone.",
   "exports": {
     ".": "./src/index.ts",
+    "./model": "./src/model.ts",
     "./editor.css": "./src/editor.css"
   },
   "dependencies": {
+    "mathjax-full": "^3.2.2",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-history": "^1.4.1",
     "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.4",
     "prosemirror-schema-list": "^1.5.1",
     "prosemirror-state": "^1.4.4",
+    "prosemirror-tables": "^1.8.5",
     "prosemirror-view": "^1.41.3"
   }
 }

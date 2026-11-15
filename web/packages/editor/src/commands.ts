@@ -94,6 +94,66 @@ export function keepAlign(cmd: Command): Command {
   };
 }
 
+// --- links ---
+
+export interface LinkTarget { href?: string | null; ref?: string | null; file?: string | null }
+
+/** The link at the selection's start: its target and the range of text it covers. */
+export function linkAt(state: EditorState): (LinkTarget & { from: number; to: number }) | null {
+  const type = schema.marks.link;
+  const $pos = state.selection.$from;
+  const parent = $pos.parent;
+  // the text node at the cursor, or the one ending at it
+  let idx = $pos.index();
+  let start = $pos.pos - $pos.textOffset;
+  let child = parent.maybeChild(idx);
+  let mark = child && type.isInSet(child.marks);
+  if (!mark && $pos.textOffset === 0 && idx > 0) {
+    idx--;
+    child = parent.child(idx);
+    start -= child.nodeSize;
+    mark = type.isInSet(child.marks);
+  }
+  if (!mark || !child) return null;
+  let from = start, to = start + child.nodeSize;
+  for (let i = idx - 1; i >= 0 && mark.isInSet(parent.child(i).marks); i--) from -= parent.child(i).nodeSize;
+  for (let i = idx + 1; i < parent.childCount && mark.isInSet(parent.child(i).marks); i++) to += parent.child(i).nodeSize;
+  return { href: mark.attrs.href, ref: mark.attrs.ref, file: mark.attrs.file, from, to };
+}
+
+/** Links the selection (or the link at the cursor) to a target; with nothing selected and no
+ *  link at the cursor, inserts text (the address, or the item's name) as the link. */
+export function setLink(target: LinkTarget, text?: string): Command {
+  return (state, dispatch) => {
+    const type = schema.marks.link;
+    const mark = target.ref ? type.create({ ref: target.ref }) : target.file ? type.create({ file: target.file }) : type.create({ href: target.href ?? null });
+    const { empty, from, to } = state.selection;
+    const tr = state.tr;
+    const at = empty ? linkAt(state) : null;
+    if (!empty) tr.removeMark(from, to, type).addMark(from, to, mark);
+    else if (at) tr.removeMark(at.from, at.to, type).addMark(at.from, at.to, mark);
+    else {
+      const t = text || target.href || "";
+      if (!t) return false;
+      const marks = mark.addToSet(state.storedMarks ?? state.selection.$from.marks());
+      tr.insert(from, schema.text(t, marks));
+      tr.removeStoredMark(type);
+    }
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** Removes the link from the selection, or the whole link at the cursor. */
+export const removeLink: Command = (state, dispatch) => {
+  const { empty, from, to } = state.selection;
+  const at = empty ? linkAt(state) : null;
+  const [a, b] = at ? [at.from, at.to] : [from, to];
+  if (a === b || !state.doc.rangeHasMark(a, b, schema.marks.link)) return false;
+  dispatch?.(state.tr.removeMark(a, b, schema.marks.link));
+  return true;
+};
+
 export const indent: Command = sinkListItem(schema.nodes.list_item);
 export const outdent: Command = liftListItem(schema.nodes.list_item);
 

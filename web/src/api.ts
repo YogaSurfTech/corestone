@@ -13,7 +13,13 @@ export class ApiError extends Error {
 /** A local account (-auth local). */
 export interface Account { guid: string; name: string; email: string; role: "user" | "admin"; created: string }
 /** How the server signs in: "none" is open; "local" needs an account, and "setup" means none exists yet. */
-export interface AuthState { mode: "local" | "none"; setup?: boolean; account?: Account | null }
+export interface AuthState { mode: "local" | "none"; setup?: boolean; account?: Account | null; diagrams?: string }
+
+/** What the server offers besides its API (from GET /api/auth at start). */
+export const server = {
+  /** Where the draw.io web app is, for diagrams in rich text ("" when diagrams are off). */
+  diagrams: "",
+};
 
 let onUnauthorized: (() => void) | null = null;
 /** Called when the session has ended (any 401 outside signing in). */

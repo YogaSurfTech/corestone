@@ -28,6 +28,22 @@ const ICONS: Record<string, string> = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   pick: '<path d="m14 4 6 6-9 9H5v-6z"/><path d="m12 6 6 6"/>',
   none: '<circle cx="12" cy="12" r="8"/><path d="m6.5 17.5 11-11"/>',
+  // tables: size, borders, stripes, closing a dialog
+  rows: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  cols: '<path d="M6 4v16M12 4v16M18 4v16"/>',
+  "b-grid": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18M3 14.7h18M9 4v16M15 4v16"/>',
+  "b-outside": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18M3 14.7h18M9 4v16M15 4v16" stroke-dasharray="1.5 2.5" stroke-width="1"/>',
+  "b-rows": '<path d="M3 4h18M3 20h18M3 9.3h18M3 14.7h18"/><path d="M3 4v16M21 4v16M9 4v16M15 4v16" stroke-dasharray="1.5 2.5" stroke-width="1"/>',
+  "b-columns": '<path d="M3 4v16M21 4v16M9 4v16M15 4v16"/><path d="M3 4h18M3 20h18M3 9.3h18M3 14.7h18" stroke-dasharray="1.5 2.5" stroke-width="1"/>',
+  "b-none": '<path d="M3 4h18M3 20h18M3 4v16M21 4v16M3 9.3h18M3 14.7h18M9 4v16M15 4v16" stroke-dasharray="1.5 2.5" stroke-width="1"/>',
+  "s-none": '<rect x="3" y="4" width="18" height="16" rx="1"/>',
+  "s-rows": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18v5.4H3z" fill="currentColor" stroke="none" opacity=".4"/>',
+  "s-columns": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4h6v16H9z" fill="currentColor" stroke="none" opacity=".4"/>',
+  "f-inline": '<path d="M3 12h3M18 12h3"/><path d="M14 8H9l3 4-3 4h5"/>',
+  "f-display": '<path d="M4 5h16M4 19h16"/><path d="M14 8H9l3 4-3 4h5"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+  file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',
 };
 
 export function icon(name: string, size = 18): string {

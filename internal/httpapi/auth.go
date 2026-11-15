@@ -68,10 +68,15 @@ func setSession(w http.ResponseWriter, r *http.Request, token string, ttl time.D
 }
 
 // authState tells the client how to start: the mode, whether the first
-// account is still to be created, and the signed-in account.
+// account is still to be created, the signed-in account, and where the
+// diagram editor is (absent: no diagrams).
 func (s *Server) authState(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{"mode": "none"}
+	if s.Diagrams != "" {
+		body["diagrams"] = s.Diagrams // where the diagram editor is
+	}
 	if s.Accounts == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"mode": "none"})
+		writeJSON(w, http.StatusOK, body)
 		return
 	}
 	n, err := s.Accounts.Count(r.Context())
@@ -79,7 +84,8 @@ func (s *Server) authState(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"mode": "local", "setup": n == 0, "account": accounts.FromContext(r.Context())})
+	body["mode"], body["setup"], body["account"] = "local", n == 0, accounts.FromContext(r.Context())
+	writeJSON(w, http.StatusOK, body)
 }
 
 // setup creates the first account and makes it admin: the access file is

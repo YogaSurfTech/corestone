@@ -1,5 +1,5 @@
 import type { Summary } from "./types";
-import { plainText } from "@corestone/editor";
+import { plainText } from "@corestone/editor/model"; // the stored form only, without the editor (also in Node)
 import { isRichText } from "./util";
 
 interface RankedValue { value: string; rank: number }

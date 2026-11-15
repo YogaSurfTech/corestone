@@ -280,6 +280,36 @@ func (r *Repo) ReadBlobs(ctx context.Context, shas []string) (map[string][]byte,
 	return res, nil
 }
 
+// BlobSizes returns the sizes of many blobs in one cat-file process, without
+// reading their content. Missing objects are simply absent from the result.
+func (r *Repo) BlobSizes(ctx context.Context, shas []string) (map[string]int64, error) {
+	res := make(map[string]int64, len(shas))
+	if len(shas) == 0 {
+		return res, nil
+	}
+	var in bytes.Buffer
+	for _, s := range shas {
+		in.WriteString(s)
+		in.WriteByte('\n')
+	}
+	out, err := r.run(ctx, in.Bytes(), "cat-file", "--batch-check")
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 || f[1] != "blob" {
+			continue // "<sha> missing", or not a blob
+		}
+		n, err := strconv.ParseInt(f[2], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("gitx: bad cat-file size %q", f[2])
+		}
+		res[f[0]] = n
+	}
+	return res, nil
+}
+
 // ReadBlob returns one blob's content.
 func (r *Repo) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
 	m, err := r.ReadBlobs(ctx, []string{sha})

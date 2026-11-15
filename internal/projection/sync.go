@@ -189,6 +189,17 @@ func (p *DB) ProjectCommit(ctx context.Context, tx *sql.Tx, commit string, chang
 	if err != nil {
 		return err
 	}
+	// attachments: only their sizes (their content is not projected)
+	var fileSHAs []string
+	for _, u := range attaches {
+		if u.ch.Status != 'D' {
+			fileSHAs = append(fileSHAs, u.ch.SHA)
+		}
+	}
+	sizes, err := p.repo.BlobSizes(ctx, fileSHAs)
+	if err != nil {
+		return err
+	}
 
 	// Additions / modifications first so that a move (D+A of the same GUID
 	// in one commit) is seen as a relocation, not a deletion.
@@ -242,9 +253,9 @@ func (p *DB) ProjectCommit(ctx context.Context, tx *sql.Tx, commit string, chang
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO artifact_files (guid, name, path, blob_sha, size) VALUES ($1,$2,$3,$4,0)
-			ON CONFLICT (guid, name) DO UPDATE SET path = EXCLUDED.path, blob_sha = EXCLUDED.blob_sha`,
-			u.m.GUID, u.m.Name, u.ch.Path, u.ch.SHA); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO artifact_files (guid, name, path, blob_sha, size) VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (guid, name) DO UPDATE SET path = EXCLUDED.path, blob_sha = EXCLUDED.blob_sha, size = EXCLUDED.size`,
+			u.m.GUID, u.m.Name, u.ch.Path, u.ch.SHA, sizes[u.ch.SHA]); err != nil {
 			return unavailable(err)
 		}
 	}

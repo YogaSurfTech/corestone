@@ -54,12 +54,15 @@ go build -o bin/corestone ./cmd/corestone
 | `-db` / `CORESTONE_DB` | *(required)* | PostgreSQL connection string |
 | `-addr` / `CORESTONE_ADDR` | `127.0.0.1:8080` | listen address |
 | `-web` / `CORESTONE_WEB` | `web/dist` | directory with the built client; `""` for API only |
+| `-drawio` / `CORESTONE_DRAWIO` | `web/drawio` | directory with the draw.io web app for diagrams in rich text (`make drawio` fetches a pinned release); `""` or a missing directory turns diagrams off. The container image includes it. |
 | `-watch` / `CORESTONE_WATCH` | `3s` | how often to check for direct Git pushes and resynchronize; `0` disables |
 | `-allow-origin` / `CORESTONE_ALLOW_ORIGIN` | *(none)* | extra origins (host patterns such as `app.example.com`, `*.example.com`) allowed to open WebSocket sessions; same-origin is always allowed |
 | `-access-log` / `CORESTONE_ACCESS_LOG=1` | off | one log line per HTTP request (method, path, status, size, duration, client) |
 | `-auth` / `CORESTONE_AUTH` | `local` | `local`: sign in with an email and password (see below); `none`: no sign-in, the client names the commit author (development only) |
 | `-accounts` / `CORESTONE_ACCOUNTS` | `accounts.json` next to the repository | the accounts file of `-auth local` |
 | `-version` | | print the build version and exit |
+
+Diagrams in rich-text fields are drawn with [draw.io](https://www.drawio.com/) (Apache-2.0), which Corestone serves itself under `/drawio/`: no outside service is involved. Fetch it once with `make drawio` (about 120 MB, checked against its SHA-256); without it the diagram button explains that draw.io is not installed. draw.io runs in a sandboxed frame without access to Corestone's pages, cookies or API.
 
 Check it is alive:
 

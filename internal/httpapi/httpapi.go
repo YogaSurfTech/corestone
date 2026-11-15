@@ -44,6 +44,9 @@ type Server struct {
 	// Accounts, when set, requires signing in (-auth local); nil keeps the
 	// API open with the author named by the client (-auth none).
 	Accounts *accounts.Store
+	// Diagrams is where the draw.io web app is served ("" when diagrams are off);
+	// GET /api/auth tells the client.
+	Diagrams string
 	roles    *roles
 	mux      *http.ServeMux
 }

@@ -38,6 +38,18 @@ func CleanFolder(p string) (string, error) {
 }
 
 // ValidateSegment checks a single folder name.
+// ValidateFileName checks the name of a file of an artifact (inside its GUID
+// directory): one path segment, not reserved for Corestone's own files.
+func ValidateFileName(name string) error {
+	if err := ValidateSegment(name); err != nil {
+		return err
+	}
+	if name == GUIDFile || strings.HasPrefix(name, MetadataDir) {
+		return Invalid("%q is reserved", name)
+	}
+	return nil
+}
+
 func ValidateSegment(s string) error {
 	switch {
 	case s == "", s == ".", s == "..":

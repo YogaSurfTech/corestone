@@ -371,11 +371,19 @@ func MustEncode(v any, style Style) []byte {
 }
 
 func encode(b *bytes.Buffer, v any, st Style, depth int, path []string) error {
-	pretty := st.Indent != ""
+	pretty := st.Indent != "" && !st.oneLine
+	// the depth of nested values: on one line they add none (rows inside them indent from the line)
+	inner := depth + 1
+	if st.oneLine {
+		inner = depth
+	}
+	newline := func(d int) {
+		b.WriteString(st.Newline)
+		b.WriteString(strings.Repeat(st.Indent, d))
+	}
 	nl := func(d int) {
 		if pretty {
-			b.WriteString(st.Newline)
-			b.WriteString(strings.Repeat(st.Indent, d))
+			newline(d)
 		}
 	}
 	switch t := v.(type) {
@@ -410,28 +418,37 @@ func encode(b *bytes.Buffer, v any, st Style, depth int, path []string) error {
 			b.WriteString("[]")
 			return nil
 		}
-		rows := pretty && st.Rows != nil && st.Rows(path, t)
+		// rows: one element per line, each written on one line (without the
+		// remembered source layout); a row may hold rows of its own (a table's)
+		rows := st.Indent != "" && st.Rows != nil && st.Rows(path, t)
 		b.WriteByte('[')
 		for i, e := range t {
 			if i > 0 {
 				b.WriteByte(',')
-				if st.oneLine {
+				if st.oneLine && !rows {
 					b.WriteByte(' ')
 				}
 			}
-			nl(depth + 1)
+			elem := st
 			if rows {
-				// compact, without the remembered source layout
-				if err := encode(b, e, Style{oneLine: true}, 0, nil); err != nil {
-					return err
-				}
-				continue
+				newline(depth + 1)
+				elem.oneLine = true
+			} else {
+				nl(depth + 1)
 			}
-			if err := encode(b, e, st, depth+1, append(path, strconv.Itoa(i))); err != nil {
+			d := inner
+			if rows {
+				d = depth + 1
+			}
+			if err := encode(b, e, elem, d, append(path, strconv.Itoa(i))); err != nil {
 				return err
 			}
 		}
-		nl(depth)
+		if rows {
+			newline(depth)
+		} else {
+			nl(depth)
+		}
 		b.WriteByte(']')
 	case []string:
 		arr := make([]any, len(t))
@@ -444,7 +461,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int, path []string) error {
 			b.WriteString("{}")
 			return nil
 		}
-		if t.raw != nil && st.Indent != "" && t.unchanged() {
+		if t.raw != nil && pretty && t.unchanged() {
 			b.Write(t.raw)
 			return nil
 		}
@@ -462,7 +479,7 @@ func encode(b *bytes.Buffer, v any, st Style, depth int, path []string) error {
 			if pretty || st.oneLine {
 				b.WriteByte(' ')
 			}
-			if err := encode(b, t.vals[k], st, depth+1, append(path, k)); err != nil {
+			if err := encode(b, t.vals[k], st, inner, append(path, k)); err != nil {
 				return err
 			}
 		}

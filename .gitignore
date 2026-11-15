@@ -2,6 +2,7 @@ bin/
 data/
 web/node_modules/
 web/dist/
+web/drawio/
 web/test-results/
 web/playwright-report/
 web/shots/

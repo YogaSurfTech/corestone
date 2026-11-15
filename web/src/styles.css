@@ -496,6 +496,7 @@ table.accounts td:last-child { text-align: right; }
 .field cs-richtext { display: block; }
 .field cs-richtext .cs-editor { --cs-border: var(--border); --cs-hover: var(--bg); --cs-pressed: var(--accent-soft); --cs-muted: var(--muted);
   --cs-text: var(--text); --cs-panel: var(--input-bg); --cs-disabled: light-dark(#b4bac4, #4a5263); --cs-focus: var(--accent-soft);
+  --cs-link: var(--accent); --cs-error: var(--danger);
   max-width: none; font: 14px/1.5 var(--sans); }
 .field.locked cs-richtext .cs-editor { --cs-panel: var(--locked-bg); --cs-text: var(--muted); }
 .field cs-richtext .cs-tb { top: 0; }

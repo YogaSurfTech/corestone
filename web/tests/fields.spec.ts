@@ -269,3 +269,136 @@ test("rich text: invalid values are refused by the server", async () => {
     body: JSON.stringify({ path: folder, type: "all", title: "Bad rich", fields: { rich: [{ text: "x", align: "left" }] } }) });
   expect(r.status).toBe(400);
 });
+
+test("rich text: links to items are picked, shown by name, opened, and kept by the server", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Linking entry", fields: { rich: "read the target" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Control+ArrowLeft"); // "target"
+  await page.waitForTimeout(150); // the editor reads a selection made by the browser a moment later
+  await page.keyboard.press("Control+k");
+  await rich.locator(".cs-linkpop .pick").click();
+  await page.locator("corestone-picker input").fill(target.title);
+  await page.locator(".picker-results .row", { hasText: target.title }).click();
+  await expect(rich.locator(".ProseMirror a.cs-item")).toHaveText("target");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
+  expect(stored.data.fields.rich).toEqual([{ text: [{ text: "read the " }, { text: "target", ref: target.guid }] }]);
+  // the bubble names the item and opens it
+  await rich.locator(".ProseMirror a.cs-item").click();
+  await expect(rich.locator(".cs-linkbubble .tgt")).toContainText(target.title);
+  await rich.locator(".cs-linkbubble .tgt").click();
+  await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(target.title);
+});
+
+test("rich text: a pasted image and an uploaded file are stored with Save, as files of the entry", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Image entry", fields: { rich: "Photo:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 48;
+    c.getContext("2d")!.fillRect(0, 0, 64, 48);
+    const bin = Uint8Array.from(atob(c.toDataURL("image/png").split(",")[1]), (ch) => ch.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bin], "image.png", { type: "image/png" }));
+    document.querySelector("corestone-detail [data-field=rich] .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  const img = rich.locator(".cs-img img");
+  await expect(img).toHaveJSProperty("naturalWidth", 64); // shown from the browser before Save
+  // a file link through the link popover
+  await page.keyboard.type(" manual");
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+Control+ArrowLeft");
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Control+k");
+  await rich.locator(".cs-linkpop .file").click();
+  await rich.locator(".cs-filepop input[type=file]").setInputFiles({ name: "manual.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+  await expect(rich.locator(".ProseMirror a.cs-file")).toHaveText("manual");
+  // both wait for Save as attachments
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(2);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  const runs = (stored.data.fields.rich as { text: { image?: string }[] }[])[0].text;
+  const name = runs.find((r) => r.image)?.image ?? "";
+  expect(name).toMatch(/^image-\d{8}-\d{6}\.png$/);
+  expect(runs).toEqual([{ text: "Photo:" }, { image: name }, { text: " " }, { text: "manual", file: "manual.pdf" }]);
+  expect(stored.attachments.map((a) => a.name).sort()).toEqual([name, "manual.pdf"].sort());
+  // after a reload the image comes from the server
+  await page.reload();
+  await expect(rich.locator(".cs-img img")).toHaveJSProperty("naturalWidth", 64);
+  expect(await rich.locator(".cs-img img").getAttribute("src")).toBe(`/api/artifacts/${entry.meta.guid}/files/${encodeURIComponent(name)}`);
+});
+
+test("rich text: a formula is stored with Save as LaTeX and a PNG file of the entry", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Formula entry", fields: { rich: "Energy:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await rich.locator(".cs-tb .sp:has([data-cmd=formula]) .c").click();
+  await rich.locator(".cs-tb .pop.open [data-cmd=formula]").click();
+  const dlg = rich.locator(".cs-formulapop");
+  await dlg.locator("textarea").fill("E = mc^2");
+  await expect(dlg.locator(".preview img")).toBeVisible({ timeout: 15000 });
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string; size: number }[] }>(`/entries/${entry.meta.guid}`);
+  const runs = (stored.data.fields.rich as { text: { formula?: string; png?: string }[] }[])[0].text;
+  const png = runs[1]?.png ?? "";
+  expect(runs).toEqual([{ text: "Energy:" }, { formula: "E = mc^2", png: "formula-E_mc_2.png" }]);
+  expect(stored.attachments.map((a) => a.name)).toEqual([png]);
+  expect(stored.attachments[0].size).toBeGreaterThan(100);
+  // after a reload the picture comes from the server
+  await page.reload();
+  await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
+});
+
+test("rich text: a diagram is drawn in draw.io and stored with Save as a PNG file of the entry", async ({ page }) => {
+  // the test server serves the draw.io stand-in (tests/drawio-stub)
+  const entry = await post("/entries", { path: folder, type: "all", title: "Diagram entry", fields: { rich: "Flow:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await rich.locator(".cs-tb .sp:has([data-cmd=formula]) .c").click();
+  await rich.locator(".cs-tb .pop.open [data-cmd=diagram]").click();
+  const drawio = page.frameLocator(".cs-diagrampop iframe");
+  await expect(drawio.locator("body[data-loaded]")).toHaveCount(1);
+  await drawio.locator("#xml").fill("<mxfile>flow</mxfile>");
+  await drawio.getByRole("button", { name: "Save & Exit" }).click();
+  await expect(rich.locator(".cs-diagram img")).toHaveJSProperty("naturalWidth", 600);
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  expect((stored.data.fields.rich as { text: unknown[] }[])[0].text).toEqual([{ text: "Flow:" }, { diagram: "diagram.drawio.png", width: 300 }]);
+  expect(stored.attachments.map((a) => a.name)).toEqual(["diagram.drawio.png"]);
+  // after a reload draw.io gets the stored diagram back from the server
+  await page.reload();
+  await rich.locator(".cs-diagram img").dblclick();
+  await expect(drawio.locator("#xml")).toHaveValue("<mxfile>flow</mxfile>");
+});
+
+test("rich text: invalid images, file links and formulas are refused by the server", async () => {
+  const bad = [[{ text: [{ image: "../x.png" }] }], [{ text: [{ text: "x", file: ".corestone.json" }] }],
+    [{ text: [{ formula: "x^2" }] }], [{ text: [{ formula: "x^2", png: "x.svg" }] }], [{ text: [{ diagram: "flow.svg" }] }]];
+  for (const rich of bad) {
+    const res = await fetch(api + "/entries", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: folder, type: "all", title: "Bad image", fields: { rich } }) });
+    expect(res.status).toBe(400);
+  }
+});
