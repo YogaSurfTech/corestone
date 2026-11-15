@@ -4,7 +4,7 @@ import "@corestone/editor";
 import "./enum-control";
 import { api } from "./api";
 import { store } from "./store";
-import type { ItemLinks, RichText } from "@corestone/editor";
+import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
 import { label, safeHref, showValue } from "./util";
 
@@ -38,6 +38,8 @@ export class FieldEditor extends LitElement {
   @property({ attribute: false }) value: FieldValue = undefined;
   @property({ attribute: false }) overlay: OverlayState | null = null;
   @property({ attribute: false }) attachments: Attachment[] = [];
+  /** The entry's files for images and file links in rich text (only where the entry exists). */
+  @property({ attribute: false }) files?: EntryFiles;
   @property({ type: Boolean }) readonly = false;
   /** The artifact type, so extendable enumerations can suggest the values in use. */
   @property({ attribute: false }) typeId = "";
@@ -159,7 +161,7 @@ export class FieldEditor extends LitElement {
           @input=${(e: Event) => this.emit((e.target as HTMLTextAreaElement).value || null)}></textarea>`;
       case "richtext":
         // plain text (older values, or nothing formatted) or paragraphs; empty is unset
-        return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} ?readonly=${this.disabled}
+        return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} .files=${this.files} ?readonly=${this.disabled}
           @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();

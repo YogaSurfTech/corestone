@@ -1,6 +1,6 @@
 // The standalone editor demo (served as /editor-demo.html): only the
 // package's public interface, no Corestone code.
-import { plainText, type RichText, type RichTextElement } from "@corestone/editor";
+import { plainText, type EntryFiles, type RichText, type RichTextElement } from "@corestone/editor";
 
 const KEY = "cs-editor-demo";
 const SAMPLE: RichText = [
@@ -48,6 +48,23 @@ function show(v: RichText | null, note: string) {
   $("err").textContent = "";
   status.textContent = note;
 }
+
+// the entry's files: kept in this page only (gone on reload), as a host would keep them
+const store = new Map<string, File>();
+const urls = new Map<string, string>();
+const files: EntryFiles = {
+  add: async (f) => {
+    let name = f.name && f.name !== "image.png" ? f.name : "image.png";
+    for (let n = 2; store.has(name); n++) name = name.replace(/(-\d+)?(\.[^.]*)?$/, (_m, _n, ext = "") => `-${n}${ext}`);
+    store.set(name, f);
+    urls.set(name, URL.createObjectURL(f));
+    return name;
+  },
+  url: (name) => urls.get(name) ?? "",
+  list: async () => [...store.keys()],
+};
+ed.files = files;
+(window as unknown as { demoFiles: Map<string, File> }).demoFiles = store;
 
 ed.value = saved() ?? SAMPLE;
 show(ed.value, saved() ? "Loaded the saved value." : "Sample text (nothing saved yet).");

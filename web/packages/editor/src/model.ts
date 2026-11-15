@@ -1,6 +1,6 @@
 import { Fragment, type Mark, type Node } from "prosemirror-model";
 import { TableMap } from "prosemirror-tables";
-import { BORDERS, FLAGS, GUID, STRIPES, safeHref, schema, stripeColors, type Align, type Borders, type Stripes } from "./schema";
+import { BORDERS, FLAGS, GUID, STRIPES, safeFileName, safeHref, schema, stripeColors, type Align, type Borders, type Stripes } from "./schema";
 
 // The stored form of rich text: JSON blocks whose text is a plain string
 // or a list of formatted runs. This is what the server validates, indexes
@@ -14,14 +14,20 @@ export interface Marks {
   size?: number;  // points
   href?: string;  // a link to a web address (http(s), mailto, ftp)
   ref?: string;   // a link to an item of the host application (GUID)
+  file?: string;  // a link to a file of the entry (its name)
 }
 
 /** A piece of text with its formatting; "\n" in it is a line break within the paragraph. */
 export type Run = { text: string } & Marks;
 
+/** An image in the text: a file of the entry; width in pixels (absent: its own size). */
+export interface ImageRun { image: string; alt?: string; width?: number }
+
+export const isImage = (r: Run | ImageRun): r is ImageRun => "image" in r;
+
 /** A paragraph; with list it is a list item (level 1 when absent). */
 export interface Paragraph {
-  text: string | Run[];
+  text: string | (Run | ImageRun)[];
   align?: Exclude<Align, "left">;
   list?: "ul" | "ol";
   level?: number;
@@ -146,7 +152,7 @@ function tableNode(t: Table): Node | null {
   }
 }
 
-function inline(text: string | Run[] | undefined): Fragment {
+function inline(text: string | (Run | ImageRun)[] | undefined): Fragment {
   const out: Node[] = [];
   const add = (t: string, marks: Mark[]) => {
     t.split("\n").forEach((part, i) => {
@@ -155,13 +161,21 @@ function inline(text: string | Run[] | undefined): Fragment {
     });
   };
   if (typeof text === "string") add(text, []);
-  else if (Array.isArray(text)) for (const r of text) if (r && typeof r.text === "string") add(r.text, marksOf(r));
+  else if (Array.isArray(text)) for (const r of text) {
+    if (!r || typeof r !== "object") continue;
+    if (isImage(r)) {
+      const src = safeFileName(r.image);
+      const w = typeof r.width === "number" && r.width >= 16 ? Math.min(Math.round(r.width), 4000) : null;
+      if (src) out.push(schema.nodes.image.create({ src, alt: typeof r.alt === "string" ? r.alt : "", width: w }));
+    } else if (typeof r.text === "string") add(r.text, marksOf(r));
+  }
   return Fragment.from(out);
 }
 
 function marksOf(m: Marks): Mark[] {
   const out: Mark[] = [];
   if (typeof m.ref === "string" && GUID.test(m.ref)) out.push(schema.marks.link.create({ ref: m.ref }));
+  else if (safeFileName(m.file)) out.push(schema.marks.link.create({ file: m.file }));
   else if (safeHref(m.href)) out.push(schema.marks.link.create({ href: safeHref(m.href) }));
   for (const f of FLAGS) if (m[f]) out.push(schema.marks[f].create());
   for (const k of ["color", "bg", "font", "size"] as const) {
@@ -241,10 +255,19 @@ function storeTable(n: Node): Table {
 }
 
 /** A paragraph's text: a plain string when nothing is formatted, else runs. */
-function storeInline(p: Node): string | Run[] {
-  const runs: Run[] = [];
+function storeInline(p: Node): string | (Run | ImageRun)[] {
+  const runs: (Run | ImageRun)[] = [];
   p.forEach((c) => {
-    const prev = runs[runs.length - 1];
+    const last = runs[runs.length - 1];
+    const prev = last && !isImage(last) ? last : undefined;
+    if (c.type === schema.nodes.image) {
+      if (!c.attrs.src) return; // still being stored
+      const img: ImageRun = { image: c.attrs.src };
+      if (c.attrs.alt) img.alt = c.attrs.alt;
+      if (c.attrs.width) img.width = c.attrs.width;
+      runs.push(img);
+      return;
+    }
     if (c.type === schema.nodes.hard_break) {
       // a line break joins the run before it
       if (prev) prev.text += "\n";
@@ -255,6 +278,7 @@ function storeInline(p: Node): string | Run[] {
     for (const m of c.marks) {
       if (m.type === schema.marks.link) {
         if (m.attrs.ref) marks.ref = m.attrs.ref;
+        else if (m.attrs.file) marks.file = m.attrs.file;
         else marks.href = m.attrs.href;
         continue;
       }
@@ -267,7 +291,7 @@ function storeInline(p: Node): string | Run[] {
     else runs.push({ text, ...marks });
   });
   if (!runs.length) return "";
-  if (runs.length === 1 && Object.keys(runs[0]).length === 1) return runs[0].text;
+  if (runs.length === 1 && !isImage(runs[0]) && Object.keys(runs[0]).length === 1) return runs[0].text;
   return runs;
 }
 
@@ -292,7 +316,7 @@ export function plainText(value: RichText | null | undefined): string {
       for (const row of b.table ?? []) lines.push((row ?? []).map(cell).join(" | "));
       continue;
     }
-    const text = typeof b.text === "string" ? b.text : b.text.map((r) => r.text).join("");
+    const text = typeof b.text === "string" ? b.text : b.text.map((r) => (isImage(r) ? "" : r.text)).join("");
     if (!b.list) {
       stack.length = 0;
       lines.push(text);

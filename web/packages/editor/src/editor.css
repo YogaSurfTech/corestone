@@ -120,23 +120,23 @@
 .cs-editor:not(.readonly) .cs-area .ProseMirror table.cs-b-columns :is(td, th) { border-top: 1px dashed var(--cs-guide); border-bottom: 1px dashed var(--cs-guide); }
 
 /* table panels: the size grid, the context menu, the properties dialog */
-.cs-tablegrid, .cs-tablemenu, .cs-tablemenu .sub, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
+.cs-tablegrid, .cs-menu, .cs-menu .sub, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
   border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-tablegrid { padding: 8px; }
 .cs-tablegrid .size { color: var(--cs-muted); margin-bottom: 6px; }
 .cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .cs-tablegrid .cells button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--cs-border); border-radius: 3px; background: var(--cs-panel); cursor: pointer; }
 .cs-tablegrid .cells button.on { background: var(--cs-pressed); border-color: var(--cs-link); }
-.cs-tablemenu, .cs-tablemenu .sub { padding: 4px; min-width: 170px; display: flex; flex-direction: column; }
-.cs-tablemenu .has-sub { position: relative; display: flex; flex-direction: column; }
-.cs-tablemenu .sub { left: 100%; top: -5px; min-width: 110px; }
-.cs-tablemenu .mi { display: flex; align-items: center; height: 28px; padding: 0 10px 0 26px; border: 0; border-radius: 5px; background: transparent;
+.cs-menu, .cs-menu .sub { padding: 4px; min-width: 170px; display: flex; flex-direction: column; }
+.cs-menu .has-sub { position: relative; display: flex; flex-direction: column; }
+.cs-menu .sub { left: 100%; top: -5px; min-width: 110px; }
+.cs-menu .mi { display: flex; align-items: center; height: 28px; padding: 0 10px 0 26px; border: 0; border-radius: 5px; background: transparent;
   color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; position: relative; }
-.cs-tablemenu .mi:hover:not(:disabled), .cs-tablemenu .mi:focus-visible, .cs-tablemenu .mi[aria-expanded="true"] { background: var(--cs-hover); outline: none; }
-.cs-tablemenu .mi:disabled { color: var(--cs-disabled); cursor: default; }
-.cs-tablemenu .mi.danger:not(:disabled) { color: var(--cs-error); }
-.cs-tablemenu .mi[aria-haspopup]::after { content: "▸"; margin-left: auto; padding-left: 16px; color: var(--cs-muted); }
-.cs-tablemenu .mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 9px; }
+.cs-menu .mi:hover:not(:disabled), .cs-menu .mi:focus-visible, .cs-menu .mi[aria-expanded="true"] { background: var(--cs-hover); outline: none; }
+.cs-menu .mi:disabled { color: var(--cs-disabled); cursor: default; }
+.cs-menu .mi.danger:not(:disabled) { color: var(--cs-error); }
+.cs-menu .mi[aria-haspopup]::after { content: "▸"; margin-left: auto; padding-left: 16px; color: var(--cs-muted); }
+.cs-menu .mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 9px; }
 .cs-tableprops { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; width: 262px; }
 .cs-tableprops .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
 .cs-tableprops .title { font-weight: 600; }
@@ -170,4 +170,41 @@
   border-radius: 5px; cursor: pointer; color: var(--cs-text); }
 .cs-tableprops .colorpop .pick:hover { background: var(--cs-hover); }
 .cs-tableprops .colorpop .pick input { position: absolute; width: 0; height: 0; opacity: 0; border: 0; padding: 0; }
-.cs-tablegrid[hidden], .cs-tablemenu[hidden], .cs-tablemenu .sub[hidden], .cs-tableprops[hidden] { display: none; }
+.cs-tablegrid[hidden], .cs-menu[hidden], .cs-menu .sub[hidden], .cs-tableprops[hidden] { display: none; }
+
+/* images: inline, at most the text's width; selected ones get an outline and a resize handle */
+.cs-area .ProseMirror .cs-img { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: bottom; }
+.cs-area .ProseMirror .cs-img img { max-width: 100%; height: auto; border-radius: 2px; }
+.cs-area .ProseMirror .cs-img img:not([src]) { width: 120px; height: 80px; background: var(--cs-hover); }
+.cs-area .ProseMirror .cs-img.pending img { opacity: .4; }
+.cs-area .ProseMirror .cs-img.selected img { outline: 2px solid var(--cs-link); outline-offset: 1px; }
+.cs-area .ProseMirror .cs-img .handle { display: none; position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px;
+  background: var(--cs-panel); border: 2px solid var(--cs-link); border-radius: 2px; cursor: nwse-resize; }
+.cs-editor:not(.readonly) .cs-area .ProseMirror .cs-img.selected .handle { display: block; }
+/* a file link: a small file sign before its name */
+.cs-area .ProseMirror a.cs-file::before { content: ""; display: inline-block; width: .9em; height: .9em; margin-right: 2px; vertical-align: -.1em;
+  background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E") center / contain no-repeat; }
+
+/* the file picker, the alternative text, notices */
+.cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
+.cs-filepop { padding: 8px 10px 10px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
+.cs-filepop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
+.cs-filepop .title { font-weight: 600; }
+.cs-filepop button.x { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0;
+  border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
+.cs-filepop button.x:hover { background: var(--cs-hover); }
+.cs-filepop .list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
+.cs-filepop .list .none { color: var(--cs-muted); padding: 4px 0; }
+.cs-filepop button.file { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cs-filepop button.file:hover, .cs-filepop button.file:focus-visible { background: var(--cs-hover); outline: none; }
+.cs-filepop button.file img { width: 40px; height: 28px; object-fit: cover; border-radius: 3px; border: 1px solid var(--cs-border); flex: none; }
+.cs-filepop button.file .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-filepop .upload { display: inline-flex; align-items: center; gap: 6px; align-self: flex-end; }
+.cs-altpop { padding: 8px; display: flex; gap: 4px; width: min(360px, 100%); }
+.cs-altpop .alt { flex: 1; min-width: 0; height: 28px; border: 1px solid var(--cs-border); border-radius: 5px; padding: 0 8px; font: inherit;
+  background: var(--cs-panel); color: inherit; }
+.cs-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+  background: var(--cs-text); color: var(--cs-panel); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.cs-filepop[hidden], .cs-altpop[hidden], .cs-notice[hidden] { display: none; }

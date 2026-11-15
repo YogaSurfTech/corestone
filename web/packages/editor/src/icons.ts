@@ -40,6 +40,8 @@ const ICONS: Record<string, string> = {
   "s-rows": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18v5.4H3z" fill="currentColor" stroke="none" opacity=".4"/>',
   "s-columns": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4h6v16H9z" fill="currentColor" stroke="none" opacity=".4"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+  file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',
 };
 
 export function icon(name: string, size = 18): string {

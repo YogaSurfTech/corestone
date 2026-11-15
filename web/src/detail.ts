@@ -1,5 +1,6 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type Route, type State } from "./store";
@@ -390,6 +391,35 @@ export class Detail extends LitElement {
     if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
   }
 
+  /** The entry's files for images and file links in rich text: the stored ones and the ones
+   *  waiting for Save (a new one joins the pending attachments, shown from the browser until
+   *  it is saved). */
+  private readonly blobUrls = new WeakMap<File, string>();
+  private readonly entryFiles: EntryFiles = {
+    add: async (file) => {
+      if (file.size > MAX_ATTACHMENT) throw new Error(`it is larger than ${MAX_ATTACHMENT >> 20} MiB`);
+      const name = freeFileName(file, new Set(await this.entryFiles.list()));
+      const f = name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
+      this.pending = { ...this.pending, files: [...this.pending.files, f], removedFiles: this.pending.removedFiles.filter((n) => n !== name) };
+      this.setOpen("attachments", true, false); // as an upload there does: what Save will store shows
+      this.touched();
+      return name;
+    },
+    url: (name) => {
+      const p = this.pending.files.find((f) => f.name === name);
+      if (p) {
+        let u = this.blobUrls.get(p);
+        if (!u) { u = URL.createObjectURL(p); this.blobUrls.set(p, u); }
+        return u;
+      }
+      const h = this.historic;
+      return h ? api.versionFileUrl(this.guid, h.etag, h.commit.sha, name) : api.fileUrl(this.guid, name);
+    },
+    list: async () => [...new Set([
+      ...(this.view?.attachments ?? []).map((a) => a.name).filter((n) => !this.pending.removedFiles.includes(n)),
+      ...this.pending.files.map((f) => f.name)])],
+  };
+
   private touched() {
     if (this.historic) return; // read-only: nobody is editing
     if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
@@ -771,13 +801,13 @@ export class Detail extends LitElement {
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
     return this.section("fields", () => html`
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
-      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
+      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .files=${this.entryFiles} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
         .overlay=${ov} .readonly=${!!this.historic} .changed=${this.changed("fields." + f.id)} @focusin=${this.touched}
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
         @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
-      ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared .readonly=${!!this.historic} .changed=${this.changed("fields." + k)}
+      ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared .files=${this.entryFiles} .readonly=${!!this.historic} .changed=${this.changed("fields." + k)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}`);
   }
 
@@ -1206,4 +1236,25 @@ export class Detail extends LitElement {
       <h4 class="small muted" style="margin-top:10px">Additional properties</h4>
       ${Object.keys(d).length ? html`<pre class="json">${JSON.stringify(d, null, 2)}</pre>` : html`<div class="muted small">No extra properties. Tools may add their own; they are preserved on save.</div>`}`);
   }
+}
+
+/** The server's limit for one attachment (internal/httpapi maxAttachment). */
+const MAX_ATTACHMENT = 32 << 20;
+
+/** A name for a new file of the entry: its own name made safe, a dated name for pasted
+ *  images (which all arrive as "image.png"), numbered when the name is taken. */
+function freeFileName(file: File, taken: Set<string>): string {
+  // eslint-disable-next-line no-control-regex
+  let name = (file.name || "").replace(/[\u0000-\u001f\u007f/\\]/g, "_").trim().replace(/^[.:]+/, "");
+  const ext = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? file.type.split("/")[1] ?? "bin").toLowerCase().replace("jpeg", "jpg");
+  if (!name || /^image\.[a-z]+$/i.test(name)) {
+    const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
+    name = `image-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+  }
+  let stem = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+  const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+  while (new TextEncoder().encode(stem + suffix).length > 200) stem = stem.slice(0, -1);
+  let out = stem + suffix;
+  for (let n = 2; taken.has(out) || out.startsWith(".corestone"); n++) out = `${stem}-${n}${suffix}`;
+  return out;
 }

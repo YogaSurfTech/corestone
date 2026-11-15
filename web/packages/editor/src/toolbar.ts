@@ -18,6 +18,10 @@ export interface ToolbarHost {
   run(cmd: Command): void;
   /** Opens the link popover for the selection. */
   link(): void;
+  /** Whether the entry's files are available (images, file links). */
+  files(): boolean;
+  /** Opens the image picker, at the mouse pointer when the toolbar was clicked. */
+  image(at?: { x: number; y: number }): void;
   /** Opens the table size grid, at the mouse pointer when the toolbar was clicked. */
   table(at?: { x: number; y: number }): void;
 }
@@ -88,7 +92,7 @@ const load = <T>(key: string, fallback: T): T => {
 };
 const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
 
-const SOON = "Not available yet: images, diagrams and formulas come with TSK-15.";
+const SOON = "Not available yet: diagrams and formulas come with TSK-15.";
 
 export class Toolbar {
   readonly el: HTMLElement;
@@ -170,7 +174,9 @@ export class Toolbar {
       { i: "link", tip: { t: "Link…", k: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
       { i: "table", tip: { t: "Table…", dis: () => (isInTable(S()) ? "No tables in tables. Right-click the table for rows, columns and its properties." : null) },
         run: () => this.host.table(this.pointer) },
-      ...["image", "diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
+      { i: "image", tip: { t: "Image…", dis: () => (this.host.files() ? null : "Images are kept with a saved item; not available here.") },
+        run: () => this.host.image(this.pointer) },
+      ...["diagram", "formula"].map((i) => ({ i, tip: { t: `Insert ${i}…`, dis: () => SOON }, run: () => undefined })),
     ]);
   }
 

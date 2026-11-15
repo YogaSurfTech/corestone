@@ -293,3 +293,56 @@ test("rich text: links to items are picked, shown by name, opened, and kept by t
   await rich.locator(".cs-linkbubble .tgt").click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(target.title);
 });
+
+test("rich text: a pasted image and an uploaded file are stored with Save, as files of the entry", async ({ page }) => {
+  const entry = await post("/entries", { path: folder, type: "all", title: "Image entry", fields: { rich: "Photo:" } });
+  await page.goto(`/artifact/${entry.meta.guid}`);
+  const rich = page.locator("corestone-detail [data-field=rich]");
+  await rich.locator(".ProseMirror").focus();
+  await page.keyboard.press("End");
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 48;
+    c.getContext("2d")!.fillRect(0, 0, 64, 48);
+    const bin = Uint8Array.from(atob(c.toDataURL("image/png").split(",")[1]), (ch) => ch.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bin], "image.png", { type: "image/png" }));
+    document.querySelector("corestone-detail [data-field=rich] .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  const img = rich.locator(".cs-img img");
+  await expect(img).toHaveJSProperty("naturalWidth", 64); // shown from the browser before Save
+  // a file link through the link popover
+  await page.keyboard.type(" manual");
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+Control+ArrowLeft");
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Control+k");
+  await rich.locator(".cs-linkpop .file").click();
+  await rich.locator(".cs-filepop input[type=file]").setInputFiles({ name: "manual.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+  await expect(rich.locator(".ProseMirror a.cs-file")).toHaveText("manual");
+  // both wait for Save as attachments
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(2);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const stored = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  const runs = (stored.data.fields.rich as { text: { image?: string }[] }[])[0].text;
+  const name = runs.find((r) => r.image)?.image ?? "";
+  expect(name).toMatch(/^image-\d{8}-\d{6}\.png$/);
+  expect(runs).toEqual([{ text: "Photo:" }, { image: name }, { text: " " }, { text: "manual", file: "manual.pdf" }]);
+  expect(stored.attachments.map((a) => a.name).sort()).toEqual([name, "manual.pdf"].sort());
+  // after a reload the image comes from the server
+  await page.reload();
+  await expect(rich.locator(".cs-img img")).toHaveJSProperty("naturalWidth", 64);
+  expect(await rich.locator(".cs-img img").getAttribute("src")).toBe(`/api/artifacts/${entry.meta.guid}/files/${encodeURIComponent(name)}`);
+});
+
+test("rich text: invalid images and file links are refused by the server", async () => {
+  const bad = [[{ text: [{ image: "../x.png" }] }], [{ text: [{ text: "x", file: ".corestone.json" }] }]];
+  for (const rich of bad) {
+    const res = await fetch(api + "/entries", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: folder, type: "all", title: "Bad image", fields: { rich } }) });
+    expect(res.status).toBe(400);
+  }
+});

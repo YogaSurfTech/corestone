@@ -18,7 +18,9 @@ import (
 //
 // text is a string or a list of runs (text with its formatting); "\n"
 // inside a text is a line break within the paragraph. A run may be a link:
-// href to a web address (http(s), ftp(s), mailto), or ref to an item (GUID). list makes the
+// href to a web address (http(s), ftp(s), mailto), ref to an item (GUID), or
+// file to a file of the entry. A run may instead be an image, a file of the
+// entry: {"image": "photo.png", "alt": "…", "width": 320}. list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
 // A table has rows of cells; a cell is rich text itself (anything but a
 // table), or, when formatted, an object with its content, header (formatted
@@ -236,6 +238,12 @@ func validateInline(at string, v any) (int, error) {
 		if !ok {
 			return 0, Invalid("%s: a run is not an object", at)
 		}
+		if _, img := o.Get("image"); img {
+			if err := validateImage(at, o); err != nil {
+				return 0, err
+			}
+			continue
+		}
 		s, ok := o.Get("text")
 		text, isStr := s.(string)
 		if !ok || !isStr || text == "" {
@@ -273,14 +281,22 @@ func validateInline(at string, v any) (int, error) {
 				if s, _ := v.(string); !IsGUID(s) {
 					return 0, Invalid("%s: ref is an item id (GUID)", at)
 				}
+			case "file":
+				if s, _ := v.(string); ValidateFileName(s) != nil {
+					return 0, Invalid("%s: file is the name of a file of the entry", at)
+				}
 			default:
 				return 0, Invalid("%s: unknown formatting %q", at, k)
 			}
 		}
-		if _, href := o.Get("href"); href {
-			if _, ref := o.Get("ref"); ref {
-				return 0, Invalid("%s: a link goes to a web address or an item, not both", at)
+		targets := 0
+		for _, k := range []string{"href", "ref", "file"} {
+			if _, ok := o.Get(k); ok {
+				targets++
 			}
+		}
+		if targets > 1 {
+			return 0, Invalid("%s: a link goes to one place: a web address, an item or a file", at)
 		}
 		if _, sub := o.Get("sub"); sub {
 			if _, sup := o.Get("sup"); sup {
@@ -289,6 +305,34 @@ func validateInline(at string, v any) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// validateImage checks an image run: {"image": file name, "alt": text, "width": pixels}.
+func validateImage(at string, o *ojson.Object) error {
+	for _, k := range o.Keys() {
+		v, _ := o.Get(k)
+		switch k {
+		case "image":
+			if s, _ := v.(string); ValidateFileName(s) != nil {
+				return Invalid("%s: image is the name of a file of the entry", at)
+			}
+		case "alt":
+			s, ok := v.(string)
+			if !ok || len(s) > 1000 {
+				return Invalid("%s: alt is a text of at most 1000 bytes", at)
+			}
+			if err := ValidateText(at, s, 1000); err != nil {
+				return err
+			}
+		case "width":
+			if n, ok := integer(v); !ok || n < 16 || n > 4000 {
+				return Invalid("%s: an image width is 16 to 4000 pixels", at)
+			}
+		default:
+			return Invalid("%s: unknown image property %q", at, k)
+		}
+	}
+	return nil
 }
 
 func number(v any) (float64, bool) {

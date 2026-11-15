@@ -96,7 +96,7 @@ export function keepAlign(cmd: Command): Command {
 
 // --- links ---
 
-export interface LinkTarget { href?: string | null; ref?: string | null }
+export interface LinkTarget { href?: string | null; ref?: string | null; file?: string | null }
 
 /** The link at the selection's start: its target and the range of text it covers. */
 export function linkAt(state: EditorState): (LinkTarget & { from: number; to: number }) | null {
@@ -118,7 +118,7 @@ export function linkAt(state: EditorState): (LinkTarget & { from: number; to: nu
   let from = start, to = start + child.nodeSize;
   for (let i = idx - 1; i >= 0 && mark.isInSet(parent.child(i).marks); i--) from -= parent.child(i).nodeSize;
   for (let i = idx + 1; i < parent.childCount && mark.isInSet(parent.child(i).marks); i++) to += parent.child(i).nodeSize;
-  return { href: mark.attrs.href, ref: mark.attrs.ref, from, to };
+  return { href: mark.attrs.href, ref: mark.attrs.ref, file: mark.attrs.file, from, to };
 }
 
 /** Links the selection (or the link at the cursor) to a target; with nothing selected and no
@@ -126,7 +126,7 @@ export function linkAt(state: EditorState): (LinkTarget & { from: number; to: nu
 export function setLink(target: LinkTarget, text?: string): Command {
   return (state, dispatch) => {
     const type = schema.marks.link;
-    const mark = type.create({ href: target.ref ? null : target.href ?? null, ref: target.ref ?? null });
+    const mark = target.ref ? type.create({ ref: target.ref }) : target.file ? type.create({ file: target.file }) : type.create({ href: target.href ?? null });
     const { empty, from, to } = state.selection;
     const tr = state.tr;
     const at = empty ? linkAt(state) : null;

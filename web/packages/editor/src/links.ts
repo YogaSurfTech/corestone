@@ -1,5 +1,6 @@
 import type { EditorView } from "prosemirror-view";
 import { linkAt, removeLink, setLink, type LinkTarget } from "./commands";
+import type { EntryFiles } from "./files";
 import { safeHref } from "./schema";
 
 // Links: the popover that sets one (Ctrl+K or the toolbar), the bubble that
@@ -17,9 +18,10 @@ export interface ItemLinks {
   open(ref: string, newTab: boolean): void;
 }
 
-/** Opens a link: web addresses in a new tab, items through the host. */
-export function openLink(t: LinkTarget, newTab: boolean, items: ItemLinks | undefined) {
+/** Opens a link: web addresses and files in a new tab, items through the host. */
+export function openLink(t: LinkTarget, newTab: boolean, items: ItemLinks | undefined, files: EntryFiles | undefined) {
   if (t.ref) items?.open(t.ref, newTab);
+  else if (t.file) { const u = files?.url(t.file); if (u) window.open(u, "_blank", "noopener"); }
   else if (t.href && safeHref(t.href)) window.open(safeHref(t.href)!, "_blank", "noopener,noreferrer");
 }
 
@@ -30,6 +32,7 @@ export class LinkUI {
   private readonly input: HTMLInputElement;
   private readonly msg: HTMLElement;
   private readonly pickBtn: HTMLButtonElement;
+  private readonly fileBtn: HTMLButtonElement;
   private readonly removeBtn: HTMLButtonElement;
   private readonly bubble: HTMLElement;
   private outside?: (e: MouseEvent) => void;
@@ -39,6 +42,9 @@ export class LinkUI {
     private readonly view: () => EditorView,
     private readonly root: HTMLElement,
     private readonly items: () => ItemLinks | undefined,
+    private readonly files: () => EntryFiles | undefined,
+    /** Lets the user pick or add a file of the entry. */
+    private readonly pickFile: (chosen: (name: string) => void) => void,
   ) {
     this.pop = el("div", "cs-linkpop");
     this.pop.setAttribute("role", "dialog");
@@ -49,10 +55,12 @@ export class LinkUI {
     const apply = button("Apply", "apply", () => this.apply());
     this.pickBtn = button("Item…", "pick", () => this.pick());
     this.pickBtn.title = "Link to an item";
+    this.fileBtn = button("File…", "file", () => this.file());
+    this.fileBtn.title = "Link to a file of this entry";
     this.removeBtn = button("Remove", "unlink", () => this.unlink());
     this.msg = el("div", "msg");
     const row = el("div", "row");
-    row.append(this.input, apply, this.pickBtn, this.removeBtn);
+    row.append(this.input, apply, this.pickBtn, this.fileBtn, this.removeBtn);
     this.pop.append(row, this.msg);
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); this.apply(); }
@@ -75,8 +83,10 @@ export class LinkUI {
     const at = linkAt(view.state);
     this.input.value = at?.href ?? "";
     this.input.classList.remove("bad");
-    this.msg.textContent = at?.ref ? "Linked to an item. Enter an address to link to the web instead." : "";
+    this.msg.textContent = at?.ref ? "Linked to an item. Enter an address to link to the web instead."
+      : at?.file ? `Linked to the file ${at.file}. Enter an address to link to the web instead.` : "";
     this.pickBtn.hidden = !this.items();
+    this.fileBtn.hidden = !this.files();
     this.removeBtn.hidden = !at && !view.state.doc.rangeHasMark(view.state.selection.from, view.state.selection.to, view.state.schema.marks.link);
     this.bubble.hidden = true;
     this.pop.hidden = false;
@@ -120,6 +130,15 @@ export class LinkUI {
     });
   }
 
+  private file() {
+    this.close(false);
+    this.pickFile((name) => {
+      const view = this.view();
+      setLink({ file: name }, name)(view.state, view.dispatch);
+      view.focus();
+    });
+  }
+
   private unlink() {
     const view = this.view();
     removeLink(view.state, view.dispatch);
@@ -135,7 +154,7 @@ export class LinkUI {
       this.shown = "";
       return;
     }
-    const key = `${at.href ?? ""}|${at.ref ?? ""}|${at.from}`;
+    const key = `${at.href ?? ""}|${at.ref ?? ""}|${at.file ?? ""}|${at.from}`;
     if (key !== this.shown) {
       this.shown = key;
       this.bubble.replaceChildren();
@@ -144,12 +163,15 @@ export class LinkUI {
         target.textContent = "Item";
         target.title = at.ref;
         void this.items()?.label?.(at.ref).then((name) => { if (this.shown === key) target.textContent = name; }).catch(() => undefined);
+      } else if (at.file) {
+        target.textContent = at.file;
+        target.title = "File: " + at.file;
       } else {
         target.textContent = at.href ?? "";
         target.title = at.href ?? "";
         target.href = at.href ?? "";
       }
-      target.addEventListener("click", (e) => { e.preventDefault(); openLink(at, e.ctrlKey || e.metaKey, this.items()); });
+      target.addEventListener("click", (e) => { e.preventDefault(); openLink(at, e.ctrlKey || e.metaKey, this.items(), this.files()); });
       this.bubble.append(target,
         button("Edit", "edit", () => this.edit()),
         button("Remove", "unlink", () => { removeLink(this.view().state, this.view().dispatch); }));

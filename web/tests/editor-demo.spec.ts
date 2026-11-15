@@ -87,6 +87,8 @@ test("pasted HTML keeps only what the editor supports", async ({ page }) => {
     dt.setData("text/html", '<h1 style="color:rgb(198,40,40)">Title</h1><p><b>bold</b> <span style="font-family:Comic Sans MS;font-size:12pt">odd font</span> <script>x()</script><img src="x.png"></p>');
     document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
   });
+  // the image (not found) is left out
+  await expect(page.locator(".cs-notice")).toContainText("left out");
   await page.locator("#save").click();
   const v = await stored(page);
   // the heading became a paragraph and kept its colour
@@ -95,7 +97,7 @@ test("pasted HTML keeps only what the editor supports", async ({ page }) => {
   const runs = v[1].text as { text: string }[];
   expect(runs.find((r) => r.text === "bold")).toEqual({ text: "bold", bold: true });
   expect(runs.find((r) => r.text === "odd font")).toEqual({ text: "odd font", size: 12 });
-  expect(runs.map((r) => r.text).join("")).toBe("bold odd font");
+  expect(runs.map((r) => r.text).join("").trimEnd()).toBe("bold odd font");
   expect(v).toHaveLength(2);
   await page.screenshot({ path: "test-results/editor-demo.png", fullPage: true });
 });
@@ -539,3 +541,129 @@ test("tables: pasted tables keep what the editor supports; a table in a table be
 
 /** A cell formatted as header, as stored. */
 function H(content: unknown) { return { content, header: true }; }
+
+/** A PNG of w × h pixels, drawn by the browser. */
+async function png(page: import("@playwright/test").Page, w = 120, h = 80): Promise<string> {
+  return page.evaluate(([w, h]) => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#1565c0";
+    g.fillRect(0, 0, w, h);
+    return c.toDataURL("image/png").split(",")[1];
+  }, [w, h] as const);
+}
+
+test("images: upload with the image button, pick it again, resize, alternative text, original size", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("Pump ");
+  await (await insertMenu(page)).locator("[data-cmd=image]").click();
+  const pick = page.locator(".cs-filepop");
+  await expect(pick).toBeVisible();
+  await expect(pick.locator(".none")).toHaveText("No images in this entry yet.");
+  await pick.locator("input[type=file]").setInputFiles({ name: "pump.png", mimeType: "image/png", buffer: Buffer.from(await png(page), "base64") });
+  const img = page.locator(".cs-area .cs-img img");
+  await expect(img).toHaveCount(1);
+  await expect(img).toHaveJSProperty("naturalWidth", 120);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "Pump " }, { image: "pump.png" }] }]);
+  // the picker offers the entry's images
+  await page.locator(".cs-area .ProseMirror").focus();
+  await (await insertMenu(page)).locator("[data-cmd=image]").click();
+  await pick.getByRole("button", { name: "pump.png" }).click();
+  await expect(img).toHaveCount(2);
+  // the selected image gets a handle; dragging it sets the width
+  await img.first().click();
+  await expect(page.locator(".cs-area .cs-img.selected")).toHaveCount(1);
+  const hb = (await page.locator(".cs-area .cs-img.selected .handle").boundingBox())!;
+  await page.mouse.move(hb.x + 5, hb.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + 85, hb.y + 5, { steps: 5 });
+  await page.mouse.up();
+  await page.locator("#save").click();
+  const w = (await stored(page))[0].text[1].width;
+  expect(Math.abs(w - 200)).toBeLessThan(6);
+  // the image's menu: alternative text, original size
+  const menu = page.locator(".cs-imagemenu");
+  await img.first().click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Alternative text…" }).click();
+  await page.locator(".cs-altpop input").fill("The pump");
+  await page.keyboard.press("Enter");
+  await img.first().click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Original size" }).click();
+  await page.locator("#save").click();
+  expect((await stored(page))[0].text[1]).toEqual({ image: "pump.png", alt: "The pump" });
+  await img.first().click({ button: "right" });
+  await expect(menu.getByRole("menuitem", { name: "Original size" })).toBeDisabled();
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "Pump " }, { image: "pump.png" }] }]);
+});
+
+test("images: a pasted screenshot is stored; pasted images from HTML are copied, unreachable ones left out", async ({ page }) => {
+  const b64 = await png(page, 40, 30);
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.evaluate((b64) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], "image.png", { type: "image/png" }));
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, b64);
+  const img = page.locator(".cs-area .cs-img img");
+  await expect(img).toHaveCount(1);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ image: "image.png" }] }]);
+  await page.locator(".cs-area .ProseMirror").focus();
+  await page.keyboard.press("Control+End");
+  await page.waitForTimeout(150);
+  await page.evaluate((b64) => {
+    const dt = new DataTransfer();
+    dt.setData("text/html", `<p>Web <img src="data:image/png;base64,${b64}" alt="dot"> and <img src="http://127.0.0.1:9/gone.png"> end</p>`);
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, b64);
+  await expect(page.locator(".cs-notice")).toContainText("left out");
+  await expect(img).toHaveCount(2);
+  await expect(page.locator(".cs-area .cs-img.pending")).toHaveCount(0);
+  await page.locator("#save").click();
+  // the pasted paragraph joins the one the cursor is in
+  expect(await stored(page)).toEqual([{ text: [{ image: "image.png" }, { text: "Web " }, { image: "image-2.png", alt: "dot" }, { text: " and  end" }] }]);
+  // images in table cells come back unchanged
+  const value = [{ table: [[[{ text: [{ image: "image.png", width: 30 }] }], "b"]] }];
+  await page.locator("#json").fill(JSON.stringify(value));
+  await page.locator("#load").click();
+  await expect(page.locator(".cs-area td .cs-img img")).toHaveJSProperty("naturalWidth", 40);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual(value);
+});
+
+test("file links: from the link popover, and by dropping a file", async ({ page }) => {
+  await page.locator(".cs-area .ProseMirror").click();
+  await page.keyboard.type("Manual");
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Shift+Home");
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Control+k");
+  await page.locator(".cs-linkpop").getByRole("button", { name: "File…" }).click();
+  const pick = page.locator(".cs-filepop");
+  await expect(pick.locator(".title")).toHaveText("Link to a file");
+  await pick.locator("input[type=file]").setInputFiles({ name: "manual.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+  await expect(page.locator(".cs-area a.cs-file")).toHaveText("Manual");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "Manual", file: "manual.pdf" }] }]);
+  // the bubble names the file
+  await page.locator(".cs-area a.cs-file").click();
+  await page.waitForTimeout(100);
+  await expect(page.locator(".cs-linkbubble .tgt")).toHaveText("manual.pdf");
+  // a dropped file becomes a file link at the drop point
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  const box = (await page.locator(".cs-area .ProseMirror p").last().boundingBox())!;
+  await page.evaluate(([x, y]) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(["a,b\n"], "data.csv", { type: "text/csv" }));
+    document.querySelector(".cs-area .ProseMirror")!.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+  }, [box.x + 5, box.y + box.height / 2] as const);
+  await expect(page.locator(".cs-area a.cs-file")).toHaveCount(2);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "Manual", file: "manual.pdf" }] }, { text: [{ text: "data.csv", file: "data.csv" }] }]);
+});

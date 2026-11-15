@@ -1,6 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import type { Field, Kind, Schema, Summary } from "./types";
-import { plainText, type RichText } from "@corestone/editor";
+import { plainText, type RichText } from "@corestone/editor/model";
 
 export const kindLabel: Record<Kind, string> = { entry: "Entry", document: "Document", link: "Link", comment: "Comment" };
 export const kindPlural: Record<Kind, string> = { entry: "Entries", document: "Documents", link: "Links", comment: "Comments" };

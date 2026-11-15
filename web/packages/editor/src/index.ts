@@ -4,10 +4,12 @@
 import { RichTextEditor } from "./editor";
 import type { RichText } from "./model";
 import type { ItemLinks } from "./links";
+import type { EntryFiles } from "./files";
 import type { Palette } from "./toolbar";
 
 export { RichTextEditor, type EditorOptions } from "./editor";
 export { type ItemLinks } from "./links";
+export { type EntryFiles } from "./files";
 export { fromStorage, isTable, plainText, toStorage, type Block, type Cell, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
 export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
@@ -20,6 +22,8 @@ export class RichTextElement extends HTMLElement {
   palette?: Palette;
   /** Links to items of the host application; without it only web links are offered. */
   items?: ItemLinks;
+  /** The entry's files, for images and file links; without it neither is offered. */
+  files?: EntryFiles;
 
   get value(): RichText | null { return this.editor ? this.editor.value : this.pending; }
   set value(v: RichText | null) {
@@ -35,6 +39,7 @@ export class RichTextElement extends HTMLElement {
       palette: this.palette,
       readonly: this.hasAttribute("readonly"),
       items: () => this.items,
+      files: () => this.files,
       onChange: (value) => { this.pending = value; this.dispatchEvent(new CustomEvent("change", { detail: value, bubbles: true })); },
     });
   }

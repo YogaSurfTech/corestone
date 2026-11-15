@@ -49,7 +49,7 @@ func TestValidateRichText(t *testing.T) {
 		`[{"text": [{"text": "x", "href": "javascript:alert(1)"}]}]`: "href is a web address",
 		`[{"text": [{"text": "x", "href": "example.org"}]}]`:         "href is a web address",
 		`[{"text": [{"text": "x", "ref": "REQ-1"}]}]`:                "ref is an item id",
-		`[{"text": [{"text": "x", "href": "https://a.org", "ref": "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f"}]}]`: "not both",
+		`[{"text": [{"text": "x", "href": "https://a.org", "ref": "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f"}]}]`: "goes to one place",
 	}
 	for s, want := range bad {
 		err := ValidateRichText("f", parse(t, s))
@@ -135,5 +135,31 @@ func TestRichTextTables(t *testing.T) {
 	}
 	if got := RichTextRefs(v); len(got) != 1 || got[0] != g {
 		t.Errorf("refs in cells %v", got)
+	}
+}
+
+func TestRichTextImagesAndFileLinks(t *testing.T) {
+	good := `[{"align": "center", "text": [{"image": "photo.png", "alt": "The pump", "width": 320}]},
+		{"text": [{"text": "See "}, {"text": "the manual", "file": "manual.pdf"}, {"image": "icon.png"}]},
+		{"table": [[[{"text": [{"image": "cell.png"}]}]]]}]`
+	if err := ValidateRichText("f", parse(t, good)); err != nil {
+		t.Fatal(err)
+	}
+	if got := RichTextPlain(parse(t, good)); got != "\nSee the manual\n" {
+		t.Errorf("plain %q", got)
+	}
+	bad := map[string]string{
+		`[{"text": [{"image": "../x.png"}]}]`:                                         "name of a file",
+		`[{"text": [{"image": ".corestone.json"}]}]`:                                  "name of a file",
+		`[{"text": [{"image": "a.png", "width": 5}]}]`:                                "16 to 4000",
+		`[{"text": [{"image": "a.png", "bold": true}]}]`:                              "unknown image property",
+		`[{"text": [{"text": "x", "file": "a/b.pdf"}]}]`:                              "name of a file",
+		`[{"text": [{"text": "x", "file": "a.pdf", "href": "https://example.com"}]}]`: "goes to one place",
+	}
+	for s, want := range bad {
+		err := ValidateRichText("f", parse(t, s))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: got %v, want %q", s, err, want)
+		}
 	}
 }

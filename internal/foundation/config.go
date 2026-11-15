@@ -184,15 +184,7 @@ func (f *Foundation) Icon(ctx context.Context, name, folder string) ([]byte, str
 }
 
 // ValidateAttachmentName checks a file name inside a GUID directory.
-func ValidateAttachmentName(name string) error {
-	if err := model.ValidateSegment(name); err != nil {
-		return err
-	}
-	if name == model.GUIDFile || strings.HasPrefix(name, ".corestone") {
-		return model.Invalid("%q is reserved", name)
-	}
-	return nil
-}
+func ValidateAttachmentName(name string) error { return model.ValidateFileName(name) }
 
 // PutAttachment stores a file inside an artifact's GUID directory.
 func (f *Foundation) PutAttachment(ctx context.Context, guid, name string, content []byte) error {

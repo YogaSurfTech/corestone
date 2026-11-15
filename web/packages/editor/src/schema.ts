@@ -73,8 +73,36 @@ const nodes: Record<string, NodeSpec> = {
   // a header cell is formatting: it looks like a header and is a <th> for screen readers
   ...tables(),
   text: { group: "inline" },
+  // an image: a file of the entry (src), shown inline like a large character; width in pixels
+  // (null: its own size, at most the text's width). pending: while a pasted image from
+  // elsewhere is being stored, the address it came from (not stored).
+  image: {
+    inline: true, group: "inline", draggable: true, atom: true,
+    attrs: { src: { default: null }, alt: { default: "" }, width: { default: null }, pending: { default: null } },
+    parseDOM: [{ tag: "img", getAttrs: (d) => {
+      const e = d as HTMLImageElement;
+      const file = safeFileName(e.getAttribute("data-file"));
+      const from = e.getAttribute("src") ?? "";
+      if (!file && !from) return false;
+      const w = Number(e.getAttribute("width")) || null;
+      // always taken in through the importer: the file may belong to another entry
+      return { src: null, alt: (e.getAttribute("alt") ?? "").slice(0, 1000), width: w && w >= 16 ? Math.min(Math.round(w), 4000) : null,
+        pending: JSON.stringify({ file, from }) };
+    } }],
+    toDOM: (n) => ["img", { "data-file": n.attrs.src, alt: n.attrs.alt, width: n.attrs.width }],
+  },
   hard_break: { inline: true, group: "inline", selectable: false, parseDOM: [{ tag: "br" }], toDOM: () => ["br"] },
 };
+
+/** A file name of the entry's file store, or null: the server's rules (one path segment,
+ *  not reserved, no control characters, at most 255 bytes). */
+export function safeFileName(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const bytes = new TextEncoder().encode(v).length;
+  if (v === "." || v === ".." || bytes > 255 || v.trim() !== v || /[/\\]/.test(v) || v.startsWith(":") || v.startsWith(".corestone")
+    || GUID.test(v) || /[\u0000-\u001f\u007f-\u009f\ufffd]/.test(v)) return null;
+  return v;
+}
 
 export const STRIPES = ["rows", "columns"] as const;
 export const BORDERS = ["outside", "rows", "columns", "none"] as const; // absent: the full grid
@@ -147,18 +175,23 @@ export const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const marks: Record<string, MarkSpec> = {
   // first, so a link encloses the other formatting of its text
   link: {
-    attrs: { href: { default: null }, ref: { default: null } }, // a web address, or an item (GUID) of the host application
+    // a web address, an item (GUID) of the host application, or a file of the entry
+    attrs: { href: { default: null }, ref: { default: null }, file: { default: null } },
     inclusive: false, // typing at the end of a link does not extend it
     parseDOM: [{ tag: "a", getAttrs: (d) => {
       const el = d as HTMLElement;
       const ref = el.getAttribute("data-ref");
-      if (ref && GUID.test(ref)) return { href: null, ref };
+      if (ref && GUID.test(ref)) return { href: null, ref, file: null };
+      const file = safeFileName(el.getAttribute("data-file"));
+      if (file) return { href: null, ref: null, file };
       const href = safeHref(el.getAttribute("href"));
-      return href ? { href, ref: null } : false;
+      return href ? { href, ref: null, file: null } : false;
     } }],
     toDOM: (m: Mark) => m.attrs.ref
       ? ["a", { "data-ref": m.attrs.ref, class: "cs-item" }, 0]
-      : ["a", { href: m.attrs.href, title: m.attrs.href, rel: "noopener noreferrer", target: "_blank" }, 0],
+      : m.attrs.file
+        ? ["a", { "data-file": m.attrs.file, class: "cs-file", title: m.attrs.file }, 0]
+        : ["a", { href: m.attrs.href, title: m.attrs.href, rel: "noopener noreferrer", target: "_blank" }, 0],
   },
   bold: { parseDOM: [{ tag: "strong" }, { tag: "b", getAttrs: (d) => ((d as HTMLElement).style.fontWeight !== "normal" ? null : false) },
     { style: "font-weight", getAttrs: (v) => (/^(bold(er)?|[6-9]\d\d)$/.test(v as string) ? null : false) }], toDOM: () => ["strong", 0] },
