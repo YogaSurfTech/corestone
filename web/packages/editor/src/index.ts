@@ -24,6 +24,15 @@ export class RichTextElement extends HTMLElement {
   items?: ItemLinks;
   /** The entry's files, for images, file links and formulas; without it none is offered. */
   files?: EntryFiles;
+  private key?: string;
+  /** Under which name a height dragged with the bottom edge is remembered in this browser
+   *  (e.g. the field's type and name); without it the height is not remembered. */
+  get sizeKey(): string | undefined { return this.key; }
+  set sizeKey(v: string | undefined) {
+    if (v === this.key) return;
+    this.key = v;
+    if (this.editor) this.editor.sizeKey = v;
+  }
 
   get value(): RichText | null { return this.editor ? this.editor.value : this.pending; }
   set value(v: RichText | null) {
@@ -40,6 +49,7 @@ export class RichTextElement extends HTMLElement {
       readonly: this.hasAttribute("readonly"),
       items: () => this.items,
       files: () => this.files,
+      sizeKey: this.key,
       onChange: (value) => { this.pending = value; this.dispatchEvent(new CustomEvent("change", { detail: value, bubbles: true })); },
     });
   }

@@ -64,6 +64,7 @@ const files: EntryFiles = {
   list: async () => [...store.keys()],
 };
 ed.files = files;
+ed.sizeKey = "demo"; // a dragged height is remembered
 (window as unknown as { demoFiles: Map<string, File> }).demoFiles = store;
 
 ed.value = saved() ?? SAMPLE;
