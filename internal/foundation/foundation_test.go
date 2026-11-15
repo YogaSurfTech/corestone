@@ -334,6 +334,10 @@ func TestLifecycle(t *testing.T) {
 	if err != nil || string(got) != "hello" {
 		t.Fatal("attachment read")
 	}
+	// the listing knows its size (the projection records it as the file is stored)
+	if v, err := f.Get(ctx, r1.Meta.GUID); err != nil || len(v.Attachments) != 1 || v.Attachments[0].Size != 5 {
+		t.Fatalf("attachment listing %+v %v", v.Attachments, err)
+	}
 
 	// move: identity, metadata locality and attachments follow
 	putConfig(t, f, "archive", "entries/types.json", `{"types":[{"id":"requirement","fields":["reason"]}]}`)
