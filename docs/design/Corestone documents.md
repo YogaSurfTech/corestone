@@ -1,6 +1,6 @@
 # Corestone documents: specification (draft)
 
-Status: draft for TSK-7, revision 2. It replaces the current document format and view, which were
+Status: draft for TSK-7, revision 3. It replaces the current document format and view, which were
 never specified. Inputs: design guide §2.3.1–§2.3.2, §7.6, §7.7, §9.5; the rich-text editor
 ([inner workings](Corestone%20rich-text%20editor%20inner%20workings.md)); decisions of
 2026-11-16.
@@ -19,6 +19,11 @@ its looks:
 A document only **references** entries. No document owns an entry: an entry can be in any number
 of documents, and none of them has a special role for it. Sections exist only inside documents;
 they are not entries.
+
+**Reuse is the norm.** Corestone's main idea is that entries are reused by reference, as often as
+possible: a requirement written once serves every product that needs it, together with its links
+to test cases, risks and other entries. Overlays and duplicates are exceptions, for the few
+entries where a document really differs (section 6).
 
 Like entries, documents have a type, fields, workflows, links, comments and files (design guide
 §2.3.2). The document view shows only the content; the rest is in sidebars (§7.6).
@@ -116,9 +121,11 @@ document additions; the toolbar and context menus look and work the same.
   higher level, moves into the new section (as in Word).
 - **Tab / Shift+Tab** in a heading moves the section one level down or up, with its content and
   subsections. A section cannot go deeper than one level below the section before it.
-- **Removing a heading** (Backspace at its start, or the style Normal): its subsections become
-  children of its parent. Its content joins the section before it (open question 1). Its id is
-  gone.
+- **Removing a heading** (Backspace at its start, or the style Normal) works as in Word:
+  - its own content (text and entries) joins the end of the section before it, which is what
+    the page shows anyway;
+  - its subsections become children of its parent;
+  - its id is gone. Comments anchored to the section move with its content.
 - **Outline** (a sidebar panel): the tree of headings with their numbers. A click scrolls to the
   section; dragging moves a section with everything in it.
 
@@ -130,10 +137,14 @@ document additions; the toolbar and context menus look and work the same.
   type first, then stores the entry in the nearest folder above the document whose configuration
   allows that type. A document type can name a different folder (`entryFolder`, section 5).
 - A placed entry is read-only in the document; a double click opens it.
+- **Shared entries are marked:** a small mark on an entry that other documents use too, with
+  their names in its tooltip. Editing it changes all of them, so authors see what a change
+  affects.
 - Its right-click menu offers:
   - Open;
   - View ▸ (section 5);
-  - Replace with overlay, Replace with duplicate (section 6);
+  - Replace with overlay, Replace with duplicate (section 6), each as a deliberate decision for
+    this one entry;
   - Pin to this version / Unpin (section 7.3);
   - Remove from document.
 - **Remove from document** and moving an entry to another place are document changes. The entry
@@ -193,7 +204,25 @@ Set on the document type, in `types.json` of `documents/`:
   whose configuration allows the type.
 - **`entryNumbers`** (default true) switches entry numbering on or off.
 
-## 6. Overlays, duplicates and templates
+## 6. Reuse, overlays, duplicates and templates
+
+### Reuse by reference
+
+The normal way to build a new document is to **reference existing entries**. Their links to test
+cases, risks and other entries stay valid and are reused with them. Copying entries for every new
+document would bring reuse to zero and require all links to be made again, often to copies of
+those entries too.
+
+### Libraries and templates
+
+A **template is a library**: one or more documents whose entries other documents reference.
+
+- **Copy document** creates a new document with the same text and sections, placing the **same
+  entries**. Nothing is copied but the document. The copy can create a link to the original, with
+  a link type from the repository's configuration (for example "instantiated from").
+- **Insert section from document…** places a section of another document (a library chapter)
+  into the current document: its headings and text are copied, its entries are placed as
+  references. Section ids are new; the entries are the same.
 
 ### Overlays
 
@@ -209,15 +238,22 @@ REQ-12   "The pump shall start within 2 s."   priority: high
 "Global spec" places REQ-12, and "EU spec" places REQ-31. REQ-31 shows "3 s" and priority "high"
 (from REQ-12). One document may place both: they are two entries.
 
+**An overlay starts without links.** It inherits fields, but not links. It differs from its base,
+so the base's links do not necessarily hold for it. For example: REQ-12 is used in four products
+and verified by one test case in each. Showing all four test cases on REQ-31 would be wrong: it
+may need only the third, or a new one. Inherited links would also be hard to remove. The overlay's
+links are made for it, deliberately.
+
 ### Replacing a placed entry
 
-Two operations in a placed entry's right-click menu:
+Where a document really differs, one entry is replaced, with two operations in its right-click
+menu:
 
 - **Replace with overlay** creates a new entry whose base is the placed entry, with no fields of
-  its own yet. The placement now points to it. The document shows the same content at first, and
-  can then change any field. Fields it does not change follow the original.
-- **Replace with duplicate** creates a full copy without a base. The placement now points to it;
-  the copy has no connection to the original.
+  its own and no links. The placement now points to it. The document shows the same content at
+  first, and can then change any field. Fields it does not change follow the original.
+- **Replace with duplicate** creates a full copy without a base and without links. The placement
+  now points to it; the copy has no connection to the original.
 
 The original stays where it is, including in other documents. The document records the change
 ("REQ-12 replaced by its overlay REQ-31"). The new entry's history in this document starts there,
@@ -225,34 +261,23 @@ and the original's ends there, as with a removal. New entries go to the folder o
 
 ### Bulk actions
 
-The same operations, and others, work on a **set of entries**:
+Bulk actions work on a **set of entries**:
 
 - **Sets:**
   - a selection in the overview table;
   - in a document, a section with or without its subsections;
   - the root, which means all entries of the document.
 - **Actions:**
-  - Replace with overlay and Replace with duplicate (from a document only);
   - set a field;
   - run a workflow transition;
-  - move to a folder.
-- Each action shows a preview first ("creates 48 overlays in `projects/a/requirements`") and is
-  saved as **one commit**. This is ROADMAP 3.3 (bulk operations), on the batch endpoint (2.1).
-
-### Copying a document; templates
-
-**Copy document** creates a new document with the same text, sections and placements. The copy
-dialog asks what to do with the entries:
-
-- **Keep shared:** the copy references the same entries. Editing one changes both documents.
-- **Replace all with overlays:** the bulk action on the root. The copy starts identical, can
-  change anything, and follows the original's entries in fields it has not changed.
-- **Replace all with duplicates:** full copies, no connection to the original's entries.
-
-It can also create a link from the copy to the original, with a link type of the repository's
-configuration (for example "instantiated from").
-
-A template is then just a document that is copied. No separate template mechanism is needed.
+  - move to a folder;
+  - Replace all with overlays, Replace all with duplicates (from a document only).
+- Each action shows a preview first ("creates 48 overlays in `projects/a/requirements`; they have
+  no links") and is saved as **one commit**. This is ROADMAP 3.3 (bulk operations), on the batch
+  endpoint (2.1).
+- **Replacing in bulk is possible but not prominent.** It works against reuse. It sits at the end
+  of the bulk actions menu, and its preview says how many entries and links are affected. It
+  exists for the rare case where a whole copy must stand on its own.
 
 ## 7. Entries in documents: rules
 
@@ -263,7 +288,9 @@ documents; in documents, entries are removed or moved out instead. The same hold
 folder that contains such entries.
 
 Git is the source of truth, so an entry can still disappear through a direct Git change. The
-document view then shows "missing entry" in its place, and validation reports it.
+document view is **forgiving**: it shows "missing entry" in its place with the entry's HID, taken
+from the last version that had it, or its GUID if no HID can be found. The document still opens,
+saves and exports; validation reports the missing entry.
 
 An entry that was removed from all documents can be deleted. Older versions of a document still
 show it as it was, from their commit.
@@ -340,26 +367,22 @@ columns.
    - deep links to sections.
 3. **Merging per section.**
 4. **History:** the combined history, and versions shown with their entries as they were.
-5. **Entries and templates:**
+5. **Entries and reuse:**
    - configured entry views;
+   - the mark on shared entries;
    - "New entry here" with the folder rule;
-   - Replace with overlay and Replace with duplicate;
-   - Copy document with its three modes;
+   - Replace with overlay and Replace with duplicate (per entry);
+   - Copy document and Insert section from document;
    - generated lists.
-6. **Bulk actions** (ROADMAP 3.3) and **pinned entries** (TSK-33).
+6. **Bulk actions** (ROADMAP 3.3), including the replacing ones, and **pinned entries** (TSK-33).
 
 Later: convert selection to entry and unmark, comments anchored to sections and text ranges
 (design guide §7.7), export (ROADMAP 3.2).
 
 ## 10. Open questions
 
-1. **The content of a removed heading.** Its subsections become children of its parent (decided).
-   Its own text and entries cannot simply follow, because content always comes before
-   subsections: placed after the parent's earlier subsections, it would read as part of the last
-   one. Proposal: it joins the end of the section before it, as in Word, which is what the page
-   shows anyway. Comments anchored to the removed section move with its content.
-2. **References to a section that no longer exists.** Proposal: shown as a broken reference
+1. **References to a section that no longer exists.** Proposal: shown as a broken reference
    ("section removed") with the last known title, so the author fixes it. The alternative is to
-   follow the content.
-3. **Corestone's standard heading formatting.** Sizes, numbering style and spacing per level are
+   follow the content to the section before it.
+2. **Corestone's standard heading formatting.** Sizes, numbering style and spacing per level are
    to be defined, together with the other Corestone formatting.
