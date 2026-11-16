@@ -1,6 +1,6 @@
 # Corestone documents: specification (draft)
 
-Status: draft for TSK-7, revision 3. It replaces the current document format and view, which were
+Status: draft for TSK-7, revision 4. It replaces the current document format and view, which were
 never specified. Inputs: design guide §2.3.1–§2.3.2, §7.6, §7.7, §9.5; the rich-text editor
 ([inner workings](Corestone%20rich-text%20editor%20inner%20workings.md)); decisions of
 2026-11-16.
@@ -59,7 +59,7 @@ Documents add sections and entries:
   (`?section=<id>`) and queries use it. A new section gets a new id; a copied section gets a new
   id; a moved section keeps its id.
 - `title` is plain text (one line, at most 500 characters). Headings carry no formatting of their
-  own; they are shown in Corestone's standard heading formatting (to be defined).
+  own; they are shown in Corestone's heading formatting (section 4).
 - `children` holds the section's content first, then its subsections. The order is always
   *content, then sections*.
 - The depth is the heading level: a top section is a heading 1, its subsections heading 2, and so
@@ -108,6 +108,9 @@ created again. The one existing document ("Open Tasks") is recreated by hand.
 - Its visible text is generated when the document is shown, for example "3.2 Start-up" or
   "REQ-12", so it stays right after renumbering or renaming (like a cross-reference in Word).
 - References to sections of other documents work the same way.
+- A reference whose target no longer exists (a removed section, a missing entry) stays in the
+  text and is shown as **missing**, with the last known title or HID, or the id if none is known.
+  The author fixes it; nothing breaks.
 
 ## 4. Editing
 
@@ -126,6 +129,10 @@ document additions; the toolbar and context menus look and work the same.
     the page shows anyway;
   - its subsections become children of its parent;
   - its id is gone. Comments anchored to the section move with its content.
+- **Heading formatting** is built in for now: Arial, bold, in sizes that decrease with the level
+  from 1 to 6, with the section number before the title. Deeper levels use the size of level 6
+  and are underlined. A configurable format in the repository's configuration comes later,
+  together with the other Corestone formatting.
 - **Outline** (a sidebar panel): the tree of headings with their numbers. A click scrolls to the
   section; dragging moves a section with everything in it.
 
@@ -287,6 +294,15 @@ An entry placed in any document **cannot be deleted**. The server refuses it and
 documents; in documents, entries are removed or moved out instead. The same holds for deleting a
 folder that contains such entries.
 
+**The delete dialog:**
+
+- **Placed in documents:** the dialog is a notification without a Delete button. It says that
+  the entry is used in documents and lists all of them, each with the section and number of the
+  entry and a link to open it there. Once it is removed from all of them, it can be deleted.
+- **Not placed anywhere:** the entry is deleted together with its links and comments (and their
+  replies), in one commit, as today. The confirmation lists those links and comments, each with a
+  link to open it, so they can be looked at before confirming.
+
 Git is the source of truth, so an entry can still disappear through a direct Git change. The
 document view is **forgiving**: it shows "missing entry" in its place with the entry's HID, taken
 from the last version that had it, or its GUID if no HID can be found. The document still opens,
@@ -381,8 +397,5 @@ Later: convert selection to entry and unmark, comments anchored to sections and 
 
 ## 10. Open questions
 
-1. **References to a section that no longer exists.** Proposal: shown as a broken reference
-   ("section removed") with the last known title, so the author fixes it. The alternative is to
-   follow the content to the section before it.
-2. **Corestone's standard heading formatting.** Sizes, numbering style and spacing per level are
-   to be defined, together with the other Corestone formatting.
+None at the moment. Corestone's configurable formatting (headings and the rest) is defined later,
+outside this specification.
