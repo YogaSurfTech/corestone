@@ -1,13 +1,14 @@
 # Corestone documents: specification (draft)
 
-Status: draft for TSK-7, for review. It replaces the current document format and view, which were
-never specified. Inputs: design guide §2.3.2, §7.6, §7.7, §9.5; the rich-text editor
-([inner workings](Corestone%20rich-text%20editor%20inner%20workings.md)); decisions of 2026-11-16.
+Status: draft for TSK-7, revision 2. It replaces the current document format and view, which were
+never specified. Inputs: design guide §2.3.1–§2.3.2, §7.6, §7.7, §9.5; the rich-text editor
+([inner workings](Corestone%20rich-text%20editor%20inner%20workings.md)); decisions of
+2026-11-16.
 
 ## 1. What a document is
 
-A document composes text and reusable entries into one readable whole: a specification, a manual,
-a report. It is a **tree of sections**. Each section has a heading and holds content (text,
+A document composes text and entries into one readable whole: a specification, a manual, a
+report. It is a **tree of sections**: each section has a heading and holds content (text,
 pictures, tables, entries) and further sections. The tree is the document's structure, not only
 its looks:
 
@@ -15,98 +16,152 @@ its looks:
 - the entries under a heading can be **queried**, directly or with all sections below it;
 - from an entry, the way **up to the top** of each document it is in is known.
 
+A document only **references** entries. No document owns an entry: an entry can be in any number
+of documents, and none of them has a special role for it. Sections exist only inside documents;
+they are not entries.
+
 Like entries, documents have a type, fields, workflows, links, comments and files (design guide
 §2.3.2). The document view shows only the content; the rest is in sidebars (§7.6).
 
 ## 2. Stored format
 
-The document's `content` is a list of nodes. The text nodes are the same paragraphs as rich-text
-fields (formatting, lists, alignment, tables, links, images, formulas, diagrams; see the editor's
-storage model). Documents add sections and entries:
+The document itself is the **root** of the tree. The root is not shown as a heading: its title is
+the document's title, and its own content is the document's introduction. The document's `content`
+holds the root's children. Text nodes are the same paragraphs as rich-text fields (formatting,
+lists, alignment, tables, links, images, formulas, diagrams; see the editor's storage model).
+Documents add sections and entries:
 
 ```json
 "content": [
-  { "text": "An introduction before the first heading." },
+  { "text": "An introduction, the root's own content." },
+  { "entry": "0b6f6a7e-5d55-4c38-9f0e-1f6f3c2f4b11" },
   { "section": "k3v9q2xa", "title": "Scope", "children": [
       { "text": [ { "text": "The pump " }, { "text": "shall", "bold": true }, { "text": " …" } ] },
       { "entry": "6d3a9c4e-0dfe-47fe-9da7-b075c955adb5" },
       { "section": "p0m4z8re", "title": "Start-up", "children": [
           { "entry": "a261dff3-cc83-43c2-9ccf-8688f3162daf", "view": "card" },
+          { "entry": "9f3edfe4-f63d-47e3-a9c2-7c12d78f58ed", "pin": "3f1c9a0d…" },
           { "text": [ { "diagram": "diagram.drawio.png", "width": 480 } ] }
       ] }
   ] }
 ]
 ```
 
-**Sections**
+### Sections
 
 - `section` is the section's **id**: 8 characters `[a-z0-9]`, unique in the document, permanent.
-  It survives renaming and moving; comments, deep links (`?section=<id>`) and queries use it.
-  A new section gets a new id; a copied section gets a new id; a moved section keeps its id.
-- `title` is plain text (one line, at most 500 characters). Headings carry no inline formatting,
-  so the outline, the table of contents, queries and search read them as they are.
-- `children` holds the section's content first, then its subsections. Content after a subsection
-  would read as part of that subsection, so it is not allowed: the order is always
+  It survives renaming, moving and renumbering. Comments, references, deep links
+  (`?section=<id>`) and queries use it. A new section gets a new id; a copied section gets a new
+  id; a moved section keeps its id.
+- `title` is plain text (one line, at most 500 characters). Headings carry no formatting of their
+  own; they are shown in Corestone's standard heading formatting (to be defined).
+- `children` holds the section's content first, then its subsections. The order is always
   *content, then sections*.
 - The depth is the heading level: a top section is a heading 1, its subsections heading 2, and so
-  on. Levels cannot be skipped. The depth is limited to 16 (as today); headings deeper than 6
-  look like heading 6.
-- Content before the first section is the document's introduction (no heading).
+  on. Levels cannot be skipped. The depth is not limited to 6; a technical limit of 16 guards
+  against runaway nesting.
 
-**Entries**
+### Entries
 
-- `{ "entry": "<guid>", "view": "<view id>" }` places an entry; `view` is optional (section 4).
+- `{ "entry": "<guid>" }` places an entry. Optional: `view` (section 5) and `pin` (section 7.3).
 - An entry is placed **at most once per document**, so each placement has one path to the top.
-  It can be in any number of documents. Variants of an entry are made with overlays, not with a
-  second placement.
+  Variants of an entry are other entries (overlays, section 6), not a second placement.
 - Entries cannot be placed inside tables or lists.
 
-**Files**
+### Files
 
 Pictures, formulas and diagrams are files of the document, exactly as in rich-text fields: an
 edited picture replaces its file, an unused one is removed with Save, and the history keeps old
 versions.
 
-**Generated lists**
+### Generated lists
 
 `{ "toc": "sections" | "figures" | "tables", "depth": 3 }` places a generated list (from the
 editor notes). It stores only its settings; the list is built when the document is shown.
 
-**Old format**
+### Old format
 
 The current block format (`type: section | paragraph | entry | image | list | code | toc`) is
 dropped. The server refuses it on write; the view says that a document in the old format must be
 created again. The one existing document ("Open Tasks") is recreated by hand.
 
-## 3. Editing
+## 3. Numbering and references
+
+### Numbers
+
+- Sections are numbered by their position: 1, 1.2, 1.2.3.
+- **Entries are numbered within their section**, after a dash: `1.2.3-2` is the second entry in
+  section 1.2.3. Entries in the introduction are numbered `0-1`, `0-2`, …
+- Text paragraphs are not numbered.
+- Numbers are for reading only and change when something is inserted before them. The stable
+  names are the HID of an entry and the ids. A document type can switch entry numbering off.
+
+### References
+
+- A reference in the text points to an **entry** (its GUID) or to a **section**
+  (`<document guid>#<section id>`), never to a number.
+- Its visible text is generated when the document is shown, for example "3.2 Start-up" or
+  "REQ-12", so it stays right after renumbering or renaming (like a cross-reference in Word).
+- References to sections of other documents work the same way.
+
+## 4. Editing
 
 One editor holds the whole document. It is the rich-text editor of the entry fields, with the
 document additions; the toolbar and context menus look and work the same.
+
+### Structure
 
 - **Paragraph style** (Structure group): Normal, Heading. Making a paragraph a heading starts a
   new section at the current level; the content after it, up to the next heading of the same or a
   higher level, moves into the new section (as in Word).
 - **Tab / Shift+Tab** in a heading moves the section one level down or up, with its content and
   subsections. A section cannot go deeper than one level below the section before it.
-- **Backspace at the start of a heading** makes it a normal paragraph: its content joins the
-  section before it, and its subsections move up with it. Its id is gone; what referred to it is
-  handled as in open question 3.
-- **Outline** (a sidebar panel): the tree of headings. A click scrolls to the section; dragging
-  moves a section with everything in it.
-- **Entries**: "Insert entry…" (Structure group, document view only) opens the picker; entries
-  already in the document cannot be picked. A placed entry is read-only in the document; a double
-  click opens it, its right-click menu offers Open, View ▸ (section 4) and Remove from document.
-  Later: "Convert selection to entry" and "Unmark entry" (editor notes).
-- **Save** stores the whole document as one commit, as today. Sidebars (properties, current entry,
-  relationships, comments, versions) stay as they are.
+- **Removing a heading** (Backspace at its start, or the style Normal): its subsections become
+  children of its parent. Its content joins the section before it (open question 1). Its id is
+  gone.
+- **Outline** (a sidebar panel): the tree of headings with their numbers. A click scrolls to the
+  section; dragging moves a section with everything in it.
 
-## 4. How entries look: entry views
+### Entries
 
-How an entry appears in a document is configured on the document type, in `types.json` of
-`documents/`:
+- **Insert entry…** (Structure group) opens the picker; entries already in the document cannot be
+  picked.
+- **New entry here…** creates an entry and places it at the cursor in one step. It asks for the
+  type first, then stores the entry in the nearest folder above the document whose configuration
+  allows that type. A document type can name a different folder (`entryFolder`, section 5).
+- A placed entry is read-only in the document; a double click opens it.
+- Its right-click menu offers:
+  - Open;
+  - View ▸ (section 5);
+  - Replace with overlay, Replace with duplicate (section 6);
+  - Pin to this version / Unpin (section 7.3);
+  - Remove from document.
+- **Remove from document** and moving an entry to another place are document changes. The entry
+  itself stays in the repository.
+- Later: "Convert selection to entry" and "Unmark entry" (editor notes).
+
+### Saving and merging
+
+- **Save** stores the document as one commit, as today.
+- **Merging is per section:** a section's unit is its title plus its own content (text and
+  placements, not its subsections). Two people editing different sections merge without a
+  conflict. Moving or deleting a section that someone else changed is a conflict, shown in the
+  conflict dialog as for entries.
+- Sidebars (properties, current entry, relationships, comments, versions) stay as they are.
+
+### Large documents
+
+Entries are loaded lazily, when they come near the visible part of the document. The app keeps a
+cache of entries and refreshes it from the change notices it already receives over the WebSocket.
+
+## 5. Document type settings
+
+Set on the document type, in `types.json` of `documents/`:
 
 ```json
 { "id": "spec", "displayName": "Specification",
+  "entryFolder": "requirements",
+  "entryNumbers": true,
   "entryViews": [
     { "id": "text", "name": "As text", "types": ["requirement"], "layout": "text",
       "fields": ["description"] },
@@ -116,71 +171,195 @@ How an entry appears in a document is configured on the document type, in `types
   ] }
 ```
 
+**`entryViews`: how entries look.**
+
 - **Layouts:**
-  - `text`: flows as document text. The HID and title make one bold line, and the chosen fields
-    follow as body text without labels.
-  - `card`: a box with type icon, HID, title and workflow state, and the chosen fields with their
-    labels.
-  - `title`: one line, HID and title, like a link.
+  - `text`: flows as document text. The number, HID and title make one bold line, and the chosen
+    fields follow as body text without labels.
+  - `card`: a box with type icon, number, HID, title and workflow state, and the chosen fields
+    with their labels.
+  - `title`: one line with number, HID and title, like a link.
 - `types` uses the same patterns as link types (`"requirement"`, `"entry/*"`, `"*"`).
 - **Default:** for each placement, the first view whose `types` match the entry. A placement's
   `view` overrides it, chosen through View ▸ in the entry's menu. Without configured views, every
   entry uses a built-in `card` with all rich-text fields.
-- Views only change how an entry is shown; its content is always the entry's own.
+- Views only change how an entry is shown. The content is always the entry's own, with overlays
+  resolved.
 
-## 5. Queries
+**Other settings.**
+
+- **`entryFolder`** (optional) is where "New entry here" and the bulk actions put new entries,
+  relative to the document's folder. Without it, they go to the nearest folder above the document
+  whose configuration allows the type.
+- **`entryNumbers`** (default true) switches entry numbering on or off.
+
+## 6. Overlays, duplicates and templates
+
+### Overlays
+
+An overlay is an entry of its own whose `base` is another entry; it sets some fields and takes the
+rest from its base (design guide §2.3.1.1). A document places an overlay like any entry, by its
+GUID, and shows its effective content.
+
+```
+REQ-12   "The pump shall start within 2 s."   priority: high
+└─ REQ-31  overlay of REQ-12, sets only: "… within 3 s."
+```
+
+"Global spec" places REQ-12, and "EU spec" places REQ-31. REQ-31 shows "3 s" and priority "high"
+(from REQ-12). One document may place both: they are two entries.
+
+### Replacing a placed entry
+
+Two operations in a placed entry's right-click menu:
+
+- **Replace with overlay** creates a new entry whose base is the placed entry, with no fields of
+  its own yet. The placement now points to it. The document shows the same content at first, and
+  can then change any field. Fields it does not change follow the original.
+- **Replace with duplicate** creates a full copy without a base. The placement now points to it;
+  the copy has no connection to the original.
+
+The original stays where it is, including in other documents. The document records the change
+("REQ-12 replaced by its overlay REQ-31"). The new entry's history in this document starts there,
+and the original's ends there, as with a removal. New entries go to the folder of section 5.
+
+### Bulk actions
+
+The same operations, and others, work on a **set of entries**:
+
+- **Sets:**
+  - a selection in the overview table;
+  - in a document, a section with or without its subsections;
+  - the root, which means all entries of the document.
+- **Actions:**
+  - Replace with overlay and Replace with duplicate (from a document only);
+  - set a field;
+  - run a workflow transition;
+  - move to a folder.
+- Each action shows a preview first ("creates 48 overlays in `projects/a/requirements`") and is
+  saved as **one commit**. This is ROADMAP 3.3 (bulk operations), on the batch endpoint (2.1).
+
+### Copying a document; templates
+
+**Copy document** creates a new document with the same text, sections and placements. The copy
+dialog asks what to do with the entries:
+
+- **Keep shared:** the copy references the same entries. Editing one changes both documents.
+- **Replace all with overlays:** the bulk action on the root. The copy starts identical, can
+  change anything, and follows the original's entries in fields it has not changed.
+- **Replace all with duplicates:** full copies, no connection to the original's entries.
+
+It can also create a link from the copy to the original, with a link type of the repository's
+configuration (for example "instantiated from").
+
+A template is then just a document that is copied. No separate template mechanism is needed.
+
+## 7. Entries in documents: rules
+
+### 7.1 Deleting
+
+An entry placed in any document **cannot be deleted**. The server refuses it and names the
+documents; in documents, entries are removed or moved out instead. The same holds for deleting a
+folder that contains such entries.
+
+Git is the source of truth, so an entry can still disappear through a direct Git change. The
+document view then shows "missing entry" in its place, and validation reports it.
+
+An entry that was removed from all documents can be deleted. Older versions of a document still
+show it as it was, from their commit.
+
+### 7.2 History
+
+**The history of a document** is its own changes plus the changes of the entries in it **now**:
+
+- The document's own commits are listed: text, structure, placements, removals, replacements and
+  pins.
+- For every entry in the document now, its commits are listed too, each marked with the entry,
+  its number and its section. They are **cropped at the placement**: changes from before the
+  entry was placed are not listed (they are in the entry's own history).
+- For an overlay, the commits of its bases count too, as they change what it shows, cropped in
+  the same way.
+- An entry that was removed no longer counts: its later changes are not listed, only its removal
+  stays. An entry that is placed again starts again at its new placement.
+- Moving an entry to another section is a document change; its history continues.
+- The history always starts from the current state.
+
+**A version of a document** is shown as it was then: the document at that commit, and every entry
+in it **as it looked at that moment**, with overlays resolved at that commit. All of it comes from
+the same commit, as Git holds the whole repository in it. Comparing two versions works the same
+way.
+
+### 7.3 Pinned entries
+
+- A placement can be **pinned**: `"pin": "<commit>"`. The document then shows the entry's
+  effective content at that commit, with overlays resolved at the same commit, and ignores later
+  changes. This is the "pinned version" of TSK-33, for documents.
+- The pin is a commit, not a version of the entry alone, so changes to an overlay's base do not
+  reach a pinned overlay either.
+- **History:**
+  - pinned when placed: the history shows only "added";
+  - pinned later: the history ends at the pin;
+  - changing or removing a pin is a document change ("REQ-12 updated to the version of
+    16 Nov 2026").
+
+## 8. Queries
 
 The server keeps the structure of every document in the database, as a projection rebuilt from
 Git on reindex:
 
-- **sections:** document, section id, parent id, position, title, depth;
-- **placements:** document, entry, section id (none for the introduction), position.
+- **sections:** document, section id, parent id, position, number, title, depth;
+- **placements:** document, entry, section id (the root for the introduction), position, number,
+  pin.
 
 API:
 
 | Request | Answer |
 | --- | --- |
-| `GET /api/documents/{guid}/outline` | The section tree: ids, titles, entry counts |
-| `GET /api/documents/{guid}/sections/{id}/entries?recursive=1` | The entries under a section, in document order; with `recursive`, also those in all its subsections |
-| `GET /api/entries/{guid}/documents` | The documents an entry is in, each with its section path (the "Documents" of an entry, TSK-12) |
+| `GET /api/documents/{guid}/outline` | The section tree: ids, numbers, titles, entry counts |
+| `GET /api/documents/{guid}/sections/{id}/entries?recursive=1` | The entries under a section, in document order; with `recursive`, also those in all its subsections. The root's id is the document's GUID |
+| `GET /api/entries/{guid}/documents` | The documents an entry is in, each with its section path and number (the "Documents" of an entry, TSK-12) |
 
-## 6. History
+**In the overview:** a filter "in document D, under section S, with subsections" combines with
+the other filters (type, status, fields). The table can show the entry's number and section as
+columns.
 
-**The history of a document** is its own changes plus the changes of the entries in it **now**:
+## 9. Phases
 
-- the document's own commits (text, structure, placements) are listed, including the commit that
-  removed an entry;
-- for every entry in the document now, its commits are listed too, each marked with the entry
-  and its section;
-- an entry that was removed no longer counts: its later changes are not listed, only its removal
-  (a document commit) stays. The history always starts from the current state.
+1. **Format and editor:**
+   - the format with the root, sections and entries;
+   - validation, including entries placed once per document;
+   - the editor with headings, the outline, entries (built-in card) and files;
+   - references to entries and sections;
+   - numbering.
 
-**A version of a document** is shown as it was then: the document's content at that commit, and
-every entry in it **as it looked at that moment**. Both come from the same commit, as Git holds the
-whole repository in it. The same applies to comparing two versions.
-
-## 7. Phases
-
-1. Format, validation and the editor with sections, entries (built-in card) and files. The old
-   format is dropped.
-2. Structure in the database: outline, entries under a section, documents of an entry; the outline
-   panel and deep links to sections.
-3. History: the combined history and versions shown with their entries as they were.
-4. Configured entry views, generated lists (contents, figures, tables).
+   The old format is dropped.
+2. **Structure in the database:**
+   - outline, entries under a section, and the documents of an entry;
+   - deletion refused for placed entries;
+   - the overview filter;
+   - deep links to sections.
+3. **Merging per section.**
+4. **History:** the combined history, and versions shown with their entries as they were.
+5. **Entries and templates:**
+   - configured entry views;
+   - "New entry here" with the folder rule;
+   - Replace with overlay and Replace with duplicate;
+   - Copy document with its three modes;
+   - generated lists.
+6. **Bulk actions** (ROADMAP 3.3) and **pinned entries** (TSK-33).
 
 Later: convert selection to entry and unmark, comments anchored to sections and text ranges
-(design guide §7.7), export (ROADMAP 3.2), pinned versions of entries (TSK-33).
+(design guide §7.7), export (ROADMAP 3.2).
 
-## 8. Open questions
+## 10. Open questions
 
-1. **Entry history before it was added.** Does the combined history list an entry's changes from
-   before it was placed in the document? Proposal: only from the commit that placed it. Older
-   changes are in the entry's own history.
-2. **Section titles with formatting.** Plain text proposed; is a formula or a code word in a
-   heading needed?
-3. **A removed heading.** Comments and deep links to a section whose heading was made a normal
-   paragraph: they move to the section that took its content, or stay as orphans with a note?
-4. **Entries in several documents of one tree.** Is an entry in several documents fine (proposed)
-   or should one document "own" it?
-5. **Sections as entries.** Not now; the section id keeps it open. Does a later "make this section
-   an entry" fit?
+1. **The content of a removed heading.** Its subsections become children of its parent (decided).
+   Its own text and entries cannot simply follow, because content always comes before
+   subsections: placed after the parent's earlier subsections, it would read as part of the last
+   one. Proposal: it joins the end of the section before it, as in Word, which is what the page
+   shows anyway. Comments anchored to the removed section move with its content.
+2. **References to a section that no longer exists.** Proposal: shown as a broken reference
+   ("section removed") with the last known title, so the author fixes it. The alternative is to
+   follow the content.
+3. **Corestone's standard heading formatting.** Sizes, numbering style and spacing per level are
+   to be defined, together with the other Corestone formatting.
