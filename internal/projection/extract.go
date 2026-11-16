@@ -37,6 +37,10 @@ type ref struct{ Target, Via string }
 // Ref sources stored in artifact_refs.
 const RefContent = "content"
 
+// RefText is the via of a link in a document's text (to an item, or to a
+// section of a document).
+const RefText = "text"
+
 // extract turns a matched artifact file into a record. It never fails: a
 // malformed file becomes a row with valid=false so the projection can
 // always be rebuilt from whatever Git contains (direct pushes are supported).
@@ -113,6 +117,9 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 			if model.IsGUID(g) {
 				r.Refs = append(r.Refs, ref{g, RefContent})
 			}
+		}
+		for _, g := range model.ContentLinks(a.Content) {
+			r.Refs = append(r.Refs, ref{g, RefText})
 		}
 	}
 	r.Search = searchText(a)

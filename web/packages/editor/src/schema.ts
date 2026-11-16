@@ -119,6 +119,60 @@ const nodes: Record<string, NodeSpec> = {
     toDOM: (n) => ["img", { "data-latex": n.attrs.latex, "data-display": n.attrs.display ? "" : null, alt: n.attrs.latex }],
   },
   hard_break: { inline: true, group: "inline", selectable: false, parseDOM: [{ tag: "br" }], toDOM: () => ["br"] },
+  // a cross-reference: to a section of a document ("<guid>#<section id>") or an item (GUID);
+  // its text is made when it is shown (number and title), label is the last one known
+  xref: {
+    inline: true, group: "inline", atom: true, selectable: true,
+    attrs: { ref: { default: "" }, label: { default: "" } },
+    parseDOM: [{ tag: "a[data-xref]", priority: 60, getAttrs: (d) => {
+      const e = d as HTMLElement;
+      const ref = e.getAttribute("data-xref") ?? "";
+      return ITEM_REF.test(ref) ? { ref, label: (e.textContent ?? "").slice(0, 500) } : false;
+    } }],
+    toDOM: (n) => ["a", { "data-xref": n.attrs.ref, class: "cs-xref" }, n.attrs.label || n.attrs.ref],
+  },
+
+  // documents (docs/design/Corestone documents.md): the root, its sections, entries placed in
+  // it and generated lists. Only a document editor's top node (docroot) holds them; a field
+  // (doc) cannot. Content comes before subsections, in the root and in every section.
+  // The document is the root: its content before the first section is the introduction. A
+  // host may show the title as the first line (doc_title); the Corestone app shows it in its bar.
+  docroot: { content: "doc_title? (block | placed)* section*" },
+  doc_title: {
+    content: "text*", marks: "", defining: true,
+    parseDOM: [{ tag: "h1.cs-doctitle", priority: 60 }],
+    toDOM: () => ["h1", { class: "cs-doctitle" }, 0],
+  },
+  section: {
+    content: "section_title (block | placed)* section*",
+    attrs: { id: { default: "" } },
+    isolating: true,
+    parseDOM: [{ tag: "section[data-section]", getAttrs: (d) => ({ id: (d as HTMLElement).getAttribute("data-section") ?? "" }) }],
+    toDOM: (n) => ["section", { "data-section": n.attrs.id, class: "cs-section" }, 0],
+  },
+  // a section's heading: one line of plain text
+  section_title: {
+    content: "text*", marks: "", defining: true,
+    parseDOM: [{ tag: "div.cs-heading", priority: 60 }],
+    toDOM: () => ["div", { class: "cs-heading" }, 0],
+  },
+  // an entry placed in the document (shown by the host); view and pin as stored
+  placement: {
+    group: "placed", atom: true, selectable: true, draggable: true,
+    attrs: { guid: { default: "" }, view: { default: null }, pin: { default: null } },
+    parseDOM: [{ tag: "div[data-placement]", getAttrs: (d) => {
+      const g = (d as HTMLElement).getAttribute("data-placement") ?? "";
+      return GUID.test(g) ? { guid: g } : false;
+    } }],
+    toDOM: (n) => ["div", { "data-placement": n.attrs.guid, class: "cs-placement" }],
+  },
+  // a generated list: of sections, figures or tables
+  toc: {
+    group: "placed", atom: true, selectable: true,
+    attrs: { kind: { default: "sections" }, depth: { default: null } },
+    parseDOM: [{ tag: "div[data-toc]", getAttrs: (d) => ({ kind: (d as HTMLElement).getAttribute("data-toc") || "sections" }) }],
+    toDOM: (n) => ["div", { "data-toc": n.attrs.kind, class: "cs-toc" }],
+  },
 };
 
 /** A file name of the entry's file store, or null: the server's rules (one path segment,
@@ -199,6 +253,9 @@ export function safeHref(v: string | null | undefined): string | null {
 
 export const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** A link to an item: its GUID, or a section of a document ("<GUID>#<section id>"). */
+export const ITEM_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(#[a-z0-9]{8})?$/;
+
 const marks: Record<string, MarkSpec> = {
   // first, so a link encloses the other formatting of its text
   link: {
@@ -208,7 +265,7 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ tag: "a", getAttrs: (d) => {
       const el = d as HTMLElement;
       const ref = el.getAttribute("data-ref");
-      if (ref && GUID.test(ref)) return { href: null, ref, file: null };
+      if (ref && ITEM_REF.test(ref)) return { href: null, ref, file: null };
       const file = safeFileName(el.getAttribute("data-file"));
       if (file) return { href: null, ref: null, file };
       const href = safeHref(el.getAttribute("href"));

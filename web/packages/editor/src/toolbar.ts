@@ -6,9 +6,10 @@ import {
 import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
+import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, styleAt } from "./structure";
 
-// The toolbar of docs/design/Corestone editor toolbar demo.html, in the
-// entry view (no paragraph styles, no Corestone functions): split buttons
+// The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
+// without paragraph styles and entries, in a document with them; split buttons
 // that repeat the last-used option, colour menus with a shared history, and
 // tooltips that explain why a button is unavailable.
 
@@ -30,6 +31,13 @@ export interface ToolbarHost {
   diagrams(): boolean;
   /** Opens draw.io for a new diagram. */
   diagram(): void;
+  /** In a document: placing entries and cross-references (absent in a field). */
+  structure?: {
+    /** Lets the user pick an entry and places it at the cursor. */
+    entry(): void;
+    /** Opens the cross-reference picker. */
+    xref(at?: { x: number; y: number }): void;
+  };
 }
 
 /** A colour palette, e.g. from company design guidelines. */
@@ -149,6 +157,21 @@ export class Toolbar {
     this.add(this.button("clear", { t: "Remove formatting", k: "Ctrl+\\", dis: () => (this.can(clearFormatting) ? null : "No formatting at the cursor or in the selection.") },
       () => this.run(clearFormatting)));
     this.sep();
+    // structure (documents): paragraph style and entries
+    const st = this.host.structure;
+    if (st) {
+      // paragraph style and heading level: H (heading), ¶ (normal text), H− (one level up), H+ (one
+      // level deeper); the main button repeats the last used, like the other groups
+      const noStyle = () => (styleAt(S()) ? null : "Only paragraphs of the text have a style, not lists, tables or the title.");
+      this.split("heading", "Heading level", [
+        { i: "heading", tip: { t: "Heading", k: "Ctrl+Alt+1", dis: noStyle }, run: () => this.run(makeHeading), pressed: (s) => styleAt(s) === "heading" },
+        { i: "para", tip: { t: "Normal text", k: "Ctrl+Alt+0", dis: noStyle }, run: () => this.run(makeNormal), pressed: (s) => styleAt(s) === "normal" },
+        { i: "hminus", tip: { t: "Heading one level up", k: "Shift+Tab", dis: () => promoteBlocked(S()) }, run: () => this.run(promoteSection) },
+        { i: "hplus", tip: { t: "Heading one level deeper", k: "Tab", dis: () => demoteBlocked(S()) }, run: () => this.run(demoteSection) },
+      ]);
+      this.add(this.button("entry", { t: "Insert entry…", dis: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, () => st.entry()));
+      this.sep();
+    }
     // character formatting
     const flags: { i: Flag; t: string; k?: string }[] = [
       { i: "bold", t: "Bold", k: "Ctrl+B" }, { i: "italic", t: "Italic", k: "Ctrl+I" }, { i: "underline", t: "Underline", k: "Ctrl+U" },
@@ -186,6 +209,7 @@ export class Toolbar {
         run: () => this.host.diagram() },
       { i: "formula", tip: { t: "Formula…", dis: () => (this.host.files() ? null : "Formulas are kept with a saved item; not available here.") },
         run: () => this.host.formula(this.pointer) },
+      ...(st ? [{ i: "xref", tip: { t: "Cross-reference…" }, run: () => st.xref(this.pointer) }] : []),
     ]);
   }
 

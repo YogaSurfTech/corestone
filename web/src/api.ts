@@ -153,6 +153,8 @@ export const api = {
     }
     return request<View>("POST", `/artifacts/${guid}/save`, body, etag ? { "If-Match": `"${etag}"` } : {});
   },
+  /** A deleted artifact's last known name, if it was deleted. */
+  deleted: (guid: string) => request<{ deleted: { guid: string; hid?: string; title: string }[] }>("GET", `/repository/deleted?guid=${encodeURIComponent(guid)}&limit=1`),
   relationships: (guid: string) => request<Relationships>("GET", `/artifacts/${guid}/relationships`),
   comments: (guid: string) => request<{ comments: CommentView[] }>("GET", `/artifacts/${guid}/comments`),
   /** One batch of the history, newest first; before continues after that commit. */

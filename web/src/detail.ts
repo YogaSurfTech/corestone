@@ -1247,11 +1247,11 @@ export class Detail extends LitElement {
 }
 
 /** The server's limit for one attachment (internal/httpapi maxAttachment). */
-const MAX_ATTACHMENT = 32 << 20;
+export const MAX_ATTACHMENT = 32 << 20;
 
 /** A name for a new file of the entry: its own name made safe, a dated name for pasted
  *  images (which all arrive as "image.png"), numbered when the name is taken. */
-function freeFileName(file: File, taken: Set<string>): string {
+export function freeFileName(file: File, taken: Set<string>): string {
   // eslint-disable-next-line no-control-regex
   let name = (file.name || "").replace(/[\u0000-\u001f\u007f/\\]/g, "_").trim().replace(/^[.:]+/, "");
   const ext = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? file.type.split("/")[1] ?? "bin").toLowerCase().replace("jpeg", "jpg");

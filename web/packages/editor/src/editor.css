@@ -74,6 +74,7 @@
 .cs-area .ProseMirror ol > li > p:first-child::before { content: counters(cs-item, ".") "."; }
 .cs-area .ProseMirror li > p[style*="text-align"]:first-child::before { min-width: 0; margin-left: 0; }
 .cs-area .ProseMirror:focus-within { box-shadow: inset 0 0 0 2px var(--cs-focus); border-radius: 0 0 10px 10px; }
+.cs-document > .cs-area > .ProseMirror:focus-within { box-shadow: none; } /* a page: the cursor is enough */
 
 /* read-only: the text alone, without the toolbar */
 .cs-editor.readonly .cs-tb { display: none; }
@@ -108,7 +109,9 @@
 .cs-area .ProseMirror td, .cs-area .ProseMirror th { border: 1px solid var(--cs-border); padding: 4px 8px; vertical-align: top;
   position: relative; min-width: 2em; box-sizing: border-box; text-align: left; }
 .cs-area .ProseMirror th { background: var(--cs-hover); font-weight: 600; }
-.cs-area .ProseMirror td > :last-child, .cs-area .ProseMirror th > :last-child { margin-bottom: 0; }
+/* the last paragraph of a cell has no margin, also while the column resize handle (added at the
+   cell's end while the pointer is on a column edge) follows it: otherwise the row jumps */
+.cs-area .ProseMirror :is(td, th) > :last-child, .cs-area .ProseMirror :is(td, th) > :has(+ .column-resize-handle:last-child) { margin-bottom: 0; }
 .cs-area .ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--cs-focus); pointer-events: none; }
 .cs-area .ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--cs-link); pointer-events: none; z-index: 2; }
 .cs-area .ProseMirror.resize-cursor { cursor: col-resize; }
@@ -263,3 +266,40 @@
 .cs-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 6px 10px; border-radius: 6px; font-size: 13px;
   background: var(--cs-text); color: var(--cs-panel); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .cs-filepop[hidden], .cs-altpop[hidden], .cs-notice[hidden] { display: none; }
+
+/* documents: headings by level (Arial, bold; deeper than 6 underlined), their numbers, placed
+   entries, cross-references and generated lists */
+.cs-editor.cs-document { max-width: 900px; }
+/* a toolbar placed by the host elsewhere: its own row of the host's bar */
+.cs-editor.cs-tbhost { max-width: none; min-width: 0; }
+.cs-editor.cs-tbhost .cs-tb { border: 0; border-radius: 0; background: transparent; padding: 0; }
+.cs-editor.cs-document > .cs-resize { display: none; }
+.cs-editor.cs-tbaway .cs-area { border-top: 1px solid var(--cs-border); border-radius: 10px; }
+.cs-document > .cs-area > .ProseMirror { min-height: 60vh; padding: 20px 28px; }
+.cs-document .cs-section { display: block; }
+.cs-document .cs-heading { font-family: Arial, Helvetica, sans-serif; font-weight: 700; line-height: 1.25; margin: 1em 0 .4em; }
+.cs-document .cs-heading::before { content: attr(data-num); margin-right: .6em; color: var(--cs-muted); font-weight: 600; }
+.cs-document .cs-heading:empty::after, .cs-document .cs-heading:has(> br:only-child)::after { content: "Heading"; color: var(--cs-disabled, #8c959f); font-weight: 400; }
+.cs-document .cs-h1 { font-size: 1.75em; }
+.cs-document .cs-h2 { font-size: 1.45em; }
+.cs-document .cs-h3 { font-size: 1.25em; }
+.cs-document .cs-h4 { font-size: 1.1em; }
+.cs-document .cs-h5 { font-size: 1em; }
+.cs-document .cs-h6, .cs-document .cs-h7 { font-size: .95em; }
+.cs-document .cs-h7 { text-decoration: underline; }
+.cs-document .cs-placement { position: relative; margin: .4em 0 .6em; border-radius: 8px; cursor: default; white-space: normal; } /* the host's markup, not text */
+.cs-document .cs-placement.ProseMirror-selectednode { outline: 2px solid var(--cs-link); outline-offset: 2px; }
+.cs-document .cs-toc { margin: .5em 0 1em; padding: 8px 12px; border: 1px dashed var(--cs-border); border-radius: 8px; }
+.cs-document .cs-toc .toc-head { font-weight: 700; margin-bottom: 4px; }
+.cs-document .cs-toc .toc-row { line-height: 1.6; }
+.cs-xref { color: var(--cs-link); text-decoration: underline dotted; cursor: pointer; }
+.cs-xref.missing { color: var(--cs-error, #c62828); text-decoration: line-through; }
+.cs-xrefpop { position: absolute; z-index: 20; width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--cs-panel);
+  color: var(--cs-text); border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
+.cs-xrefpop[hidden] { display: none; }
+.cs-xrefpop .head { font-weight: 600; }
+.cs-xrefpop .filter { height: 28px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-panel); color: var(--cs-text); }
+.cs-xrefpop .list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+.cs-xrefpop .row { text-align: left; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text); cursor: pointer; }
+.cs-xrefpop .row:hover, .cs-xrefpop .row:focus-visible { background: var(--cs-hover); outline: none; }
+.cs-xrefpop .none { color: var(--cs-muted); padding: 4px 8px; }

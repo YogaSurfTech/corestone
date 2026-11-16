@@ -1,6 +1,6 @@
 import { Fragment, type Mark, type Node } from "prosemirror-model";
 import { TableMap } from "prosemirror-tables";
-import { BORDERS, FLAGS, GUID, STRIPES, safeFileName, safeHref, schema, stripeColors, type Align, type Borders, type Stripes } from "./schema";
+import { BORDERS, FLAGS, GUID, ITEM_REF, STRIPES, safeFileName, safeHref, schema, stripeColors, type Align, type Borders, type Stripes } from "./schema";
 
 // The stored form of rich text: JSON blocks whose text is a plain string
 // or a list of formatted runs. This is what the server validates, indexes
@@ -13,7 +13,8 @@ export interface Marks {
   font?: string;  // one of FONTS
   size?: number;  // points
   href?: string;  // a link to a web address (http(s), mailto, ftp)
-  ref?: string;   // a link to an item of the host application (GUID)
+  ref?: string;   // a link to an item of the host application (GUID), or a section ("<GUID>#<section id>")
+  xref?: true;    // with ref: a cross-reference, its text made when shown (text: the last one known)
   file?: string;  // a link to a file of the entry (its name)
 }
 
@@ -190,6 +191,8 @@ function inline(text: string | Inline[] | undefined): Fragment {
       if (typeof r.formula === "string" && r.formula.trim()) {
         out.push(schema.nodes.formula.create({ latex: r.formula, display: r.display === true, png: safeFileName(r.png) }));
       }
+    } else if ((r as Run).xref === true && typeof (r as Run).ref === "string" && ITEM_REF.test((r as Run).ref!)) {
+      out.push(schema.nodes.xref.create({ ref: (r as Run).ref, label: typeof r.text === "string" ? r.text.slice(0, 500) : "" }));
     } else if (typeof r.text === "string") add(r.text, marksOf(r));
   }
   return Fragment.from(out);
@@ -197,7 +200,7 @@ function inline(text: string | Inline[] | undefined): Fragment {
 
 function marksOf(m: Marks): Mark[] {
   const out: Mark[] = [];
-  if (typeof m.ref === "string" && GUID.test(m.ref)) out.push(schema.marks.link.create({ ref: m.ref }));
+  if (typeof m.ref === "string" && ITEM_REF.test(m.ref)) out.push(schema.marks.link.create({ ref: m.ref }));
   else if (safeFileName(m.file)) out.push(schema.marks.link.create({ file: m.file }));
   else if (safeHref(m.href)) out.push(schema.marks.link.create({ href: safeHref(m.href) }));
   for (const f of FLAGS) if (m[f]) out.push(schema.marks[f].create());
@@ -220,6 +223,16 @@ export function toStorage(doc: Node): RichText {
 
 /** The stored form of a node's blocks (the document's, or a table cell's). */
 function storeBlocks(parent: Node): RichText {
+  const out = blockList(parent);
+  // nothing but unformatted lines: plain text, as a plain text field stores it
+  const plain = (b: Block): b is Paragraph & { text: string } =>
+    !isTable(b) && typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list;
+  if (out.every(plain)) return out.map((b) => (b as Paragraph).text as string).join("\n");
+  return out;
+}
+
+/** The stored blocks of a node's children, or of a list of nodes (paragraphs, lists, tables). */
+function blockList(parent: Node | Node[]): Block[] {
   const out: Block[] = [];
   const walk = (n: Node, list: "ul" | "ol" | null, level: number) => {
     if (n.type === schema.nodes.paragraph) {
@@ -239,11 +252,8 @@ function storeBlocks(parent: Node): RichText {
       out.push(storeTable(n));
     }
   };
-  parent.forEach((n) => walk(n, null, 0));
-  // nothing but unformatted lines: plain text, as a plain text field stores it
-  const plain = (b: Block): b is Paragraph & { text: string } =>
-    !isTable(b) && typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list;
-  if (out.every(plain)) return out.map((b) => (b as Paragraph).text as string).join("\n");
+  if (Array.isArray(parent)) parent.forEach((n) => walk(n, null, 0));
+  else parent.forEach((n) => walk(n, null, 0));
   return out;
 }
 
@@ -296,6 +306,10 @@ function storeInline(p: Node): string | Inline[] {
       if (c.attrs.alt) img.alt = c.attrs.alt;
       if (c.attrs.width) img.width = c.attrs.width;
       runs.push(img);
+      return;
+    }
+    if (c.type === schema.nodes.xref) {
+      runs.push({ text: c.attrs.label || c.attrs.ref, ref: c.attrs.ref, xref: true });
       return;
     }
     if (c.type === schema.nodes.hard_break) {
@@ -361,5 +375,136 @@ export function plainText(value: RichText | null | undefined): string {
     const marker = b.list === "ol" ? stack.filter((l) => l.kind === "ol").map((l) => l.count).join(".") + ". " : "• ";
     lines.push("  ".repeat(level - 1) + marker + text);
   }
+  return lines.join("\n");
+}
+
+// --- documents (docs/design/Corestone documents.md) ---
+
+/** A section of a document: its permanent id, its title (plain text) and its children,
+ *  content first, then subsections. */
+export interface SectionNode { section: string; title: string; children: DocNode[] }
+/** An entry placed in a document; view: how it is shown; pin: the commit it is shown at. */
+export interface EntryNode { entry: string; view?: string; pin?: string }
+/** A generated list. */
+export interface TocNode { toc: "sections" | "figures" | "tables"; depth?: number }
+/** A part of a document's content. */
+export type DocNode = Block | SectionNode | EntryNode | TocNode;
+
+export const isSectionNode = (n: DocNode): n is SectionNode => typeof n === "object" && n !== null && "section" in n;
+export const isEntryNode = (n: DocNode): n is EntryNode => typeof n === "object" && n !== null && "entry" in n;
+export const isTocNode = (n: DocNode): n is TocNode => typeof n === "object" && n !== null && "toc" in n;
+
+const SECTION_ID = /^[a-z0-9]{8}$/;
+const TOC_KINDS = ["sections", "figures", "tables"];
+
+/** A new section id: 8 random characters a-z, 0-9. */
+export function newSectionId(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const r = crypto.getRandomValues(new Uint8Array(8));
+  return [...r].map((b) => chars[b % 36]).join("");
+}
+
+/** Reads a document's stored content and title into the editor's document (its root). */
+export function documentFromStorage(content: DocNode[] | null | undefined, title?: string): Node {
+  const children = docChildren(Array.isArray(content) ? content : [], true);
+  if (title === undefined) return schema.node("docroot", null, children);
+  const t = title.replace(/[\r\n]+/g, " ");
+  return schema.node("docroot", null, [schema.node("doc_title", null, t ? schema.text(t) : undefined), ...children]);
+}
+
+/** The title of the editor's document. */
+export function documentTitle(doc: Node): string {
+  return doc.firstChild?.type === schema.nodes.doc_title ? doc.firstChild.textContent : "";
+}
+
+/** The editor's nodes for a stored list: content first, then sections (anything else after a
+ *  section is kept out). root: the document's own list (an empty one gets a paragraph). */
+function docChildren(list: DocNode[], root: boolean): Node[] {
+  const content: Node[] = [];
+  const sections: Node[] = [];
+  let run: Block[] = [];
+  const flush = () => { if (run.length) { content.push(...blockNodes(run, false)); run = []; } };
+  for (const n of list) {
+    if (!n || typeof n !== "object") continue;
+    if (isSectionNode(n)) {
+      flush();
+      const title = typeof n.title === "string" ? n.title.replace(/[\r\n]+/g, " ").slice(0, 500) : "";
+      const id = typeof n.section === "string" && SECTION_ID.test(n.section) ? n.section : newSectionId();
+      sections.push(schema.node("section", { id }, [
+        schema.node("section_title", null, title ? schema.text(title) : undefined),
+        ...docChildren(Array.isArray(n.children) ? n.children : [], false)]));
+      continue;
+    }
+    if (sections.length) continue; // content after a section: not allowed (the server refuses it)
+    if (isEntryNode(n)) {
+      flush();
+      if (typeof n.entry === "string" && GUID.test(n.entry)) {
+        content.push(schema.node("placement", { guid: n.entry, view: typeof n.view === "string" ? n.view : null, pin: typeof n.pin === "string" ? n.pin : null }));
+      }
+      continue;
+    }
+    if (isTocNode(n)) {
+      flush();
+      content.push(schema.node("toc", { kind: TOC_KINDS.includes(n.toc) ? n.toc : "sections", depth: typeof n.depth === "number" ? n.depth : null }));
+      continue;
+    }
+    run.push(n);
+  }
+  flush();
+  if (root && !content.length && !sections.length) content.push(schema.node("paragraph"));
+  return [...content, ...sections];
+}
+
+/** The stored content of the editor's document. */
+export function documentToStorage(doc: Node): DocNode[] {
+  const out = storeChildren(doc, doc.firstChild?.type === schema.nodes.doc_title ? 1 : 0);
+  // an empty document (the one empty line the editor keeps to type in) is stored empty
+  if (out.length === 1 && !isSectionNode(out[0]) && !isEntryNode(out[0]) && !isTocNode(out[0]) && !isTable(out[0])
+    && (out[0] as Paragraph).text === "" && !(out[0] as Paragraph).list) return [];
+  return out;
+}
+
+function storeChildren(parent: Node, from: number): DocNode[] {
+  const out: DocNode[] = [];
+  let run: Node[] = [];
+  const flush = () => { if (run.length) { out.push(...blockList(run)); run = []; } };
+  parent.forEach((n, _o, i) => {
+    if (i < from) return;
+    if (n.type === schema.nodes.section) {
+      flush();
+      out.push({ section: n.attrs.id, title: n.firstChild?.textContent ?? "", children: storeChildren(n, 1) });
+    } else if (n.type === schema.nodes.placement) {
+      flush();
+      const e: EntryNode = { entry: n.attrs.guid };
+      if (n.attrs.view) e.view = n.attrs.view;
+      if (n.attrs.pin) e.pin = n.attrs.pin;
+      out.push(e);
+    } else if (n.type === schema.nodes.toc) {
+      flush();
+      const t: TocNode = { toc: n.attrs.kind };
+      if (n.attrs.depth) t.depth = n.attrs.depth;
+      out.push(t);
+    } else {
+      run.push(n);
+    }
+  });
+  flush();
+  return out;
+}
+
+/** The plain text of a document's content, for previews: titles and paragraphs, one per line. */
+export function documentText(content: DocNode[] | null | undefined): string {
+  const lines: string[] = [];
+  const walk = (list: DocNode[]) => {
+    let run: Block[] = [];
+    const flush = () => { if (run.length) { lines.push(plainText(run)); run = []; } };
+    for (const n of list) {
+      if (isSectionNode(n)) { flush(); lines.push(n.title); walk(n.children ?? []); }
+      else if (isEntryNode(n) || isTocNode(n)) flush();
+      else run.push(n);
+    }
+    flush();
+  };
+  walk(Array.isArray(content) ? content : []);
   return lines.join("\n");
 }

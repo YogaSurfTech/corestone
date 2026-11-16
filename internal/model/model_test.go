@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -319,27 +320,49 @@ func TestArtifactAndOverlay(t *testing.T) {
 }
 
 func TestContent(t *testing.T) {
-	g := NewGUID()
-	blocks, _ := ojson.Parse([]byte(`[{"type":"toc"},{"type":"toc","depth":2},{"type":"section","title":"S","children":[{"type":"paragraph","text":"hello"},{"type":"entry","guid":"` + g + `"},{"type":"list","items":[{"type":"paragraph","text":"item"}]}]}]`))
+	g, g2, d := NewGUID(), NewGUID(), NewGUID()
+	blocks, _ := ojson.Parse([]byte(`[{"text":"intro"},{"entry":"` + g2 + `","view":"card"},{"toc":"sections","depth":2},
+		{"section":"k3v9q2xa","title":"Scope","children":[
+			{"text":[{"text":"hello "},{"text":"there","ref":"` + d + `#p0m4z8re"},{"text":"1.1 Start-up","ref":"` + d + `#p0m4z8re","xref":true}]},{"text":"one","list":"ol"},{"text":"two","list":"ol"},
+			{"entry":"` + g + `","pin":"0123456789abcdef0123456789abcdef01234567"},
+			{"section":"p0m4z8re","title":"Start-up","children":[{"table":[["a","b"]]}]}]}]`))
 	if err := ValidateContent(blocks.([]any)); err != nil {
 		t.Fatal(err)
 	}
-	if refs := ContentRefs(blocks.([]any)); len(refs) != 1 || refs[0] != g {
-		t.Fatal("refs")
+	if refs := ContentRefs(blocks.([]any)); len(refs) != 2 || refs[0] != g2 || refs[1] != g {
+		t.Fatalf("refs %v", refs)
 	}
-	if txt := ContentText(blocks.([]any)); !strings.Contains(txt, "hello") || !strings.Contains(txt, "item") || !strings.Contains(txt, "S") {
-		t.Fatalf("text %q", txt)
+	if links := ContentLinks(blocks.([]any)); len(links) != 1 || links[0] != d {
+		t.Fatalf("links %v", links)
 	}
-	for _, bad := range []string{`[{"type":"blob"}]`, `[{"type":"entry","guid":"x"}]`, `[1]`, `[{"type":"paragraph","text":5}]`, `[{"type":"image"}]`,
-		`[{"type":"toc","depth":0}]`, `[{"type":"toc","depth":1.5}]`, `[{"type":"toc","depth":"2"}]`, `[{"type":"toc","depth":99}]`} {
-		v, _ := ojson.Parse([]byte(bad))
+	txt := ContentText(blocks.([]any))
+	for _, want := range []string{"intro", "Scope", "hello there1.1 Start-up", "1. one", "2. two", "Start-up", "a | b"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("text %q lacks %q", txt, want)
+		}
+	}
+	for _, bad := range []string{
+		`[{"type":"paragraph","text":"old format"}]`, `[1]`, `[{"text":5}]`, `[{"blob":1}]`,
+		`[{"entry":"x"}]`, `[{"entry":"` + g + `"},{"entry":"` + g + `"}]`, `[{"entry":"` + g + `","view":"a b"}]`,
+		`[{"entry":"` + g + `","pin":"main"}]`, `[{"entry":"` + g + `","extra":1}]`,
+		`[{"section":"k3v9q2xa","title":"S","children":[{"entry":"` + g + `"}]},{"entry":"` + g + `"}]`,
+		`[{"section":"short","title":"S","children":[]}]`, `[{"section":"k3v9q2xa","title":"a\nb","children":[]}]`,
+		`[{"section":"k3v9q2xa","title":"S","children":[]},{"section":"k3v9q2xa","title":"T","children":[]}]`,
+		`[{"section":"k3v9q2xa","title":"S","children":[]},{"text":"after a section"}]`,
+		`[{"section":"k3v9q2xa","title":"S","children":[],"style":"h1"}]`,
+		`[{"text":[{"text":"x","ref":"` + d + `#BAD"}]}]`, `[{"text":[{"text":"x","xref":true}]}]`,
+		`[{"toc":"pages"}]`, `[{"toc":"sections","depth":0}]`, `[{"toc":"sections","depth":1.5}]`, `[{"toc":"sections","depth":99}]`} {
+		v, err := ojson.Parse([]byte(bad))
+		if err != nil {
+			t.Fatalf("%s: %v", bad, err)
+		}
 		if err := ValidateContent(v.([]any)); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
 	}
 	deep := "[]"
-	for i := 0; i < 20; i++ {
-		deep = `[{"type":"section","children":` + deep + `}]`
+	for i := 0; i < 17; i++ {
+		deep = fmt.Sprintf(`[{"section":"s%07d","title":"S","children":%s}]`, i, deep)
 	}
 	v, _ := ojson.Parse([]byte(deep))
 	if err := ValidateContent(v.([]any)); err == nil {

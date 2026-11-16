@@ -150,9 +150,9 @@ func TestRESTLifecycle(t *testing.T) {
 	a.ok("PUT", "/api/documents/"+g1, `{"title":"x"}`, 404)
 
 	// documents referencing entries
-	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Boot spec","content":[{"type":"section","title":"Timing","children":[{"type":"paragraph","text":"See:"},{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
+	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Boot spec","content":[{"section":"timing01","title":"Timing","children":[{"text":"See:"},{"entry":"`+g1+`"}]}]}`, 201)
 	gd := meta(d, "guid")
-	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"bad ref","content":[{"type":"entry","guid":"00000000-0000-4000-8000-000000000000"}]}`, 400)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"bad ref","content":[{"entry":"00000000-0000-4000-8000-000000000000"}]}`, 400)
 	usedIn := func(want ...string) {
 		t.Helper()
 		r := a.ok("GET", "/api/artifacts/"+g1+"/documents", "", 200)
@@ -167,12 +167,20 @@ func TestRESTLifecycle(t *testing.T) {
 		}
 	}
 	usedIn(gd)
-	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"twice","content":[{"type":"entry","guid":"`+g1+`"},{"type":"section","title":"Again","children":[{"type":"entry","guid":"`+g1+`"}]}]}`, 400)
-	d2 := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Draft","content":[{"type":"list","items":[{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"twice","content":[{"entry":"`+g1+`"},{"section":"again001","title":"Again","children":[{"entry":"`+g1+`"}]}]}`, 400)
+	d2 := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Draft","content":[{"text":"Intro"},{"entry":"`+g1+`"}]}`, 201)
 	usedIn(gd, meta(d2, "guid"))
-	a.ok("PUT", "/api/documents/"+meta(d2, "guid"), `{"content":[{"type":"paragraph","text":"no entries"}]}`, 200, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+meta(d2, "guid"), `{"content":[{"text":"no entries"}]}`, 200, "If-Match", "*")
 	usedIn(gd)
 	a.ok("GET", "/api/artifacts/00000000-0000-4000-8000-000000000000/documents", "", 404)
+	// an entry that disappeared after it was placed does not stop the document from saving
+	gone := meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"Gone soon","fields":{"priority":"low"}}`, 201), "guid")
+	d3 := meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Keeps","content":[{"entry":"`+gone+`"}]}`, 201), "guid")
+	a.ok("DELETE", "/api/entries/"+gone, "", 204, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+d3, `{"content":[{"text":"Still here:"},{"entry":"`+gone+`"}]}`, 200, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+d3, `{"content":[{"entry":"00000000-0000-4000-8000-000000000000"}]}`, 400, "If-Match", "*")
+	// the old format is refused
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"old","content":[{"type":"paragraph","text":"x"}]}`, 400)
 	a.ok("POST", "/api/documents", `{"path":"docs","type":"requirement","title":"wrong kind","fields":{"priority":"low"}}`, 400)
 
 	// links, relationships, comments, workflows
@@ -302,7 +310,7 @@ func TestRESTLifecycle(t *testing.T) {
 	a.ok("GET", "/api/entries/"+g1, "", 404)
 	a.ok("GET", "/api/links/"+meta(l, "guid"), "", 404)
 	del := a.ok("GET", "/api/repository/deleted", "", 200)
-	if n := len(del.body["deleted"].([]any)); n != 4 {
+	if n := len(del.body["deleted"].([]any)); n != 5 { // with the entry deleted from under a document above
 		t.Fatalf("deleted %s", del.raw)
 	}
 	a.ok("DELETE", "/api/documents/"+gd, "", 204)

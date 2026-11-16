@@ -289,50 +289,85 @@ div.attach-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; 
 .notice.error { background: var(--danger-soft); color: var(--danger); }
 
 /* ---- document view ---- */
-corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; min-width: 0; background: var(--bg); }
+/* the heading bar across the whole width, the page and the sidebars below it. In the bar: the
+   document's own controls on the left, the editor's toolbar starting at the paper's left edge
+   (document.ts alignTools; after a separator when there is no room for that), the sidebar
+   switches and Save at the right end. */
+corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; background: var(--bg); }
+.doc-head { grid-column: 1 / -1; position: relative; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+.doc-head.aligned .doc-sep { visibility: hidden; }
+/* icon buttons; their tooltip opens below, aligned to the button's right edge (stays on screen
+   at the right end of a bar) */
+.icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0;
+  border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.icon-btn:hover:not(:disabled), .icon-btn:focus-visible { background: var(--panel-2); color: var(--text); outline: none; }
+.icon-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.icon-btn:disabled { cursor: default; opacity: .45; }
+.icon-btn.save.dirty { background: var(--accent); color: #fff; }
+.icon-btn[data-tip]:hover::after, .icon-btn[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  white-space: nowrap; padding: 4px 8px; border-radius: 6px; background: var(--text); color: var(--panel); font-size: 12px; font-weight: 500; pointer-events: none; }
+/* at the left end of a bar the tooltip opens to the right instead */
+.doc-left .icon-btn[data-tip]::after { right: auto; left: 0; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 8px; }
+.side-head h4 { margin: 0; }
+.doc-side > .side-head:first-child { margin-top: 0; }
 .doc-main { display: flex; flex-direction: column; min-height: 0; }
-.doc-toolbar { display: flex; gap: 6px; align-items: center; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+/* the heading bar: the editor's toolbar in the middle, centred on the page below it (the same
+   centre: equal side zones, and the page's scroll area keeps a gutter on both sides); the zones
+   left and right hold the document's own tools */
+.doc-toolbar .doc-left { display: flex; gap: 6px; align-items: center; min-width: 0; }
+/* the title, edited in the bar (the page starts with the document's introduction) */
+.doc-title-input { min-width: 0; max-width: 100%; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent;
+  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; text-overflow: ellipsis; }
+.doc-title-input:hover { border-color: var(--border); }
+.doc-title-input:focus { border-color: var(--accent); outline: none; background: var(--panel); }
 .doc-toolbar .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
-.doc-scroll { overflow: auto; flex: 1; padding: 30px 0 120px; }
-.doc-page { max-width: 820px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 44px 56px; min-height: 60vh; }
-.doc-page h1.doc-title { font-size: 26px; margin-bottom: 20px; outline: none; }
-.blocks { display: flex; flex-direction: column; gap: 4px; }
-.block-wrap { position: relative; border-radius: 6px; padding: 2px 4px 2px 12px; margin-top: 2px; }
-.block-wrap:hover { background: var(--panel-2); }
-.block-wrap.focused { background: var(--accent-soft); }
-.block-wrap > .handle { position: absolute; right: 6px; top: -14px; display: none; gap: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0 4px; box-shadow: var(--shadow); z-index: 2; }
-.block-wrap:hover > .handle, .block-wrap.focused > .handle { display: flex; }
-.handle button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 1px 4px; font-size: 12px; line-height: 18px; }
-.handle button:hover { color: var(--text); }
-.block[contenteditable] { outline: none; min-height: 1.4em; padding: 2px 4px; border-radius: 4px; white-space: pre-wrap; }
-.block[contenteditable]:empty::before { content: attr(data-placeholder); color: var(--muted); }
-.block.h { font-weight: 700; }
-.block.h.l1 { font-size: 20px; margin-top: 14px; }
-.block.h.l2 { font-size: 17px; margin-top: 10px; }
-.block.h.l3 { font-size: 15px; margin-top: 6px; }
-.sec-head { display: flex; align-items: baseline; gap: 8px; }
-.sec-head .block.h { flex: 1; }
-.sec-head .sec-num { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
-.sec-head.l1 .sec-num { font-size: 20px; }
-.sec-head.l2 .sec-num { font-size: 17px; }
-.sec-head.l3 .sec-num { font-size: 15px; }
-.toc { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: var(--panel); }
-.toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.toc-head select { padding: 1px 4px; width: auto; }
-.toc-row { display: block; padding: 2px 0; color: var(--text); }
-.toc-row:hover { color: var(--accent); }
-.toc-row .num { display: inline-block; min-width: 3.2em; color: var(--muted); font-variant-numeric: tabular-nums; }
-.block.code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 8px 10px; border-radius: 6px; }
-.section-children { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 10px; margin-top: 4px; }
-.entry-card { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 4px 0; background: var(--panel-2); cursor: pointer; }
-.entry-card .head { display: flex; gap: 8px; align-items: center; }
-.entry-card .fields { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
-.entry-card.missing { border-left-color: var(--danger); }
-.doc-side { width: 320px; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 12px 14px 40px; }
+.doc-scroll { overflow: auto; flex: 1; padding: 30px 0 120px; scrollbar-gutter: stable both-edges; }
+.doc-page { --pad-x: 56px; max-width: 820px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px var(--pad-x) 44px; min-height: 60vh; }
+/* the document's editor: its toolbar stays at the top of the page while scrolling */
+.doc-page cs-document { display: block; }
+.doc-page .cs-editor.cs-document { max-width: none; }
+/* the editor's toolbar sits in the heading bar; the page is all editor, the title first */
+.doc-toolbar .doc-tools { display: flex; }
+.doc-toolbar .doc-switches { display: flex; gap: 2px; align-items: center; margin-left: auto; }
+
+.doc-page .cs-editor.cs-tbaway .cs-area { border: 0; }
+.doc-page .cs-document > .cs-area { border: 0; }
+.doc-page .cs-document > .cs-area > .ProseMirror { padding: 0; }
+.doc-entry .entry-card { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; background: var(--panel-2); }
+.doc-entry .entry-card.current { background: var(--accent-soft); }
+.doc-entry .entry-card .head { display: flex; gap: 8px; align-items: center; }
+.doc-entry .entry-card .num { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.doc-entry .entry-card .rich { margin-top: 6px; }
+.doc-entry .entry-card .rich .label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.doc-entry .entry-card .rich .cs-editor { max-width: none; }
+.doc-entry .entry-card .rich .cs-area { border: 0; background: transparent; }
+.doc-entry .entry-card .rich .cs-area .ProseMirror { min-height: 0; padding: 2px 0; }
+.doc-entry .entry-card.missing, .doc-entry .entry-card.loading { color: var(--muted); }
+.doc-entry .entry-card.missing { border-left-color: var(--danger); }
+.outline { display: flex; flex-direction: column; font-size: 13px; padding-bottom: 14px; } /* the space below the last row: drop at the end */
+.outline-row { position: relative; display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px var(--ind, 4px); border-radius: 5px; cursor: pointer; }
+.outline-row:hover { background: var(--panel-2); }
+.outline-row .num { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 2.4em; }
+.outline-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-row .count { color: var(--muted); font-size: 12px; }
+/* the grip: always there (a hint that sections can be moved), stronger on hover */
+.outline-row .grip { position: relative; display: inline-flex; padding: 2px; border-radius: 4px; color: var(--muted); opacity: .45; cursor: grab; }
+.outline-row:hover .grip { opacity: 1; }
+.outline-row .grip:hover { background: var(--border); }
+.outline-row .grip[data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; white-space: nowrap;
+  padding: 4px 8px; border-radius: 6px; background: var(--text); color: var(--panel); font-size: 12px; pointer-events: none; }
+.outline.dragging .outline-row .grip::after { display: none; }
+.outline-row.moving { opacity: .45; }
+/* where a dragged section goes: a line above a row (at that row's level), or below the last row
+   (the end: the top level) */
+.outline-row.drop-before::before, .outline-row.drop-after::after { content: ""; position: absolute; right: 0; height: 2px; border-radius: 1px; background: var(--accent);
+  pointer-events: none; }
+.outline-row.drop-before::before { left: var(--ind, 4px); top: -2px; }
+.outline-row.drop-after::after { left: 4px; bottom: -2px; }.doc-side { width: 320px; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 12px 14px 40px; }
 .doc-side h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 14px 0 8px; }
-.doc-image { max-width: 100%; border-radius: 6px; }
-.list-item { display: flex; gap: 8px; }
-.list-item::before { content: "•"; color: var(--muted); }
 
 /* ---- dialogs & toasts ---- */
 .backdrop { position: fixed; inset: 0; background: rgba(10, 14, 30, 0.45); display: grid; place-items: center; z-index: 50; }
@@ -425,8 +460,8 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-bottom-wid
   .detail-body { grid-template-columns: 1fr; }
   .quicklinks { display: none; }
   .field { grid-template-columns: 1fr; }
-  .doc-page { padding: 24px 18px; }
-  corestone-document { grid-template-columns: 1fr; }
+  .doc-page { --pad-x: 18px; }
+  corestone-document { grid-template-columns: 1fr; grid-template-rows: auto; }
   .doc-side { width: 100%; }
 }
 

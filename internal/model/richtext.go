@@ -19,7 +19,8 @@ import (
 // text is a string or a list of runs (text with its formatting); "\n"
 // inside a text is a line break within the paragraph. A run may be a link:
 // href to a web address (http(s), ftp(s), mailto), ref to an item (GUID), or
-// file to a file of the entry. A run may instead be an image, a file of the
+// file to a file of the entry; xref (true, with ref) makes the run a
+// cross-reference, its text made when shown. A run may instead be an image, a file of the
 // entry: {"image": "photo.png", "alt": "…", "width": 320}, a diagram, a draw.io
 // PNG of the entry with the diagram inside it ({"diagram": "flow.drawio.png",
 // "alt": "…", "width": 480}), or a formula: its
@@ -43,6 +44,13 @@ const (
 )
 
 var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+// IsItemRef reports whether s is the target of a link to an item: its GUID,
+// or a section of a document, "<document GUID>#<section id>".
+func IsItemRef(s string) bool {
+	g, sec, hasSec := strings.Cut(s, "#")
+	return IsGUID(g) && (!hasSec || IsSectionID(sec))
+}
 
 // ValidateRichText checks a rich-text value.
 func ValidateRichText(what string, v any) error {
@@ -295,12 +303,17 @@ func validateInline(at string, v any) (int, error) {
 					return 0, Invalid("%s: href is a web address (http, https, ftp or mailto)", at)
 				}
 			case "ref":
-				if s, _ := v.(string); !IsGUID(s) {
-					return 0, Invalid("%s: ref is an item id (GUID)", at)
+				if s, _ := v.(string); !IsItemRef(s) {
+					return 0, Invalid("%s: ref is an item id (GUID), or a section of a document (GUID#section)", at)
 				}
 			case "file":
 				if s, _ := v.(string); ValidateFileName(s) != nil {
 					return 0, Invalid("%s: file is the name of a file of the entry", at)
+				}
+			case "xref":
+				// a cross-reference: its text is made when shown; text is the last one known
+				if _, hasRef := o.Get("ref"); v != true || !hasRef {
+					return 0, Invalid("%s: xref is true, on a run with a ref", at)
 				}
 			default:
 				return 0, Invalid("%s: unknown formatting %q", at, k)
@@ -433,8 +446,8 @@ func RichTextRefs(v any) []string {
 			list, _ := text.([]any)
 			for _, r := range list {
 				if ro, ok := r.(*ojson.Object); ok {
-					if g := ro.String("ref"); g != "" {
-						out = append(out, g)
+					if g, _, _ := strings.Cut(ro.String("ref"), "#"); g != "" {
+						out = append(out, g) // a section's document
 					}
 				}
 			}

@@ -282,7 +282,7 @@ export class NewDialog extends LitElement {
       const body: Record<string, unknown> = { path: this.path, type: this.schema.type, title: this.titleText, fields };
       if (this.hid.trim()) body.hid = this.hid.trim();
       if (this.base) body.base = this.base;
-      if (kind === "document") body.content = [{ id: "b0", type: "paragraph", text: "" }];
+      if (kind === "document") body.content = [];
       view = await api.create(collectionOf[kind], body);
       store.toast(`${kindLabel[kind]} ${view.meta.hid || ""} created`, "success");
       store.set({ dialog: null });

@@ -176,13 +176,20 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 		return err
 	}
 	if a.Kind == model.KindDocument {
-		seen := map[string]bool{}
-		for _, ref := range model.ContentRefs(a.Content) {
-			if seen[ref] {
-				return model.Invalid("document content: entry %s is referenced more than once", ref)
+		// entries placed newly must exist; ones placed before may have gone
+		// meanwhile (a direct Git change): the document still saves and shows
+		// them as missing (docs/design/Corestone documents.md 7.1)
+		before := map[string]bool{}
+		if previous != nil {
+			for _, ref := range model.ContentRefs(previous.Content) {
+				before[ref] = true
 			}
-			seen[ref] = true
-			if _, err := t.exists(ref, model.KindEntry, model.KindDocument); err != nil {
+		}
+		for _, ref := range model.ContentRefs(a.Content) {
+			if before[ref] {
+				continue
+			}
+			if _, err := t.exists(ref, model.KindEntry); err != nil {
 				return fmt.Errorf("document content: %w", err)
 			}
 		}

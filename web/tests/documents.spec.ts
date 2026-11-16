@@ -1,133 +1,235 @@
-import { answerPrompt, api, expect, get, post, seedDomain, stamp, test } from "./fixtures";
+import { api, expect, get, post, seedDomain, stamp, test } from "./fixtures";
 
-// The document editor: block operations, keyboard behaviour, nesting,
-// entry cards, images from attachments, sidebars, conflicts, versions.
+// Documents (docs/design/Corestone documents.md): one editor for the whole document, headings
+// that make sections (Normal/Heading, Tab/Shift+Tab, Enter, Backspace), numbers, placed entries,
+// cross-references, the outline, sidebars, conflicts.
 
 const id = stamp();
 const folder = `docs-${id}`;
-
-// a 1×1 transparent PNG
-const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 
 test.beforeAll(async () => {
   await seedDomain(folder, "D" + id.slice(-3).toUpperCase());
 });
 
-async function newDoc(title: string) {
-  return post("/documents", { path: folder, type: "spec", title, content: [{ id: "p0", type: "paragraph", text: "start" }] });
+type Node = { section?: string; title?: string; children?: Node[]; entry?: string; text?: unknown };
+/** What a stored node is: a section's title, "entry", or "text". */
+const what = (n: Node) => n.title ?? (n.entry ? "entry" : "text");
+
+async function newDoc(title: string, content: Node[] = [{ text: "start" }]) {
+  return post("/documents", { path: folder, type: "spec", title, content });
 }
 
-test("block operations: add, type, nest, reorder, delete, keyboard", async ({ page }) => {
-  const d = await newDoc(`Editing ${id}`);
-  await page.goto(`/artifact/${d.meta.guid}`);
-  const page_ = page.locator(".doc-page");
-  await expect(page_.locator("h1")).toHaveText(`Editing ${id}`);
-  const first = page_.locator(".block-wrap[data-type=paragraph] .block").first();
-  await expect(first).toHaveText("start");
-  // Enter creates a new paragraph after the current one; typing goes into it
-  await first.click();
-  await page.keyboard.press("End");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("second paragraph");
-  await expect(page_.locator(".block-wrap[data-type=paragraph]")).toHaveCount(2);
-  await expect(page_.locator(".block-wrap[data-type=paragraph] .block").nth(1)).toHaveText("second paragraph");
-  // a section, then indent the second paragraph into it with Tab
-  await page.locator(".doc-toolbar button", { hasText: "Section" }).click();
-  await page.keyboard.type("Chapter 1");
-  await expect(page_.locator(".block-wrap[data-type=section] .block.h")).toHaveText("Chapter 1");
-  // toolbar inserts relative to the focused block: focus the last paragraph and add a code block
-  await page_.locator(".block-wrap[data-type=paragraph] .block").nth(1).click();
-  await page.locator(".doc-toolbar button", { hasText: "Code" }).click();
-  await page.keyboard.type("x := 1");
-  await expect(page_.locator(".block-wrap[data-type=code] .block")).toHaveText("x := 1");
-  // move the code block up with the handle
-  const code = page_.locator(".block-wrap[data-type=code]");
-  await code.hover();
-  await code.locator(".handle button[title='Move up']").click();
-  const order = await page_.locator(".blocks > .block-wrap").evaluateAll((els) => els.map((e) => e.getAttribute("data-type")));
-  expect(order.indexOf("code")).toBeLessThan(order.indexOf("paragraph") + 2);
-  // indent the section's next sibling paragraph into the section (Tab), then outdent (Shift+Tab)
-  const section = page_.locator(".block-wrap[data-type=section]");
-  await section.hover();
-  await section.locator(".handle button[title='Move up']").click();
-  await section.locator(".handle button[title='Move up']").click();
-  await section.locator(".handle button[title='Move up']").click(); // section is now first
-  const after = page_.locator(".blocks > .block-wrap").nth(1);
-  await after.locator(".block[contenteditable]").click();
-  await page.keyboard.press("Tab");
-  await expect(section.locator(".section-children .block-wrap")).toHaveCount(1);
-  await section.locator(".section-children .block[contenteditable]").first().click();
-  await page.keyboard.press("Shift+Tab");
-  await expect(section.locator(".section-children .block-wrap")).toHaveCount(0);
-  // a list with an item; Backspace on an empty paragraph removes it
-  await page.locator(".doc-toolbar button", { hasText: "List" }).click();
-  await page.keyboard.type("item one");
-  await expect(page_.locator(".list-item .block")).toHaveText("item one");
-  await page.keyboard.press("Enter"); // a new (empty) item paragraph inside the list
-  await expect(page_.locator(".block-wrap[data-type=paragraph]")).toHaveCount(4);
-  await page.keyboard.press("Backspace"); // empty paragraph removed again
-  await expect(page_.locator(".block-wrap[data-type=paragraph]")).toHaveCount(3);
-  // delete a block via its handle
-  await code.hover();
-  await code.locator(".handle button[title='Delete block']").click();
-  await expect(page_.locator(".block-wrap[data-type=code]")).toHaveCount(0);
-  // Ctrl+S saves
-  await page_.locator(".block-wrap[data-type=paragraph] .block").first().click();
-  await page.keyboard.press("Control+s");
-  await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();
-  type B = { type: string; title?: string; text?: string; items?: B[]; children?: B[] };
-  const stored = await get<{ data: { content: B[] } }>(`/documents/${d.meta.guid}`);
-  const flat = (bs: B[]): B[] => bs.flatMap((b) => [b, ...flat(b.children ?? []), ...flat(b.items ?? [])]);
-  const all = flat(stored.data.content);
-  const types = all.map((b) => b.type);
-  expect(types).toContain("section");
-  expect(types).toContain("list");
-  expect(types).not.toContain("code");
-  expect(all.find((b) => b.type === "section")?.title).toBe("Chapter 1");
-  expect(all.find((b) => b.text === "item one")).toBeTruthy();
-  await page.reload();
-  await expect(page_.locator(".block-wrap[data-type=section] .block.h")).toHaveText("Chapter 1");
-});
+const stored = async (guid: string) => (await get<{ meta: { title: string }; data: { content: Node[]; fields: Record<string, unknown> } }>(`/documents/${guid}`)).data;
 
-test("title edit, entry cards, images from attachments and the entry sidebar", async ({ page }) => {
-  const r = await post("/entries", { path: folder, type: "req", title: `Card target ${id}`, fields: { priority: "high", effort: 4 } });
-  const d = await newDoc(`Cards ${id}`);
-  await fetch(`${api}/artifacts/${d.meta.guid}/files/pixel.png`, { method: "PUT", body: png });
+test("headings make sections: style, levels, Enter, Backspace, numbers; saved as a tree", async ({ page }) => {
+  const d = await newDoc(`Editing ${id}`, []);
   await page.goto(`/artifact/${d.meta.guid}`);
-  // title
-  const title = page.locator("[data-test=doc-title]");
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  // the title is edited in the bar (the page starts with the introduction); Enter goes on to the text
+  await expect(ed.locator("h1")).toHaveCount(0);
+  const title = page.locator(".doc-title-input");
   await title.click();
   await page.keyboard.press("End");
   await page.keyboard.type(" v2");
-  await expect(page.locator("[data-test=save]")).toBeEnabled();
-  // entry card shows fields and workflow state; clicking opens it; the sidebar shows the current entry
-  await page.locator(".block-wrap[data-type=paragraph] .block").first().click();
-  await page.locator("[data-test=insert-entry]").click();
-  await page.locator("corestone-picker input").fill(`Card target ${id}`);
-  await page.locator(".picker-results .row", { hasText: `Card target ${id}` }).click();
-  const card = page.locator(`.entry-card[data-entry="${r.meta.guid}"]`);
-  await expect(card).toContainText("priority");
-  await expect(card).toContainText("high");
-  await expect(card.locator(".pill.state")).toHaveCount(2);
-  await page.locator("[data-test=sb-entry]").click();
-  await expect(page.locator(".doc-side")).toContainText(`Card target ${id}`);
-  await expect(page.locator(".doc-side")).toContainText("effort");
-  // image from an attachment name
-  await page.locator(".doc-toolbar button", { hasText: "Image" }).click();
-  await answerPrompt(page, "pixel.png");
-  const img = page.locator(".doc-page img.doc-image");
-  await expect(img).toHaveAttribute("src", /files\/pixel\.png/);
-  expect(await img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBe(1);
-  await page.locator("[data-test=save]").click();
+  await page.keyboard.press("Enter");
+  // intro paragraph, then a heading made with the paragraph style
+  await page.keyboard.type("Intro text");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Timing");
+  await page.keyboard.press("Control+Alt+1");
+  const titles = ed.locator(".cs-heading");
+  await expect(titles).toHaveCount(1);
+  await expect(titles.first()).toHaveAttribute("data-num", "1");
+  // Enter in a heading starts its content
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("About timing");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Cold boot");
+  await page.keyboard.press("Control+Alt+1");
+  await expect(titles).toHaveCount(2);
+  await expect(titles.nth(1)).toHaveAttribute("data-num", "2");
+  // H+ / Tab: one level deeper (under "Timing"); H− / Shift+Tab back. H− is disabled at the top.
+  // (in the heading group's menu; its main button repeats the last used one)
+  const headingMenu = page.getByRole("button", { name: "More: Heading level" });
+  await expect(page.getByRole("button", { name: "Heading", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await headingMenu.click();
+  await expect(page.getByRole("button", { name: "Heading one level up" })).toHaveAttribute("aria-disabled", "true");
+  await page.getByRole("button", { name: "Heading one level deeper" }).click();
+  await expect(titles.nth(1)).toHaveAttribute("data-num", "1.1");
+  await expect(titles.nth(1)).toHaveClass(/cs-h2/);
+  await headingMenu.click();
+  await page.getByRole("button", { name: "Heading one level up" }).click();
+  await expect(titles.nth(1)).toHaveAttribute("data-num", "2");
+  await page.keyboard.press("Tab");
+  await expect(titles.nth(1)).toHaveAttribute("data-num", "1.1");
+  await page.keyboard.press("Shift+Tab");
+  await expect(titles.nth(1)).toHaveAttribute("data-num", "2");
+  await page.keyboard.press("Tab");
+  // a third heading after it, at the same level
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Measured");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Safety");
+  await page.keyboard.press("Control+Alt+1");
+  await page.keyboard.press("Shift+Tab");
+  await expect(titles).toHaveText(["Timing", "Cold boot", "Safety"]);
+  await expect(titles.nth(2)).toHaveAttribute("data-num", "2");
+  // the outline follows
+  await page.locator("[data-test=sb-outline]").click();
+  await expect(page.locator(".outline-row .num")).toHaveText(["1", "1.1", "2"]);
+  // Ctrl+S saves the tree
+  await page.keyboard.press("Control+s");
   await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();
-  const stored = await get<{ meta: { title: string }; data: { content: { type: string; src?: string; guid?: string }[] } }>(`/documents/${d.meta.guid}`);
-  expect(stored.meta.title).toBe(`Cards ${id} v2`);
-  expect(stored.data.content.some((b) => b.type === "image" && b.src === "pixel.png")).toBe(true);
-  expect(stored.data.content.some((b) => b.type === "entry" && b.guid === r.meta.guid)).toBe(true);
-  // a card whose entry disappears shows a missing marker
-  await fetch(`${api}/entries/${r.meta.guid}`, { method: "DELETE" });
+  expect((await get<{ meta: { title: string } }>(`/documents/${d.meta.guid}`)).meta.title).toBe(`Editing ${id} v2`);
+  let c = (await stored(d.meta.guid)).content;
+  expect(c.map(what)).toEqual(["text", "Timing", "Safety"]);
+  expect(c[1].children!.map(what)).toEqual(["text", "Cold boot"]);
+  expect(c[1].children![1].children!.map(what)).toEqual(["text"]);
+  expect(c[1].section).toMatch(/^[a-z0-9]{8}$/);
+  // Backspace at the start of a heading makes it normal text: its content joins the section before
+  await titles.nth(1).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Backspace");
+  await expect(titles).toHaveText(["Timing", "Safety"]);
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  c = (await stored(d.meta.guid)).content;
+  expect(c[1].children!.map(what)).toEqual(["text", "text", "text"]);
+  // reload keeps it all
   await page.reload();
-  await expect(page.locator(".entry-card.missing")).toContainText("missing");
+  await expect(ed.locator(".cs-heading")).toHaveText(["Timing", "Safety"]);
+  // ¶ in the heading menu makes a heading normal text again
+  await ed.locator(".cs-heading", { hasText: "Safety" }).click();
+  await page.getByRole("button", { name: "More: Heading level" }).click();
+  await page.getByRole("button", { name: "Normal text" }).click();
+  await expect(ed.locator(".cs-heading")).toHaveText(["Timing"]);
+  await expect(ed.locator("p", { hasText: "Safety" })).toHaveCount(1);
+});
+
+test("placed entries: insert, numbers, card, open, remove; once per document; missing shown", async ({ page }) => {
+  const a = await post("/entries", { path: folder, type: "req", title: `Card A ${id}`, fields: { priority: "high" } });
+  const b = await post("/entries", { path: folder, type: "req", title: `Card B ${id}`, fields: { priority: "low" } });
+  const d = await newDoc(`Cards ${id}`, [{ text: "intro" }, { section: "sec00001", title: "Reqs", children: [{ text: "" }] }]);
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  const pick = async (title: string) => {
+    await page.getByRole("button", { name: "Insert entry…" }).click();
+    await page.locator("corestone-picker input").fill(title);
+    await page.locator(".picker-results .row", { hasText: title }).click();
+  };
+  // into the section (replacing its empty paragraph), then one in the introduction
+  await ed.locator("section .cs-heading").click();
+  await pick(`Card A ${id}`);
+  const cardA = ed.locator(`.cs-placement[data-placement="${a.meta.guid}"]`);
+  await expect(cardA).toContainText(`Card A ${id}`);
+  await expect(cardA).toHaveAttribute("data-num", "1-1");
+  await ed.locator("p", { hasText: "intro" }).click();
+  await pick(`Card B ${id}`);
+  const cardB = ed.locator(`.cs-placement[data-placement="${b.meta.guid}"]`);
+  await expect(cardB).toHaveAttribute("data-num", "0-1");
+  // an entry already placed cannot be picked again
+  await page.getByRole("button", { name: "Insert entry…" }).click();
+  await page.locator("corestone-picker input").fill(`Card A ${id}`);
+  await expect(page.locator(".picker-results .row", { hasText: `Card A ${id}` })).toContainText("already in this document");
+  await page.keyboard.press("Escape");
+  // saved as {entry}
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const c = (await stored(d.meta.guid)).content;
+  expect(c[1]).toEqual({ entry: b.meta.guid });
+  expect(c[2].children).toEqual([{ entry: a.meta.guid }]);
+  // the entry sidebar shows the clicked entry
+  await page.locator("[data-test=sb-entry]").click();
+  await cardA.click();
+  await expect(page.locator(".doc-side")).toContainText(`Card A ${id}`);
+  // the context menu removes it from the document
+  await cardB.click({ button: "right" });
+  await page.locator(".cs-placementmenu button", { hasText: "Remove from document" }).click();
+  await expect(cardB).toHaveCount(0);
+  await expect(cardA).toHaveAttribute("data-num", "1-1");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  // an entry deleted from under the document is shown as missing, by its last known name
+  await fetch(`${api}/entries/${a.meta.guid}`, { method: "DELETE" });
+  await page.reload();
+  await expect(ed.locator(".entry-card.missing")).toContainText("Missing entry");
+  // double click opens a placed entry
+  const other = await post("/entries", { path: folder, type: "req", title: `Card C ${id}`, fields: { priority: "low" } });
+  await ed.locator("p", { hasText: "intro" }).click();
+  await pick(`Card C ${id}`);
+  await ed.locator(`.cs-placement[data-placement="${other.meta.guid}"] .entry-card`).dblclick();
+  await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
+  await expect(page).toHaveURL(new RegExp(other.meta.guid));
+});
+
+test("outline: sections move with their grip, before a row or to the end", async ({ page }) => {
+  const d = await newDoc(`Outline ${id}`, [
+    { section: "bbbb0001", title: "Alpha", children: [] },
+    { section: "bbbb0002", title: "Beta", children: [{ section: "bbbb0003", title: "Beta one", children: [] }] },
+    { section: "bbbb0004", title: "Gamma", children: [] },
+  ]);
+  await page.goto(`/artifact/${d.meta.guid}?sb=outline`);
+  const rows = page.locator(".outline-row .t");
+  await expect(rows).toHaveText(["Alpha", "Beta", "Beta one", "Gamma"]);
+  const grip = (t: string) => page.locator(".outline-row", { hasText: t }).locator(".grip");
+  // Gamma before Alpha
+  // (dropped on a row's upper half: before it)
+  await grip("Gamma").dragTo(page.locator(".outline-row", { hasText: "Alpha" }), { targetPosition: { x: 30, y: 4 } });
+  await expect(rows).toHaveText(["Gamma", "Alpha", "Beta", "Beta one"]);
+  await expect(page.locator(".outline-row .num")).toHaveText(["1", "2", "3", "3.1"]);
+  // into a section: before its subsection, at that level
+  await grip("Gamma").dragTo(page.locator(".outline-row", { hasText: "Beta one" }), { targetPosition: { x: 30, y: 4 } });
+  await expect(rows).toHaveText(["Alpha", "Beta", "Gamma", "Beta one"]);
+  await expect(page.locator(".outline-row .num")).toHaveText(["1", "2", "2.1", "2.2"]);
+  // to the end: below the last row a line shows under it (above a row, a line above that row)
+  const dragOver = async (box: { x: number; y: number; height: number } | null, dy: number) => {
+    // (the test's drag reports a position with the next move, so each position is moved to twice)
+    for (const dx of [20, 22]) {
+      await page.mouse.move(box!.x + dx, box!.y + dy, { steps: 3 });
+      await page.waitForTimeout(100);
+    }
+  };
+  await grip("Gamma").hover();
+  await page.mouse.down();
+  const alpha = await page.locator(".outline-row", { hasText: "Alpha" }).boundingBox();
+  await dragOver(alpha, 4);
+  await expect(page.locator(".outline-row.drop-before .t")).toHaveText("Alpha");
+  const lastRow = await page.locator(".outline-row").last().boundingBox();
+  await dragOver(lastRow, lastRow!.height - 3);
+  await expect(page.locator(".outline-row.drop-after .t")).toHaveText("Beta one");
+  await page.mouse.up();
+  await expect(rows).toHaveText(["Alpha", "Beta", "Beta one", "Gamma"]);
+  await expect(page.locator(".outline-row .num")).toHaveText(["1", "2", "2.1", "3"]);
+});
+
+test("cross-references show the current number and title and follow renames", async ({ page }) => {
+  const d = await newDoc(`Xref ${id}`, [
+    { text: "see " },
+    { section: "aaaa0001", title: "Timing", children: [] },
+    { section: "aaaa0002", title: "Safety", children: [] },
+  ]);
+  const guid = d.meta.guid;
+  await page.goto(`/artifact/${guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  await ed.locator("p", { hasText: "see" }).click();
+  await page.keyboard.press("End");
+  await page.getByRole("button", { name: "More: Insert" }).click();
+  await page.getByRole("button", { name: "Cross-reference…" }).click();
+  await page.locator(".cs-xrefpop .filter").fill("Safety");
+  await page.keyboard.press("Enter");
+  const x = ed.locator(".cs-xref");
+  await expect(x).toHaveText("2 Safety");
+  // Tab under Timing: the reference follows
+  await ed.locator(".cs-heading", { hasText: "Safety" }).click();
+  await page.keyboard.press("Tab");
+  await expect(x).toHaveText("1.1 Safety");
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const c = (await stored(guid)).content;
+  const runs = (c[0] as { text: { ref?: string; xref?: boolean }[] }).text;
+  expect(runs.some((r) => r.ref === `${guid}#aaaa0002` && r.xref)).toBe(true);
 });
 
 test("sidebars: properties with schema fields, comments, relationships, versions; conflict on save", async ({ page }) => {
@@ -138,9 +240,7 @@ test("sidebars: properties with schema fields, comments, relationships, versions
   const side = page.locator(".doc-side");
   await expect(side).toContainText("Document properties");
   await expect(side.locator("[data-field=audience] .enum-trigger")).toBeVisible();
-  await expect(side).toContainText("publish");
   await expect(side).toContainText(`Related doc target ${id}`);
-  await expect(side).toContainText("created");
   // a comment from the sidebar
   await side.locator("textarea").fill("from the sidebar");
   await side.locator("button", { hasText: "Post" }).click();
@@ -150,26 +250,30 @@ test("sidebars: properties with schema fields, comments, relationships, versions
   await side.locator('[data-field=audience] .enum-option[data-value="customer"]').click();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();
-  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/documents/${d.meta.guid}`);
-  expect(stored.data.fields.audience).toBe("customer");
-  // conflict: edit locally, change elsewhere, save → 412 notice with reload
-  await page.locator(".block-wrap[data-type=paragraph] .block").first().click();
+  expect((await stored(d.meta.guid)).fields.audience).toBe("customer");
+  // a change elsewhere to another part is merged: the text here, the title there
+  await page.locator(".doc-page cs-document .ProseMirror p").first().click();
   await page.keyboard.type(" local");
-  await page.locator("[data-test=doc-title]").click(); // blur commits the text
-  const res = await fetch(`${api}/documents/${d.meta.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "changed elsewhere" }) });
+  let res = await fetch(`${api}/documents/${d.meta.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "changed elsewhere" }) });
+  expect(res.ok).toBeTruthy();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  await expect(page.locator(".doc-title-input")).toHaveValue("changed elsewhere");
+  // a conflict (the same part changed in both places) is refused: a notice with reload
+  await page.locator(".doc-page cs-document .ProseMirror p").first().click();
+  await page.keyboard.type(" again");
+  res = await fetch(`${api}/documents/${d.meta.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: [{ text: "rewritten elsewhere" }] }) });
   expect(res.ok).toBeTruthy();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".doc-main .notice.error")).toContainText("modified");
   await page.locator(".doc-main .notice.error button", { hasText: "Reload" }).click();
-  await expect(page.locator("[data-test=doc-title]")).toHaveText("changed elsewhere");
-  // versions list grew
-  await expect(side.locator(".small", { hasText: "modified" }).first()).toBeVisible();
+  await expect(page.locator(".doc-page cs-document .ProseMirror p").first()).toHaveText("rewritten elsewhere");
   // sidebars are deep-linked: turning one off updates the URL
   await page.locator("[data-test=sb-versions]").click();
   await expect(page).toHaveURL(/sb=props,rel,comments(&|$)/);
-  // "Open as artifact detail" shows the document in the generic detail view
-  await side.locator("button", { hasText: "Open as artifact detail" }).click();
-  await expect(page).toHaveURL(/tab=general/);
+  // each sidebar closes with its own button
+  await side.locator("[data-test=close-comments]").click();
+  await expect(page).toHaveURL(/sb=props,rel(&|$)/);
 });
 
 test("document creation from the + menu starts with an empty page", async ({ page }) => {
@@ -181,53 +285,19 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await page.locator(".dialog [data-field=audience] .enum-trigger").click();
   await page.locator('.dialog [data-field=audience] .enum-option[data-value="internal"]').click();
   await page.locator("[data-test=create]").click();
-  await expect(page.locator(".doc-page h1")).toHaveText(`Fresh ${id}`);
-  await expect(page.locator(".block-wrap")).toHaveCount(1);
+  await expect(page.locator(".doc-title-input")).toHaveValue(`Fresh ${id}`);
   await expect(page.locator("[data-test=save]")).toBeDisabled();
-  await page.locator(".block-wrap .block").first().click();
+  await page.locator(".doc-page cs-document .ProseMirror").click();
   await page.keyboard.type("Hello");
   await expect(page.locator("[data-test=save]")).toBeEnabled();
   // close without saving: asked first; discarding keeps the stored content
-  await page.locator(".doc-toolbar button[title='Back to overview']").click();
+  await page.locator(".doc-toolbar button[aria-label='Back to overview']").click();
   await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
   await expect(page.locator("corestone-document")).toHaveCount(0);
-  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Fresh ${id}` }).locator(".kind-icon.document")).toBeVisible();
 });
 
-test("table of contents: numbered, configurable depth, follows edits, navigates", async ({ page }) => {
-  const d = await post("/documents", { path: folder, type: "spec", title: `Contents ${id}`, content: [
-    { id: "p0", type: "paragraph", text: "intro" },
-    { id: "s1", type: "section", title: "Timing", children: [
-      { id: "s11", type: "section", title: "Cold boot", children: [{ id: "s111", type: "section", title: "Measure", children: [] }] }] },
-    { id: "s2", type: "section", title: "Safety", children: [] }] });
-  await page.goto(`/artifact/${d.meta.guid}`);
-  const doc = page.locator(".doc-page");
-  await doc.locator("[data-block=p0] .block").click();
-  await page.locator("[data-test=insert-toc]").click();
-  const toc = doc.locator(".toc");
-  await expect(toc.locator(".toc-row .num")).toHaveText(["1", "1.1", "1.1.1", "2"]);
-  await expect(toc.locator(".toc-row")).toContainText(["Timing", "Cold boot", "Measure", "Safety"]);
-  // limit the levels
-  await toc.locator("[data-test=toc-depth]").selectOption("2");
-  await expect(toc.locator(".toc-row .num")).toHaveText(["1", "1.1", "2"]);
-  // renaming a section updates the contents right away
-  const heading = doc.locator("[data-block=s2] > .sec-head .block");
-  await heading.click();
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.type("Security");
-  await expect(toc.locator(".toc-row").last()).toContainText("Security");
-  // headings carry the same numbers, outside the editable title
-  await expect(doc.locator("[data-block=s111] .sec-num")).toHaveText("1.1.1");
-  await expect(doc.locator("[data-block=s2] > .sec-head .sec-num")).toHaveText("2");
-  await expect(heading).toHaveText("Security");
-  // an entry jumps to its section
-  await toc.locator(".toc-row[data-target=s11]").click();
-  await expect(doc.locator("[data-block=s11]")).toHaveClass(/focused/);
-  // only the block and its depth are stored; the outline is generated
-  await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
-  const stored = await get<{ data: { content: Record<string, unknown>[] } }>(`/documents/${d.meta.guid}`);
-  expect(stored.data.content[1]).toMatchObject({ type: "toc", depth: 2 });
-  expect(Object.keys(stored.data.content[1]).sort()).toEqual(["depth", "id", "type"]);
-  expect(stored.data.content[3]).toMatchObject({ id: "s2", title: "Security" }); // no number in the stored title
+test("the old block format is refused", async () => {
+  const res = await fetch(`${api}/documents`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: folder, type: "spec", title: "old", content: [{ id: "b0", type: "paragraph", text: "x" }] }) });
+  expect(res.status).toBe(400);
 });
