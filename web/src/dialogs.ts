@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import { api, ApiError } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
@@ -407,8 +408,10 @@ function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: ()
   return [
     // choosing several: a checkbox per row (a click on the row ticks it)
     ...(chosen ? [{ id: "$check", name: "", width: 34, sortable: false, cls: "pick-check",
-      render: (r: Summary) => html`<input type="checkbox" tabindex="-1" aria-label="Choose ${r.hid || r.title}" .checked=${chosen().has(r.guid)}
-        ?disabled=${!!taken?.guids.has(r.guid)} @click=${(e: Event) => e.preventDefault()} />` } satisfies TableColumn] : []),
+      // (the box only shows the state: a click goes through to the row, which ticks it; live: the
+      // box always shows the chosen state, whatever the browser did to it)
+      render: (r: Summary) => html`<input type="checkbox" tabindex="-1" aria-label="Choose ${r.hid || r.title}" .checked=${live(chosen().has(r.guid))}
+        ?disabled=${!!taken?.guids.has(r.guid)} />` } satisfies TableColumn] : []),
     { id: "$hid", name: "ID", width: 110,
       render: (r) => r.hid ? html`<span class="hid">${r.hid}</span>` : html`<span class="muted mono">${r.guid.slice(0, 8)}</span>` },
     { id: "$title", name: "Title", title: (r) => r.title ?? "",

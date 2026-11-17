@@ -420,6 +420,8 @@ corestone-table { display: flex; flex-direction: column; min-height: 0; }
 .ctable-body table.grid tbody tr.active { background: var(--panel-2); }
 .ctable-body table.grid tbody tr.placeholder { cursor: default; }
 .ctable-body table.grid tbody tr.taken { opacity: .55; cursor: not-allowed; }
+/* the picker's checkboxes show the state; the row takes the click */
+.pick-check input[type=checkbox] { pointer-events: none; }
 .ctable-body table.grid tbody tr.taken:hover { background: none; }
 .ctable-body td corestone-type-icon { margin-right: 6px; vertical-align: middle; }
 .ctable-body .empty-state { padding: 18px; }

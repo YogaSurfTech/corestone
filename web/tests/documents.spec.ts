@@ -177,8 +177,18 @@ test("several entries at once: chosen with checkboxes, or all matches of the sea
   await page.getByRole("button", { name: "Insert entries…" }).click();
   await page.locator("corestone-picker input[type=search]").fill(tag);
   await expect(page.locator("[data-test=pick-chosen]")).toBeDisabled();
-  await page.locator(".picker-results .row", { hasText: `${tag} 3` }).click();
-  await page.locator(".picker-results .row", { hasText: `${tag} 1` }).click();
+  // clicks on the checkboxes themselves (as a user does), then on a row's text; a second click unticks
+  const box = (n: number) => page.locator(".picker-results .row", { hasText: `${tag} ${n}` }).locator("input[type=checkbox]");
+  const clickBox = async (n: number) => { const b = (await box(n).boundingBox())!; await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
+  for (let k = 0; k < 3; k++) { await clickBox(2); await expect(box(2)).toBeChecked({ checked: k % 2 === 0 }); }
+  await expect(page.locator("[data-test=pick-chosen]")).toHaveText("Insert 1");
+  await clickBox(2);
+  await expect(box(2)).not.toBeChecked();
+  await clickBox(3);
+  await expect(box(3)).toBeChecked();
+  await page.locator(".picker-results .row", { hasText: `${tag} 1` }).locator("td").nth(2).click();
+  await expect(box(1)).toBeChecked();
+  await expect(page.locator(".picker-results input[type=checkbox]:checked")).toHaveCount(2);
   await expect(page.locator("[data-test=pick-chosen]")).toHaveText("Insert 2");
   await page.locator("[data-test=pick-chosen]").click();
   const cards = ed.locator(".cs-placement");
