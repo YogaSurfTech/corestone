@@ -26,6 +26,10 @@ type SaveRequest struct {
 	RemoveLinkETags map[string]string
 	// Overwrite is the ETag of a SaveConflict the user chose to overwrite.
 	Overwrite string
+	// AddEntries are entries made in a document, created with its save.
+	AddEntries []SaveEntry
+	// Created is set by the save: the GUID each new entry got, by its key.
+	Created map[string]string
 }
 
 type SaveTransition struct{ Workflow, To string }
@@ -102,8 +106,14 @@ func (t *txn) save(guid, ifMatch string, req *SaveRequest) (*changeset, error) {
 		return nil
 	}
 
-	if req.Patch != nil && req.Patch.Len() > 0 {
-		if err := step(t.update(guid, "", req.Patch)); err != nil {
+	// new entries first: the document's content then uses their GUIDs
+	patch, created, err := t.addEntries(cur, req, step)
+	if err != nil {
+		return nil, err
+	}
+	req.Created = created
+	if patch != nil && patch.Len() > 0 {
+		if err := step(t.update(guid, "", patch)); err != nil {
 			return nil, err
 		}
 	}
@@ -194,7 +204,7 @@ func combine(cur *loaded, parts []*changeset) (*changeset, error) {
 			n["attachment stored"]++
 		}
 	}
-	for _, k := range []string{"link added", "link removed", "comment added", "attachment stored", "attachment removed"} {
+	for _, k := range []string{"entry added", "link added", "link removed", "comment added", "attachment stored", "attachment removed"} {
 		if n[k] == 1 {
 			what = append(what, "1 "+k)
 		} else if n[k] > 1 {

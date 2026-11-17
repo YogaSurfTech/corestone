@@ -673,3 +673,72 @@ func TestSaveMergesAndReportsConflicts(t *testing.T) {
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":[{"guid":"`+lg+`","etag":"`+le+`"}]}`, 412)
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":["`+lg+`"]}`, 200)
 }
+
+// A document's save creates the entries made in it: in the same commit, with
+// GUIDs from the server put into the content; a new entry that does not
+// check out refuses the whole save.
+func TestSaveCreatesEntries(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Doc","content":[{"text":"Intro"}]}`, 201)
+	g, etag := meta(d, "guid"), d.hdr.Get("ETag")
+	save := func(changes string, code int, files ...string) resp {
+		t.Helper()
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		_ = mw.WriteField("changes", changes)
+		for i := 0; i+1 < len(files); i += 2 {
+			fw, _ := mw.CreateFormFile(files[i], files[i+1])
+			_, _ = fw.Write([]byte("png"))
+		}
+		_ = mw.Close()
+		return a.ok("POST", "/api/artifacts/"+g+"/save", body.String(), code, "Content-Type", mw.FormDataContentType())
+	}
+	content := `"content":[{"text":"Intro"},{"entry":"new:a"},{"text":[{"text":"see ","ref":"new:a","xref":true}]}]`
+
+	// refused: a required field is missing; the document and the repository stay as they were
+	bad := save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"Lacks priority"}]}`, 400)
+	if msg := string(bad.raw); !strings.Contains(msg, `new entry \"Lacks priority\"`) || !strings.Contains(msg, "priority") {
+		t.Fatalf("refusal: %s", bad.raw)
+	}
+	if r := a.ok("GET", "/api/repository/search?q=Lacks&kind=entry", "", 200); r.body["total"].(float64) != 0 {
+		t.Fatalf("a refused save left an entry: %s", r.raw)
+	}
+	if r := a.ok("GET", "/api/documents/"+g, "", 200); r.hdr.Get("ETag") != etag {
+		t.Fatalf("a refused save changed the document")
+	}
+	// refused: a new entry the content does not use, a key the content uses without its entry,
+	// files for no new entry, a bad key, new entries with an entry
+	save(`{"patch":{"content":[{"text":"x"}]},"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+	save(`{"patch":{`+content+`}}`, 400)
+	save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400, "entryfile:new:b", "x.png")
+	save(`{"patch":{"content":[{"entry":"new:a b"}]},"addEntries":[{"key":"new:a b","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+	e := a.ok("POST", "/api/entries", `{"path":"reqs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201)
+	a.ok("POST", "/api/artifacts/"+meta(e, "guid")+"/save", `{"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+
+	// saved: the entry in the document's folder (no path given), its file, the GUID in placement and reference
+	ok := save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"Made here","fields":{"priority":"low"}}]}`, 200,
+		"entryfile:new:a", "dot.png")
+	guid, _ := ok.body["created"].(map[string]any)["new:a"].(string)
+	if len(guid) != 36 {
+		t.Fatalf("created: %s", ok.raw)
+	}
+	stored := a.ok("GET", "/api/documents/"+g, "", 200)
+	if raw := string(stored.raw); strings.Contains(raw, "new:a") || !strings.Contains(raw, `"entry":"`+guid+`"`) || !strings.Contains(raw, `"ref":"`+guid+`"`) {
+		t.Fatalf("content: %s", stored.raw)
+	}
+	ent := a.ok("GET", "/api/entries/"+guid, "", 200)
+	if meta(ent, "title") != "Made here" || meta(ent, "folder") != "docs" {
+		t.Fatalf("entry: %s", ent.raw)
+	}
+	if f := a.ok("GET", "/api/artifacts/"+guid+"/files/dot.png", "", 200); string(f.raw) != "png" {
+		t.Fatalf("entry file %q", f.raw)
+	}
+	// one commit: the entry's creation is the document's save
+	dh := a.ok("GET", "/api/artifacts/"+g+"/history", "", 200)
+	eh := a.ok("GET", "/api/artifacts/"+guid+"/history", "", 200)
+	first := func(r resp) map[string]any { return r.body["history"].([]any)[0].(map[string]any) }
+	if !strings.Contains(string(dh.raw), "1 entry added") || first(dh)["commit"] != first(eh)["commit"] || len(eh.body["history"].([]any)) != 1 {
+		t.Fatalf("history: document %s\nentry %s", dh.raw, eh.raw)
+	}
+}

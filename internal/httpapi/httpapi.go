@@ -480,7 +480,10 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 
 // save publishes everything the detail form changed as one commit. The
 // body is the JSON change set, or multipart/form-data with that JSON in a
-// "changes" part and one "file" part per attachment to store.
+// "changes" part and one "file" part per attachment to store. A document's
+// save may create entries (addEntries, each with a key "new:…" the content
+// uses; their files are "entryfile:<key>" parts); the response's created
+// gives the GUID each got.
 func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 	guid, ok := guidParam(w, r)
 	if !ok {
@@ -488,6 +491,7 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 	}
 	var body *ojson.Object
 	var files []foundation.SaveFile
+	entryFiles := map[string][]foundation.SaveFile{}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		r.Body = http.MaxBytesReader(w, r.Body, maxSave+maxBody)
 		mr, err := r.MultipartReader()
@@ -529,6 +533,10 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 				}
 			case "file":
 				files = append(files, foundation.SaveFile{Name: part.FileName(), Content: data})
+			default:
+				if key, ok := strings.CutPrefix(part.FormName(), "entryfile:"); ok {
+					entryFiles[key] = append(entryFiles[key], foundation.SaveFile{Name: part.FileName(), Content: data})
+				}
 			}
 		}
 		if body == nil {
@@ -567,6 +575,21 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	req.Overwrite = strings.Trim(body.String("overwrite"), `"`)
+	keys := map[string]bool{}
+	for _, v := range body.Array("addEntries") {
+		if o, ok := v.(*ojson.Object); ok {
+			e := foundation.SaveEntry{Key: o.String("key"), Request: o.Clone(), Files: entryFiles[o.String("key")]}
+			e.Request.Delete("key")
+			keys[e.Key] = true
+			req.AddEntries = append(req.AddEntries, e)
+		}
+	}
+	for k := range entryFiles {
+		if !keys[k] {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("files are given for %s, which is not among the new entries", k))
+			return
+		}
+	}
 	for _, v := range body.Array("removeFiles") {
 		if n, ok := v.(string); ok {
 			req.RemoveFiles = append(req.RemoveFiles, n)
@@ -585,6 +608,13 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setETag(w, v.ETag)
+	if len(req.Created) > 0 {
+		writeJSON(w, http.StatusOK, struct {
+			*foundation.View
+			Created map[string]string `json:"created"`
+		}{v, req.Created})
+		return
+	}
 	writeJSON(w, http.StatusOK, v)
 }
 

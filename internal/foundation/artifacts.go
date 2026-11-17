@@ -45,56 +45,63 @@ func (f *Foundation) CreateArtifact(ctx context.Context, kind model.Kind, req *o
 	if !kind.IsFolderKind() {
 		return nil, model.Invalid("kind %s is created through its own endpoint", kind)
 	}
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) {
-		folder, err := model.CleanFolder(req.String("path"))
-		if err != nil {
-			return nil, err
-		}
-		typ := strings.TrimSpace(req.String("type"))
-		guid := model.NewGUID()
-		doc := model.NewDoc(kind, guid, typ)
-		doc.Set("title", strings.TrimSpace(req.String("title")))
-		if h := req.String("hid"); h != "" {
-			doc.Set("hid", strings.TrimSpace(h))
-		}
-		if b := req.String("base"); b != "" {
-			doc.Set("base", strings.ToLower(strings.TrimSpace(b)))
-		}
-		fields := req.Object("fields")
-		if fields == nil {
-			fields = ojson.NewObject()
-		}
-		doc.Set("fields", fields.Clone())
-		doc.Set("workflows", ojson.NewObject())
-		if kind == model.KindDocument {
-			content := req.Array("content")
-			if content == nil {
-				content = []any{}
-			}
-			doc.Set("content", ojson.Clone(content))
-		}
-		a, err := model.ArtifactFromDoc(doc, kind)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.validateArtifact(a, folder, nil, true); err != nil {
-			return nil, err
-		}
-		content := encode(doc, ojson.DefaultStyle)
-		path := model.ArtifactDir(folder, guid) + "/" + model.GUIDFile
-		cs := &changeset{subject: fmt.Sprintf("%s %s in %s created", kindName(kind), label(a), folderName(folder))}
-		cs.trailer("Corestone-Op", "create")
-		cs.trailer("Corestone-Guid", guid)
-		cs.trailer("Corestone-Kind", string(kind))
-		cs.ops = []gitx.Op{{Path: path, Content: content}}
-		cs.event = Event{Op: "create", GUID: guid, Kind: string(kind)}
-		cs.result = &View{Meta: summarize(a, folder, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-		return cs, nil
-	})
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.createArtifact(kind, req) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
+}
+
+// createArtifact creates an entry or document (see CreateArtifact); the
+// changeset's result is its View.
+func (t *txn) createArtifact(kind model.Kind, req *ojson.Object) (*changeset, error) {
+	folder, err := model.CleanFolder(req.String("path"))
+	if err != nil {
+		return nil, err
+	}
+	typ := strings.TrimSpace(req.String("type"))
+	guid := model.NewGUID()
+	doc := model.NewDoc(kind, guid, typ)
+	doc.Set("title", strings.TrimSpace(req.String("title")))
+	if h := req.String("hid"); h != "" {
+		doc.Set("hid", strings.TrimSpace(h))
+	}
+	if b := req.String("base"); b != "" {
+		doc.Set("base", strings.ToLower(strings.TrimSpace(b)))
+	}
+	fields := req.Object("fields")
+	if fields == nil {
+		fields = ojson.NewObject()
+	}
+	doc.Set("fields", fields.Clone())
+	doc.Set("workflows", ojson.NewObject())
+	if kind == model.KindDocument {
+		content := req.Array("content")
+		if content == nil {
+			content = []any{}
+		}
+		doc.Set("content", ojson.Clone(content))
+	}
+	a, err := model.ArtifactFromDoc(doc, kind)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.validateArtifact(a, folder, nil, true); err != nil {
+		return nil, err
+	}
+	content := encode(doc, ojson.DefaultStyle)
+	path := model.ArtifactDir(folder, guid) + "/" + model.GUIDFile
+	cs := &changeset{subject: fmt.Sprintf("%s %s in %s created", kindName(kind), label(a), folderName(folder))}
+	cs.trailer("Corestone-Op", "create")
+	cs.trailer("Corestone-Guid", guid)
+	cs.trailer("Corestone-Kind", string(kind))
+	cs.ops = []gitx.Op{{Path: path, Content: content}}
+	cs.event = Event{Op: "create", GUID: guid, Kind: string(kind)}
+	cs.result = &View{Meta: summarize(a, folder, path, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
+	// visible to the rest of the transaction (a document's save places it, stores its files)
+	t.stage(&loaded{Artifact: a, Bytes: content, Style: ojson.DefaultStyle, ETag: gitx.BlobSHA(content),
+		Loc: &projection.Located{GUID: guid, Kind: kind, Type: typ, Folder: folder, FilePath: path, BlobSHA: gitx.BlobSHA(content), Valid: true}})
+	return cs, nil
 }
 
 // validateArtifact enforces the repository contract for an entry or
