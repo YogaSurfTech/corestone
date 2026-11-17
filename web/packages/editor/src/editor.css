@@ -286,6 +286,9 @@
 .cs-document .cs-toc { margin: .5em 0 1em; padding: 8px 12px; border: 1px dashed var(--cs-border); border-radius: 8px; }
 .cs-document .cs-toc .toc-head { font-weight: 700; margin-bottom: 4px; }
 .cs-document .cs-toc .toc-row { line-height: 1.6; }
+.cs-document .cs-toc .toc-none { color: var(--cs-muted, inherit); opacity: .7; }
+.cs-document .ProseMirror[contenteditable="false"] .cs-toc .toc-row { cursor: pointer; }
+.cs-document .ProseMirror[contenteditable="false"] .cs-toc .toc-row:hover { text-decoration: underline; }
 .cs-xref { color: var(--cs-link); text-decoration: underline dotted; cursor: pointer; }
 .cs-xref.missing { color: var(--cs-error, #c62828); text-decoration: line-through; }
 .cs-xrefpop { position: absolute; z-index: 20; width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--cs-panel);

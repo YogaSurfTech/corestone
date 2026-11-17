@@ -44,6 +44,8 @@ export interface ToolbarHost {
     unmark?(): void;
     /** Opens the cross-reference picker. */
     xref(at?: { x: number; y: number }): void;
+    /** Inserts a table of contents at the cursor. */
+    toc(): void;
   };
 }
 
@@ -225,7 +227,8 @@ export class Toolbar {
         run: () => this.host.diagram() },
       { i: "formula", tip: { t: "Formula…", dis: () => (this.host.files() ? null : "Formulas are kept with a saved item; not available here.") },
         run: () => this.host.formula(this.pointer) },
-      ...(st ? [{ i: "xref", tip: { t: "Cross-reference…" }, run: () => st.xref(this.pointer) }] : []),
+      ...(st ? [{ i: "xref", tip: { t: "Cross-reference…" }, run: () => st.xref(this.pointer) },
+        { i: "toc", tip: { t: "Table of contents", dis: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.toc() }] : []),
     ]);
   }
 

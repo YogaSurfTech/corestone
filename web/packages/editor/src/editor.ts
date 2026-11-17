@@ -9,7 +9,7 @@ import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } fro
 import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toStorage, type DocNode, type RichText } from "./model";
 import { DocumentUI } from "./docui";
 import {
-  PlacementView, TocView, XrefView, backspaceStructure, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
+  PlacementView, TocView, XrefView, backspaceStructure, insertToc, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
   renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
 } from "./structure";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
@@ -72,6 +72,7 @@ export class RichTextEditor {
       formula: (at) => this.formulas.edit(at),
       diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); },
       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
+        toc: () => { this.run(insertToc); },
         // (offered when the host can make entries and give their text)
         ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
           ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
@@ -153,6 +154,12 @@ export class RichTextEditor {
             else items()?.open(ref, e.ctrlKey || e.metaKey);
             return true;
           }
+          // a row of a table of contents goes to its section (like a cross-reference)
+          const row = (e.target as HTMLElement).closest(".cs-toc .toc-row") as HTMLElement | null;
+          if (row && area.contains(row) && (this.readonly || e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            return revealSection(view, row.dataset.section ?? "");
+          }
           const a = (e.target as HTMLElement).closest("a");
           if (!a || !area.contains(a)) return false;
           e.preventDefault();
@@ -188,6 +195,16 @@ export class RichTextEditor {
             view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
             e.preventDefault();
             this.doc.openMenu({ x: e.clientX, y: e.clientY });
+            return true;
+          }
+          // a table of contents: its menu
+          const toc = (e.target as HTMLElement).closest(".cs-toc");
+          if (toc && area.contains(toc) && this.doc) {
+            const pos = view.posAtDOM(toc, 0);
+            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.toc) return false;
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+            e.preventDefault();
+            this.doc.openTocMenu({ x: e.clientX, y: e.clientY });
             return true;
           }
           // an image: its menu

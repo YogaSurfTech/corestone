@@ -403,7 +403,7 @@ export function placedEntries(doc: Node): string[] {
  *  is replaced. */
 function placeAt(state: EditorState): { from: number; to: number } | null {
   const sel = state.selection;
-  if (sel instanceof NodeSelection && sel.node.type === schema.nodes.placement) return { from: sel.to, to: sel.to };
+  if (sel instanceof NodeSelection && (sel.node.type === schema.nodes.placement || sel.node.type === schema.nodes.toc)) return { from: sel.to, to: sel.to };
   const $f = sel.$from;
   const at = blockAt($f);
   if (!at) return null;
@@ -519,6 +519,28 @@ export function entryToText(guid: string, text: RichText): Command {
 
 /** Whether an entry can be placed at the cursor. */
 export const canPlace: Command = (state) => !!placeAt(state);
+
+/** Inserts a table of contents (a list generated from the sections) at the cursor, where an
+ *  entry would be placed. A document may have several, e.g. with different levels. */
+export const insertToc: Command = (state, dispatch) => {
+  const at = placeAt(state);
+  if (!at) return false;
+  if (dispatch) {
+    const tr = state.tr.replaceWith(at.from, at.to, schema.node("toc", { kind: "sections" }));
+    dispatch(tr.setSelection(NodeSelection.create(tr.doc, at.from)).scrollIntoView());
+  }
+  return true;
+};
+
+/** Sets how many heading levels the table of contents at pos lists (null: all). */
+export function setTocDepth(pos: number, depth: number | null): Command {
+  return (state, dispatch) => {
+    const n = state.doc.nodeAt(pos);
+    if (n?.type !== schema.nodes.toc) return false;
+    if (dispatch) dispatch(state.tr.setNodeMarkup(pos, null, { ...n.attrs, depth }));
+    return true;
+  };
+}
 
 /** Inserts a cross-reference at the cursor. */
 export function insertXref(ref: string, label: string): Command {
@@ -671,6 +693,12 @@ export class TocView implements NodeView {
     head.textContent = this.node.attrs.kind === "sections" ? "Contents" : this.node.attrs.kind === "figures" ? "Figures" : "Tables";
     this.dom.append(head);
     if (this.node.attrs.kind !== "sections") return;
+    if (!nums?.sections.length) {
+      const none = document.createElement("div");
+      none.className = "toc-none";
+      none.textContent = "The document has no headings yet.";
+      this.dom.append(none);
+    }
     for (const s of nums?.sections ?? []) {
       if (s.depth > depth) continue;
       const row = document.createElement("div");
@@ -678,6 +706,7 @@ export class TocView implements NodeView {
       row.style.paddingLeft = `${(s.depth - 1) * 16}px`;
       row.textContent = `${s.number} ${s.title}`;
       row.dataset.section = s.id;
+      row.title = "Ctrl+click goes to the section";
       this.dom.append(row);
     }
   }

@@ -1,12 +1,13 @@
 import { Fragment } from "prosemirror-model";
-import { NodeSelection } from "prosemirror-state";
+import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { buildMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { fileNames, toStorage } from "./model";
-import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, structureKey, xrefText, type DocumentHost } from "./structure";
+import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, setTocDepth, structureKey, xrefText, type DocumentHost } from "./structure";
 
-// The document's own panels: the menu of a placed entry and the cross-reference picker.
+// The document's own panels: the menus of a placed entry and of a table of contents, and the
+// cross-reference picker.
 
 export class DocumentUI {
   private readonly menu: HTMLElement;
@@ -102,7 +103,31 @@ export class DocumentUI {
         return true;
       } },
     ];
-    this.menu.replaceChildren(...buildMenu(items, view.state, (it) => {
+    this.showMenu("Entry", items, at);
+  }
+
+  /** The menu of the selected table of contents: its levels, and removing it. */
+  openTocMenu(at: { x: number; y: number }) {
+    const sel = this.view().state.selection;
+    if (!(sel instanceof NodeSelection) || sel.node.type !== schema.nodes.toc) return;
+    const pos = sel.from;
+    const depth = (state: EditorState) => (state.doc.nodeAt(pos)?.attrs.depth as number | null | undefined) ?? null;
+    const level = (d: number | null): MenuItem => ({ label: d === null ? "All levels" : d === 1 ? "1 level" : `${d} levels`,
+      cmd: setTocDepth(pos, d), check: (state) => depth(state) === d });
+    this.showMenu("Table of contents", [
+      { label: "Levels", sub: [null, 1, 2, 3, 4, 5].map(level) },
+      { label: "Remove", danger: true, cmd: (state, dispatch) => {
+        const n = state.doc.nodeAt(pos);
+        if (n?.type !== schema.nodes.toc) return false;
+        dispatch?.(state.tr.delete(pos, pos + n.nodeSize).scrollIntoView());
+        return true;
+      } },
+    ], at);
+  }
+
+  private showMenu(label: string, items: MenuItem[], at: { x: number; y: number }) {
+    this.menu.setAttribute("aria-label", label);
+    this.menu.replaceChildren(...buildMenu(items, this.view().state, (it) => {
       this.close();
       const v = this.view();
       if (it.cmd) it.cmd(v.state, v.dispatch);

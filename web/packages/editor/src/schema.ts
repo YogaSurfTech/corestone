@@ -170,8 +170,9 @@ const nodes: Record<string, NodeSpec> = {
   toc: {
     group: "placed", atom: true, selectable: true,
     attrs: { kind: { default: "sections" }, depth: { default: null } },
-    parseDOM: [{ tag: "div[data-toc]", getAttrs: (d) => ({ kind: (d as HTMLElement).getAttribute("data-toc") || "sections" }) }],
-    toDOM: (n) => ["div", { "data-toc": n.attrs.kind, class: "cs-toc" }],
+    parseDOM: [{ tag: "div[data-toc]", getAttrs: (d) => ({ kind: (d as HTMLElement).getAttribute("data-toc") || "sections",
+      depth: Number((d as HTMLElement).getAttribute("data-depth")) || null }) }],
+    toDOM: (n) => ["div", { "data-toc": n.attrs.kind, class: "cs-toc", ...(n.attrs.depth ? { "data-depth": String(n.attrs.depth) } : {}) }],
   },
 };
 
