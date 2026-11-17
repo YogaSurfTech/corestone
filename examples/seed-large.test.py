@@ -96,11 +96,24 @@ class RecordingClient(seed.Client):
             wf = self.named(folder, kind, "workflow", body["type"], workflow_id)
             assert wf["initial"] in {state["id"] for state in wf["states"]}
         if kind == "documents":
-            def check(blocks):
-                for block in blocks:
-                    if block["type"] == "entry":
-                        assert block["guid"] in self.artifacts
-                    check(block.get("children", []) + block.get("items", []))
+            # The documents format: sections with an 8-character id, placed
+            # entries (each at most once per document) and text paragraphs.
+            sections, placed = set(), set()
+            def check(nodes):
+                for node in nodes:
+                    assert "type" not in node and "id" not in node, node  # the old block format
+                    if "entry" in node:
+                        assert node["entry"] in self.artifacts, node
+                        assert node["entry"] not in placed, node
+                        placed.add(node["entry"])
+                    elif "section" in node:
+                        sid = node["section"]
+                        assert len(sid) == 8 and sid.isascii() and sid.isalnum() and sid == sid.lower(), node
+                        assert sid not in sections and node["title"], node
+                        sections.add(sid)
+                        check(node["children"])
+                    else:
+                        assert "text" in node, node
             check(body["content"])
         guid = super().create(kind, body)
         self.artifacts[guid] = {**body, "path": folder}
