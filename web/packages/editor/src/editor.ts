@@ -6,7 +6,12 @@ import { DOMSerializer } from "prosemirror-model";
 import { EditorState, NodeSelection, TextSelection, type Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
-import { fromStorage, toStorage, type RichText } from "./model";
+import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toStorage, type DocNode, type RichText } from "./model";
+import { DocumentUI } from "./docui";
+import {
+  PlacementView, TocView, XrefView, backspaceStructure, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
+  renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
+} from "./structure";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
 import { FileUI, ImageView, addFiles, imageImporter, insertImage, isPicture, type EntryFiles } from "./files";
 import { DiagramUI, selectedDiagram } from "./diagrams";
@@ -17,25 +22,28 @@ import { safeHref, schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar, type Palette } from "./toolbar";
 
 export interface EditorOptions {
-  /** The stored value: plain text or paragraphs. */
-  value?: RichText | null;
+  /** The stored value: plain text or paragraphs; in a document, its content. */
+  value?: RichText | DocNode[] | null;
   palette?: Palette;
   readonly?: boolean;
   /** Called after every change with the stored form. */
-  onChange?: (value: RichText) => void;
+  onChange?: (value: RichText | DocNode[]) => void;
+  /** Makes the editor a document's (sections, placed entries, numbers): what the host does
+   *  for it. Fixed when the editor is made. */
+  document?: () => DocumentHost | undefined;
+  /** In a document: its title, shown as the first line of the editor; without it the document
+   *  starts with its introduction (the host shows the title elsewhere). */
+  title?: string;
+  /** In a document: called with the sections whenever they change. */
+  onOutline?: (sections: OutlineItem[]) => void;
   /** Links to items of the host application (asked each time, so the host may set it later). */
   items?: () => ItemLinks | undefined;
   /** The entry's files, for images and file links (asked each time, like items). */
   files?: () => EntryFiles | undefined;
-  /** Under which name a height the user dragged the bottom edge to is remembered in this
-   *  browser (e.g. the field's type and name); without it the height is not remembered. */
-  sizeKey?: string;
   /** The address of the draw.io web app, for diagrams (asked each time; absent: no diagrams). */
   diagrams?: () => string | undefined;
 }
 
-const MIN_HEIGHT = 80;
-const SIZE_PREFIX = "cs-richtext-height:";
 
 /** A rich-text editor with its toolbar, in a host element. */
 export class RichTextEditor {
@@ -48,9 +56,7 @@ export class RichTextEditor {
   private readonly files: FileUI;
   private readonly formulas: FormulaUI;
   private readonly diagrams: DiagramUI;
-  private readonly area: HTMLElement;
-  private readonly edge: HTMLElement;
-  private key?: string;
+  private readonly doc?: DocumentUI;
 
   constructor(host: HTMLElement, private readonly opts: EditorOptions = {}) {
     const items = () => opts.items?.();
@@ -64,37 +70,27 @@ export class RichTextEditor {
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), files: () => !!files(),
       image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at),
       formula: (at) => this.formulas.edit(at),
-      diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); } },
+      diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); },
+      structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
+        // (offered when the host can make entries and give their text)
+        ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
+          ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
+            entryTypes: () => opts.document?.()?.entryTypes?.() ?? { remember: "", types: [] } } : {}) } : undefined },
       opts.palette ?? DEFAULT_PALETTE);
+    this.root.classList.toggle("cs-document", !!opts.document);
     const area = document.createElement("div");
     area.className = "cs-area";
-    // the bottom edge: dragged, the text area keeps that height and scrolls; a double click
-    // lets it grow with the text again
-    this.area = area;
-    this.edge = document.createElement("div");
-    this.edge.className = "cs-resize";
-    this.edge.tabIndex = 0;
-    this.edge.setAttribute("role", "separator");
-    this.edge.setAttribute("aria-orientation", "horizontal");
-    this.edge.setAttribute("aria-label", "Height of the text");
-    this.edge.title = "Drag to resize; double-click to fit the text";
-    this.edge.addEventListener("pointerdown", (e) => this.dragEdge(e));
-    this.edge.addEventListener("dblclick", () => this.setHeight(null, true));
-    this.edge.addEventListener("keydown", (e) => {
-      const step = e.key === "ArrowDown" ? 20 : e.key === "ArrowUp" ? -20 : 0;
-      if (!step) return;
-      e.preventDefault();
-      this.setHeight(area.getBoundingClientRect().height + step, true);
-    });
-    this.root.append(this.toolbar.el, area, this.edge);
+    // (the text area always grows with the text: the whole text is visible)
+    this.root.append(this.toolbar.el, area);
     host.append(this.root);
-    this.sizeKey = opts.sizeKey;
     this.files = new FileUI(() => this.view, this.root, files);
     this.links = new LinkUI(() => this.view, this.root, items, files,
       (chosen) => this.files.pick({ images: false, chosen: (name) => chosen(name) }));
     this.tables = new TableUI(() => this.view, this.root, this.toolbar.colorChoices());
     this.formulas = new FormulaUI(() => this.view, this.root);
     this.diagrams = new DiagramUI(() => this.view, this.root, files, () => opts.diagrams?.(), (m) => this.files.notice(m));
+    const docHost = () => opts.document?.();
+    if (opts.document) this.doc = new DocumentUI(() => this.view, this.root, docHost, (m) => this.files.notice(m));
     // copied images carry the address of their file, so another entry can take a copy
     const base = DOMSerializer.fromSchema(schema);
     const clipboardSerializer = new DOMSerializer({ ...base.nodes, formula: (n) => {
@@ -128,18 +124,35 @@ export class RichTextEditor {
     this.view = new EditorView(area, {
       state: this.state(opts.value, files),
       nodeViews: { image: (node, view, getPos) => new ImageView(node, view, getPos, files),
-        diagram: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files) },
+        diagram: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files),
+        placement: (node, _view, _getPos, decorations) => new PlacementView(node, docHost, decorations),
+        xref: (node, view) => new XrefView(node, view, docHost), toc: (node, view) => new TocView(node, view) },
       clipboardSerializer,
       editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
         this.view.updateState(this.view.state.apply(tr));
         this.toolbar.update(this.view.state);
         this.links.update(this.view, this.readonly);
-        if (tr.docChanged) opts.onChange?.(this.value);
+        if (tr.docChanged) {
+          if (!tr.getMeta("cs-host")) opts.onChange?.(this.value); // not the host's own change
+          if (opts.onOutline) opts.onOutline(this.outline());
+        }
       },
       handleDOMEvents: {
         // links open on a click when reading, and on Ctrl/⌘+click while editing
-        click: (_view, e) => {
+        click: (view, e) => {
+          // a cross-reference: to a section of this document, or through the host
+          const x = (e.target as HTMLElement).closest(".cs-xref");
+          if (x && area.contains(x) && (this.readonly || e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            const ref = x.getAttribute("data-xref") ?? "";
+            const [guid, sec] = ref.split("#");
+            const h = docHost();
+            if (sec && (!h?.guid || h.guid === guid) && revealSection(view, sec)) return true;
+            if (!sec && h && structureKey.getState(view.state)?.entries.has(guid)) h.openEntry(guid, e.ctrlKey || e.metaKey);
+            else items()?.open(ref, e.ctrlKey || e.metaKey);
+            return true;
+          }
           const a = (e.target as HTMLElement).closest("a");
           if (!a || !area.contains(a)) return false;
           e.preventDefault();
@@ -149,10 +162,34 @@ export class RichTextEditor {
           return true;
         },
         // the right mouse button on selected cells keeps them selected (to merge them)
-        mousedown: (_view, e) => e.button === 2 && !!(e.target as HTMLElement).closest(".selectedCell"),
+        mousedown: (view, e) => {
+          if (e.button === 2) return !!(e.target as HTMLElement).closest(".selectedCell");
+          // Shift+click on a picture, diagram or formula extends the text selection over it (the
+          // browser would select it alone)
+          const atom = e.shiftKey && e.button === 0 ? (e.target as HTMLElement).closest(".cs-img, .cs-formula") : null;
+          if (!atom || !area.contains(atom)) return false;
+          const at = view.posAtDOM(atom, 0);
+          const n = view.state.doc.nodeAt(at);
+          if (!n?.isInline) return false;
+          const anchor = view.state.selection.anchor;
+          e.preventDefault();
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, anchor <= at ? at + n.nodeSize : at)));
+          view.focus();
+          return true;
+        },
         // the table menu on the right mouse button; outside tables the browser's own menu
         contextmenu: (view, e) => {
           if (this.readonly) return false;
+          // a placed entry: its menu
+          const placed = (e.target as HTMLElement).closest(".cs-placement");
+          if (placed && area.contains(placed) && this.doc) {
+            const pos = view.posAtDOM(placed, 0);
+            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.placement) return false;
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+            e.preventDefault();
+            this.doc.openMenu({ x: e.clientX, y: e.clientY });
+            return true;
+          }
           // an image: its menu
           const img = (e.target as HTMLElement).closest(".cs-img");
           if (img && area.contains(img)) {
@@ -186,6 +223,16 @@ export class RichTextEditor {
         },
         // a double click on a formula edits it
         dblclick: (view, e) => {
+          // a placed entry opens
+          const placed = (e.target as HTMLElement).closest(".cs-placement");
+          if (placed && area.contains(placed)) {
+            const pos = view.posAtDOM(placed, 0);
+            const n = view.state.doc.nodeAt(pos);
+            if (n?.type !== schema.nodes.placement) return false;
+            e.preventDefault();
+            docHost()?.openEntry(n.attrs.guid, e.ctrlKey || e.metaKey);
+            return true;
+          }
           // a diagram: draw.io
           const diagram = (e.target as HTMLElement).closest(".cs-diagram");
           if (diagram && area.contains(diagram) && !this.readonly && this.diagramsOn()) {
@@ -249,12 +296,32 @@ export class RichTextEditor {
     return true;
   }
 
-  /** The stored form of the current text. */
-  get value(): RichText { return toStorage(this.view.state.doc); }
+  /** The stored form of the current text (a document's content in a document). */
+  get value(): RichText | DocNode[] { return this.opts.document ? documentToStorage(this.view.state.doc) : toStorage(this.view.state.doc); }
 
-  /** Replaces the text (and the undo history). */
-  set value(v: RichText | null) {
-    this.view.updateState(this.state(v));
+  /** Replaces the text (and the undo history); a document keeps its title. */
+  set value(v: RichText | DocNode[] | null) {
+    const titled = this.view.state.doc.firstChild?.type === schema.nodes.doc_title;
+    this.view.updateState(this.state(v, undefined, titled ? this.title : undefined));
+    this.toolbar.update(this.view.state);
+  }
+
+  /** In a document: its title, the first line of the editor. */
+  get title(): string { return documentTitle(this.view.state.doc); }
+
+  /** In a document: changes the title in place (the cursor and the undo history stay); for the
+   *  host, so no change is reported. */
+  setTitle(title: string) {
+    const t = title.replace(/[\r\n]+/g, " ");
+    const node = this.view.state.doc.firstChild;
+    if (!this.opts.document || node?.type !== schema.nodes.doc_title || node.textContent === t) return;
+    this.view.dispatch(this.view.state.tr.replaceWith(1, 1 + node.content.size, t ? schema.text(t) : [])
+      .setMeta("addToHistory", false).setMeta("cs-host", true));
+  }
+
+  /** In a document: replaces the title and the content (and the undo history). */
+  setDocument(content: DocNode[] | null, title: string) {
+    this.view.updateState(this.state(content, undefined, title));
     this.toolbar.update(this.view.state);
   }
 
@@ -263,54 +330,53 @@ export class RichTextEditor {
     if (on === this.readonly) return;
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
-    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); this.diagrams.close(); }
+    this.toolbarHost?.classList.toggle("readonly", on);
+    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); this.diagrams.close(); this.doc?.close(); }
     this.view.setProps({}); // editable is asked again
   }
 
-  /** The name the height is remembered under; setting it shows the height remembered for it. */
-  set sizeKey(key: string | undefined) {
-    this.key = key || undefined;
-    let h: number | null = null;
-    try { h = key ? Number(localStorage.getItem(SIZE_PREFIX + key)) || null : null; } catch { /* no storage */ }
-    this.setHeight(h, false);
+  /** Shows the toolbar again for what the host now offers (e.g. diagrams); in a document also
+   *  the placed entries and cross-references (e.g. once the host knows their names). */
+  refresh() {
+    this.toolbar.update(this.view.state);
+    if (this.opts.document) this.view.dispatch(this.view.state.tr.setMeta("cs-refresh", true));
   }
 
-  /** Sets the text area's height (null: grows with the text); remember: keep it for the key. */
-  private setHeight(h: number | null, remember: boolean) {
-    const px = h == null ? null : Math.round(Math.max(MIN_HEIGHT, h));
-    this.area.style.height = px == null ? "" : `${px}px`;
-    this.area.classList.toggle("sized", px != null);
-    if (!remember || !this.key) return;
-    try {
-      if (px == null) localStorage.removeItem(SIZE_PREFIX + this.key);
-      else localStorage.setItem(SIZE_PREFIX + this.key, String(px));
-    } catch { /* not remembered */ }
+  /** In a document: puts the GUIDs the save gave new entries in place of their keys (in place:
+   *  the cursor and the undo history stay). */
+  renameEntries(names: Map<string, string>) {
+    if (this.opts.document) renameEntries(names)(this.view.state, this.view.dispatch);
   }
 
-  private dragEdge(e: PointerEvent) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const startY = e.clientY, startH = this.area.getBoundingClientRect().height;
-    this.edge.setPointerCapture(e.pointerId);
-    this.edge.classList.add("dragging");
-    const move = (ev: PointerEvent) => this.setHeight(startH + ev.clientY - startY, false);
-    const up = (ev: PointerEvent) => {
-      this.edge.removeEventListener("pointermove", move);
-      this.edge.removeEventListener("pointerup", up);
-      this.edge.removeEventListener("pointercancel", up);
-      this.edge.classList.remove("dragging");
-      if (ev.clientY !== startY) this.setHeight(startH + ev.clientY - startY, true);
-    };
-    this.edge.addEventListener("pointermove", move);
-    this.edge.addEventListener("pointerup", up);
-    this.edge.addEventListener("pointercancel", up);
-  }
+  /** In a document: its sections, in order. */
+  outline(): OutlineItem[] { return structureKey.getState(this.view.state)?.sections ?? []; }
 
-  /** Shows the toolbar again for what the host now offers (e.g. diagrams). */
-  refresh() { this.toolbar.update(this.view.state); }
+  /** In a document: puts the cursor into a section's heading and scrolls there. */
+  revealSection(id: string): boolean { return revealSection(this.view, id); }
+
+  /** In a document: moves a section into a parent (null: the top level), before the parent's
+   *  index-th section. */
+  moveSection(id: string, parentId: string | null, index: number): boolean {
+    if (this.readonly) return false;
+    return moveSection(id, parentId, index)(this.view.state, this.view.dispatch);
+  }
 
   focus() { this.view.focus(); }
-  destroy() { this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.formulas.destroy(); this.diagrams.destroy(); this.view.destroy(); this.root.remove(); }
+  /** Takes the toolbar out of the editor so the host can place it (e.g. in its own bar). It
+   *  keeps the editor's looks; it goes when the editor goes. */
+  detachToolbar(): HTMLElement {
+    if (!this.toolbarHost) {
+      const h = document.createElement("div");
+      h.className = this.root.className + " cs-tbhost";
+      h.append(this.toolbar.el);
+      this.root.classList.add("cs-tbaway");
+      this.toolbarHost = h;
+    }
+    return this.toolbarHost;
+  }
+  private toolbarHost?: HTMLElement;
+
+  destroy() { this.toolbarHost?.remove(); this.links.destroy(); this.tables.destroy(); this.files.destroy(); this.formulas.destroy(); this.diagrams.destroy(); this.doc?.destroy(); this.view.destroy(); this.root.remove(); }
 
   private tableMenu(state: EditorState): boolean {
     if (this.readonly || !tableAt(state)) return false;
@@ -326,7 +392,16 @@ export class RichTextEditor {
     this.view.focus();
   }
 
-  private state(value: RichText | null | undefined, files: () => EntryFiles | undefined = () => this.opts.files?.()): EditorState {
+  private state(value: RichText | DocNode[] | null | undefined, files: () => EntryFiles | undefined = () => this.opts.files?.(), title: string | undefined = this.opts.title): EditorState {
+    const isDoc = !!this.opts.document;
+    // in a document, headings first: Tab / Shift+Tab change a section's level, Enter starts its
+    // content, Backspace at its start makes it normal text
+    const docKeys: Record<string, Command> = isDoc ? {
+      // (each takes over the browser's cursor first: a key right after a click acts where the cursor now is)
+      "Tab": synced(chainCommands(titleTab, demoteSection)), "Shift-Tab": synced(promoteSection), "Enter": synced(splitHeading),
+      "Backspace": backspaceStructure, "Delete": synced(deleteStructure),
+      "Mod-Alt-1": makeHeading, "Mod-Alt-0": makeNormal,
+    } : {};
     const keys: Record<string, Command> = {
       "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
       "Mod-b": toggleFlag("bold"), "Mod-i": toggleFlag("italic"), "Mod-u": toggleFlag("underline"),
@@ -350,9 +425,10 @@ export class RichTextEditor {
         return true;
       },
     };
-    const state = EditorState.create({ doc: fromStorage(value),
+    const state = EditorState.create({ doc: isDoc ? documentFromStorage(value as DocNode[], title) : fromStorage(value as RichText),
       plugins: [history(), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, imageImporter(files, (m) => this.files.notice(m)),
-        formulaPictures(files, (m) => this.files.notice(m)), keymap(keys), keymap(baseKeymap)] });
+        formulaPictures(files, (m) => this.files.notice(m)), ...(isDoc ? [structurePlugin(() => this.opts.document?.()), keymap(docKeys)] : []),
+        keymap(keys), keymap(baseKeymap)] });
     // irregular stored tables (rows of different lengths) are completed, outside the undo history
     const fix = fixTables(state);
     return fix ? state.apply(fix.setMeta("addToHistory", false)) : state;

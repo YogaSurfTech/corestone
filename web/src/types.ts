@@ -79,6 +79,8 @@ export interface Schema {
   cardinality?: string;
   /** Links: the name read from the target ("verified by"). */
   reverseName?: string;
+  /** Document types: the entry types "Convert selection to entry" makes. */
+  entryTypes?: string[];
   presentation?: Record<string, unknown>;
   sources?: string[];
 }
@@ -187,21 +189,6 @@ export interface RepoStatus {
 }
 
 export interface Issue { severity: "error" | "warning"; code: string; guid?: string; path?: string; message: string }
-
-export interface Block {
-  id?: string;
-  type: "section" | "paragraph" | "entry" | "image" | "list" | "code" | "toc";
-  title?: string;
-  text?: string;
-  guid?: string;
-  src?: string;
-  alt?: string;
-  children?: Block[];
-  items?: Block[];
-  /** toc: how many section levels to list; all when absent. */
-  depth?: number;
-  [k: string]: unknown;
-}
 
 /** One level of a table sort; col is an overview column id ("$hid", …) or a field id. */
 export interface SortLevel { col: string; dir: "asc" | "desc" }

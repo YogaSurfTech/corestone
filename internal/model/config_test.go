@@ -423,3 +423,40 @@ func TestIcons(t *testing.T) {
 		t.Error("non-string icon accepted")
 	}
 }
+
+// entryTypes: the entry types a document type makes; checked as a document
+// type's setting, composed like the other settings, and warned about when
+// it names something that is not an entry type.
+func TestDocumentEntryTypes(t *testing.T) {
+	idx, _ := NewConfigIndex(files(map[string]string{
+		"|entries/types.json":      `{"types":[{"id":"req"},{"id":"tc"}]}`,
+		"|links/types.json":        `{"types":[{"id":"verifies"}]}`,
+		"|documents/types.json":    `{"types":[{"id":"spec","entryTypes":["req","tc"]},{"id":"bad","entryTypes":["verifies","nothing"]}]}`,
+		"sub|documents/types.json": `{"types":[{"id":"spec","entryTypes":["tc"]}]}`,
+	}))
+	if got := idx.Effective("spec", "").EntryTypes; strings.Join(got, ",") != "req,tc" {
+		t.Fatalf("root spec: %v", got)
+	}
+	if got := idx.Effective("spec", "sub").EntryTypes; strings.Join(got, ",") != "tc" {
+		t.Fatalf("sub spec (nearer wins): %v", got)
+	}
+	var msgs []string
+	for _, p := range idx.Problems() {
+		msgs = append(msgs, p.Message)
+	}
+	all := strings.Join(msgs, "\n")
+	for _, want := range []string{`document type "bad" makes entry type "verifies", which is not an entry type here`,
+		`document type "bad" makes entry type "nothing", which is not an entry type here`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing problem %q in\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, `"spec"`) {
+		t.Errorf("a valid setting reported:\n%s", all)
+	}
+	for _, bad := range []string{`{"type":"x","kind":"entry","entryTypes":["req"]}`, `{"type":"x","kind":"document","entryTypes":["no spaces"]}`} {
+		if _, err := ParseSchema([]byte(bad)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
+	}
+}

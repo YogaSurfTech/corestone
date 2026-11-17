@@ -150,9 +150,9 @@ func TestRESTLifecycle(t *testing.T) {
 	a.ok("PUT", "/api/documents/"+g1, `{"title":"x"}`, 404)
 
 	// documents referencing entries
-	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Boot spec","content":[{"type":"section","title":"Timing","children":[{"type":"paragraph","text":"See:"},{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
+	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Boot spec","content":[{"section":"timing01","title":"Timing","children":[{"text":"See:"},{"entry":"`+g1+`"}]}]}`, 201)
 	gd := meta(d, "guid")
-	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"bad ref","content":[{"type":"entry","guid":"00000000-0000-4000-8000-000000000000"}]}`, 400)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"bad ref","content":[{"entry":"00000000-0000-4000-8000-000000000000"}]}`, 400)
 	usedIn := func(want ...string) {
 		t.Helper()
 		r := a.ok("GET", "/api/artifacts/"+g1+"/documents", "", 200)
@@ -167,12 +167,20 @@ func TestRESTLifecycle(t *testing.T) {
 		}
 	}
 	usedIn(gd)
-	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"twice","content":[{"type":"entry","guid":"`+g1+`"},{"type":"section","title":"Again","children":[{"type":"entry","guid":"`+g1+`"}]}]}`, 400)
-	d2 := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Draft","content":[{"type":"list","items":[{"type":"entry","guid":"`+g1+`"}]}]}`, 201)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"twice","content":[{"entry":"`+g1+`"},{"section":"again001","title":"Again","children":[{"entry":"`+g1+`"}]}]}`, 400)
+	d2 := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Draft","content":[{"text":"Intro"},{"entry":"`+g1+`"}]}`, 201)
 	usedIn(gd, meta(d2, "guid"))
-	a.ok("PUT", "/api/documents/"+meta(d2, "guid"), `{"content":[{"type":"paragraph","text":"no entries"}]}`, 200, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+meta(d2, "guid"), `{"content":[{"text":"no entries"}]}`, 200, "If-Match", "*")
 	usedIn(gd)
 	a.ok("GET", "/api/artifacts/00000000-0000-4000-8000-000000000000/documents", "", 404)
+	// an entry that disappeared after it was placed does not stop the document from saving
+	gone := meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"Gone soon","fields":{"priority":"low"}}`, 201), "guid")
+	d3 := meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Keeps","content":[{"entry":"`+gone+`"}]}`, 201), "guid")
+	a.ok("DELETE", "/api/entries/"+gone, "", 204, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+d3, `{"content":[{"text":"Still here:"},{"entry":"`+gone+`"}]}`, 200, "If-Match", "*")
+	a.ok("PUT", "/api/documents/"+d3, `{"content":[{"entry":"00000000-0000-4000-8000-000000000000"}]}`, 400, "If-Match", "*")
+	// the old format is refused
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"old","content":[{"type":"paragraph","text":"x"}]}`, 400)
 	a.ok("POST", "/api/documents", `{"path":"docs","type":"requirement","title":"wrong kind","fields":{"priority":"low"}}`, 400)
 
 	// links, relationships, comments, workflows
@@ -302,7 +310,7 @@ func TestRESTLifecycle(t *testing.T) {
 	a.ok("GET", "/api/entries/"+g1, "", 404)
 	a.ok("GET", "/api/links/"+meta(l, "guid"), "", 404)
 	del := a.ok("GET", "/api/repository/deleted", "", 200)
-	if n := len(del.body["deleted"].([]any)); n != 4 {
+	if n := len(del.body["deleted"].([]any)); n != 5 { // with the entry deleted from under a document above
 		t.Fatalf("deleted %s", del.raw)
 	}
 	a.ok("DELETE", "/api/documents/"+gd, "", 204)
@@ -664,4 +672,101 @@ func TestSaveMergesAndReportsConflicts(t *testing.T) {
 	a.ok("PUT", "/api/artifacts/"+lg, `{"note":"changed"}`, 200)
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":[{"guid":"`+lg+`","etag":"`+le+`"}]}`, 412)
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"removeLinks":["`+lg+`"]}`, 200)
+}
+
+// A document's save creates the entries made in it: in the same commit, with
+// GUIDs from the server put into the content; a new entry that does not
+// check out refuses the whole save.
+func TestSaveCreatesEntries(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	d := a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"Doc","content":[{"text":"Intro"}]}`, 201)
+	g, etag := meta(d, "guid"), d.hdr.Get("ETag")
+	save := func(changes string, code int, files ...string) resp {
+		t.Helper()
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		_ = mw.WriteField("changes", changes)
+		for i := 0; i+1 < len(files); i += 2 {
+			fw, _ := mw.CreateFormFile(files[i], files[i+1])
+			_, _ = fw.Write([]byte("png"))
+		}
+		_ = mw.Close()
+		return a.ok("POST", "/api/artifacts/"+g+"/save", body.String(), code, "Content-Type", mw.FormDataContentType())
+	}
+	content := `"content":[{"text":"Intro"},{"entry":"new:a"},{"text":[{"text":"see ","ref":"new:a","xref":true}]}]`
+
+	// refused: a required field is missing; the document and the repository stay as they were
+	bad := save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"Lacks priority"}]}`, 400)
+	if msg := string(bad.raw); !strings.Contains(msg, `new entry \"Lacks priority\"`) || !strings.Contains(msg, "priority") {
+		t.Fatalf("refusal: %s", bad.raw)
+	}
+	if r := a.ok("GET", "/api/repository/search?q=Lacks&kind=entry", "", 200); r.body["total"].(float64) != 0 {
+		t.Fatalf("a refused save left an entry: %s", r.raw)
+	}
+	if r := a.ok("GET", "/api/documents/"+g, "", 200); r.hdr.Get("ETag") != etag {
+		t.Fatalf("a refused save changed the document")
+	}
+	// refused: a new entry the content does not use, a key the content uses without its entry,
+	// files for no new entry, a bad key, new entries with an entry
+	save(`{"patch":{"content":[{"text":"x"}]},"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+	save(`{"patch":{`+content+`}}`, 400)
+	save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400, "entryfile:new:b", "x.png")
+	save(`{"patch":{"content":[{"entry":"new:a b"}]},"addEntries":[{"key":"new:a b","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+	e := a.ok("POST", "/api/entries", `{"path":"reqs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201)
+	a.ok("POST", "/api/artifacts/"+meta(e, "guid")+"/save", `{"addEntries":[{"key":"new:a","type":"requirement","title":"A","fields":{"priority":"low"}}]}`, 400)
+
+	// saved: the entry in the document's folder (no path given), its file, the GUID in placement and reference
+	ok := save(`{"patch":{`+content+`},"addEntries":[{"key":"new:a","type":"requirement","title":"Made here","fields":{"priority":"low"}}]}`, 200,
+		"entryfile:new:a", "dot.png")
+	guid, _ := ok.body["created"].(map[string]any)["new:a"].(string)
+	if len(guid) != 36 {
+		t.Fatalf("created: %s", ok.raw)
+	}
+	stored := a.ok("GET", "/api/documents/"+g, "", 200)
+	if raw := string(stored.raw); strings.Contains(raw, "new:a") || !strings.Contains(raw, `"entry":"`+guid+`"`) || !strings.Contains(raw, `"ref":"`+guid+`"`) {
+		t.Fatalf("content: %s", stored.raw)
+	}
+	ent := a.ok("GET", "/api/entries/"+guid, "", 200)
+	if meta(ent, "title") != "Made here" || meta(ent, "folder") != "docs" {
+		t.Fatalf("entry: %s", ent.raw)
+	}
+	if f := a.ok("GET", "/api/artifacts/"+guid+"/files/dot.png", "", 200); string(f.raw) != "png" {
+		t.Fatalf("entry file %q", f.raw)
+	}
+	// one commit: the entry's creation is the document's save
+	dh := a.ok("GET", "/api/artifacts/"+g+"/history", "", 200)
+	eh := a.ok("GET", "/api/artifacts/"+guid+"/history", "", 200)
+	first := func(r resp) map[string]any { return r.body["history"].([]any)[0].(map[string]any) }
+	if !strings.Contains(string(dh.raw), "1 entry added") || first(dh)["commit"] != first(eh)["commit"] || len(eh.body["history"].([]any)) != 1 {
+		t.Fatalf("history: document %s\nentry %s", dh.raw, eh.raw)
+	}
+}
+
+// The check answers whether an entry could be created, without creating it.
+func TestCheckEntry(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	before := a.ok("GET", "/api/repository", "", 200).raw
+	r := a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"requirement","title":"Fine","fields":{"priority":"low"}}`, 200)
+	if r.body["ok"] != true || len(r.body["problems"].([]any)) != 0 {
+		t.Fatalf("a valid entry: %s", r.raw)
+	}
+	r = a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"requirement","title":"Lacks"}`, 200)
+	if p := r.body["problems"].([]any); r.body["ok"] != false || len(p) != 1 || !strings.Contains(p[0].(string), "priority") {
+		t.Fatalf("a missing required field: %s", r.raw)
+	}
+	r = a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"nosuchtype","title":"X"}`, 200)
+	if r.body["ok"] != false {
+		t.Fatalf("an unknown type: %s", r.raw)
+	}
+	// nothing was created
+	if s := a.ok("GET", "/api/repository/search?q=Fine&kind=entry", "", 200); s.body["total"].(float64) != 0 {
+		t.Fatalf("the check created an entry: %s", s.raw)
+	}
+	if after := a.ok("GET", "/api/repository", "", 200).raw; string(after) != string(before) {
+		t.Fatalf("the check changed the repository:\n%s\n%s", before, after)
+	}
+	a.ok("POST", "/api/documents/check", `{"path":"docs","type":"spec","title":"D"}`, 200)
+	a.ok("POST", "/api/entries/check", `not json`, 400)
 }

@@ -54,14 +54,14 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   // a requirement can only be the target of "verifies": the button is offered as incoming, by its reverse name
   await expect(rel.locator(".actions button", { hasText: "verified by" })).toContainText("←");
   await rel.locator(".actions button", { hasText: "verified by" }).click();
-  await page.locator("corestone-picker input").fill(`Test A ${id}`);
+  await page.locator("corestone-picker input[type=search]").fill(`Test A ${id}`);
   await page.locator(".picker-results .row", { hasText: `Test A ${id}` }).click();
   await expect(rel.locator(".link-row")).toHaveCount(1);
   await expect(rel.locator(".link-row .arrow")).toHaveText("←");
   await expect(rel.locator(".link-row .type")).toHaveText("verified by");
   // a "related" link through its own button
   await rel.locator(".actions button", { hasText: "relates to" }).click();
-  await page.locator("corestone-picker input").fill(`Req B ${id}`);
+  await page.locator("corestone-picker input[type=search]").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row.pending-add")).toHaveCount(2);
   await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 links added");
@@ -84,9 +84,9 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   // endpoint rule violation surfaces as a toast, not a silent failure
   await page.goto(`/artifact/${t1.meta.guid}`);
   await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
-  await page.locator("corestone-picker input").fill(`Test A ${id}`); // a test case as target of verifies is not allowed
+  await page.locator("corestone-picker input[type=search]").fill(`Test A ${id}`); // a test case as target of verifies is not allowed
   await expect(page.locator(".picker-results")).toContainText("No matching"); // itself is excluded
-  await page.locator("corestone-picker input").fill(`Req A ${id}`);
+  await page.locator("corestone-picker input[type=search]").fill(`Req A ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req A ${id}` }).click();
   await expect(page.locator(".toast.error")).toContainText("already exists"); // duplicate of the first link
 });
@@ -175,7 +175,7 @@ test("change or remove an entry's base with a preview of the effective values", 
   const pick = async (title: string) => {
     await page.locator("[data-test=change-base]").click();
     await expect(page.locator("corestone-picker h2")).toHaveText("Change or remove the base");
-    await page.locator("corestone-picker input").fill(title);
+    await page.locator("corestone-picker input[type=search]").fill(title);
     await page.locator(".picker-results .row", { hasText: title }).click();
   };
   // an overlay of this entry cannot become its base

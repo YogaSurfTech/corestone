@@ -311,11 +311,11 @@ def document(client, p, module, refs, index):
     scope = client.args.root + "/" + p["id"]
     path = scope if p["layout"] == "flat" else scope + "/" + module + "/design/reviews"
     for dtype, label in [("architecture-note", "Design rationale"), ("verification-plan", "Verification matrix")]:
-        content = [dict(id="overview", type="section", title=label, children=[
-            dict(id="context", type="paragraph", text=p["focus"] + ". The linked artifacts define the current acceptance baseline."),
-            *[dict(id=f"entry-{i}", type="entry", guid=guid) for i, guid in enumerate(refs)],
-            dict(id="checks", type="list", items=[dict(id="timing", type="paragraph", text="Record timing at nominal and worst-case resource pressure."),
-                dict(id="recovery", type="paragraph", text="Verify recovery after reset, partial writes and interrupted communication.")])])]
+        content = [dict(section="overview", title=label, children=[
+            dict(text=p["focus"] + ". The linked artifacts define the current acceptance baseline."),
+            *[dict(entry=guid) for guid in refs],
+            dict(text="Record timing at nominal and worst-case resource pressure.", list="ul"),
+            dict(text="Verify recovery after reset, partial writes and interrupted communication.", list="ul")])]
         guid = client.create("documents", dict(path=path, type=dtype, title=f"{p['name']} / {module} / {label}", content=content))
         for ref in refs[:3]:
             client.link("documents", guid, ref)
@@ -413,11 +413,11 @@ def generate(client):
     client.link("depends-on", anchors["verdant-mcu"]["requirement"], anchors["prism-asic"]["design-constraint"])
     contract = client.create("documents", dict(path=client.args.root + "/harbor-data/contracts", type="interface-contract",
         title="Harbor web/server contract: tenant isolation, telemetry ingestion and cursor semantics",
-        content=[dict(id="contract", type="section", title="Versioned service boundary", children=[
-            dict(id="overview", type="paragraph", text="The web gateway sends a tenant-scoped idempotency key with every telemetry write. PostgreSQL row policies enforce tenant isolation. Cursor tokens bind the tenant, filter digest and stable ordering key; expired snapshots return an explicit conflict."),
-            dict(id="web", type="entry", guid=anchors["harbor-web"]["requirement"]),
-            dict(id="data", type="entry", guid=anchors["harbor-data"]["specification"]),
-            dict(id="verify", type="entry", guid=anchors["harbor-web"]["testcase"])])]))
+        content=[dict(section="contract", title="Versioned service boundary", children=[
+            dict(text="The web gateway sends a tenant-scoped idempotency key with every telemetry write. PostgreSQL row policies enforce tenant isolation. Cursor tokens bind the tenant, filter digest and stable ordering key; expired snapshots return an explicit conflict."),
+            dict(entry=anchors["harbor-web"]["requirement"]),
+            dict(entry=anchors["harbor-data"]["specification"]),
+            dict(entry=anchors["harbor-web"]["testcase"])])]))
     client.link("documents", contract, anchors["harbor-data"]["specification"])
     client.link("documents", contract, anchors["harbor-web"]["requirement"])
     if client.counts["entries"] != total or sum(client.projects.values()) != total:

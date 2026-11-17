@@ -41,7 +41,10 @@ type Schema struct {
 	TargetTypes []string    `json:"targetTypes,omitempty"` // links: allowed target types
 	Cardinality Cardinality `json:"cardinality,omitempty"` // links
 	// ReverseName reads a link from its target ("verified by"); empty falls back to DisplayName.
-	ReverseName  string         `json:"reverseName,omitempty"`
+	ReverseName string `json:"reverseName,omitempty"`
+	// EntryTypes are the entry types a document of this type makes (from its
+	// text); absent: every entry type allowed in the document's folder.
+	EntryTypes   []string       `json:"entryTypes,omitempty"`
 	Presentation map[string]any `json:"presentation,omitempty"`
 	Extra        map[string]any `json:"-"` // unknown top-level properties, passed through
 
@@ -52,7 +55,8 @@ type Schema struct {
 // knownSchemaKeys are consumed by the typed struct; everything else is kept in Extra.
 var knownSchemaKeys = map[string]bool{"type": true, "kind": true, "inheritance": true, "displayName": true,
 	"description": true, "hid": true, "fields": true, "workflows": true, "sourceTypes": true,
-	"targetTypes": true, "cardinality": true, "reverseName": true, "presentation": true, "sources": true}
+	"targetTypes": true, "cardinality": true, "reverseName": true, "presentation": true, "sources": true,
+	"entryTypes": true}
 
 // ParseSchema decodes and validates a schema definition file.
 func ParseSchema(data []byte) (*Schema, error) {
@@ -133,6 +137,14 @@ func (s *Schema) Validate() error {
 	}
 	if s.ReverseName != "" && s.Kind != KindLink {
 		return Invalid("reverseName applies to link types only")
+	}
+	if s.EntryTypes != nil && s.Kind != KindDocument {
+		return Invalid("entryTypes applies to document types only")
+	}
+	for _, t := range s.EntryTypes {
+		if err := ValidateTypeID(t); err != nil {
+			return fmt.Errorf("entryTypes: %w", err)
+		}
 	}
 	switch s.Cardinality {
 	case "", OneToOne, OneToMany, ManyToOne, ManyToMany:
@@ -309,6 +321,9 @@ func Compose(defs []ScopedSchema) *Schema {
 		}
 		if s.ReverseName != "" {
 			eff.ReverseName = s.ReverseName
+		}
+		if s.EntryTypes != nil {
+			eff.EntryTypes = append([]string(nil), s.EntryTypes...)
 		}
 		if len(s.Presentation) > 0 {
 			if eff.Presentation == nil {

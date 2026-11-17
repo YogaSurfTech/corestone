@@ -1,21 +1,46 @@
-import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { LitElement, html, nothing, render, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import { api, ApiError } from "./api";
+import "@corestone/editor";
+import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
+import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
-import type { Block, CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
+import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { blockId, commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, safeImageSrc, showValue, undeclaredField } from "./util";
+import { commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, showValue, undeclaredField } from "./util";
+import { MAX_ATTACHMENT, freeFileName } from "./detail";
 import "./type-icon";
+import { appIcon, type AppIcon } from "./icons";
 import "./fields";
 
-// Document view (design guide §7.6, §9.5): a distraction-free editor of
-// the hierarchical block content (sections, paragraphs, entry references,
-// images, lists, code) with optional sidebars for properties, the current
-// entry, relationships, comments and versions.
+// Document view (design guide §7.6, §9.5; docs/design/Corestone documents.md): one editor for
+// the whole document (a tree of sections with text, pictures, tables and placed entries), the
+// title above it, and optional sidebars for the outline, properties, the current entry,
+// relationships, comments and versions.
 
-const SIDEBARS = [["props", "Properties"], ["entry", "Entry"], ["rel", "Relationships"], ["comments", "Comments"], ["versions", "Versions"]] as const;
+const SIDEBARS = [["outline", "Outline"], ["props", "Properties"], ["entry", "Entry"], ["rel", "Relationships"], ["comments", "Comments"], ["versions", "Versions"]] as const satisfies readonly (readonly [AppIcon, string])[];
+
+/** A placed entry as the document shows it: loaded when it comes near the visible part. */
+interface Loaded { view: View | null; schema: Schema | null; missing?: { hid?: string; title?: string } }
+/** A new entry made in the document, held until the document is saved (the save creates it). */
+interface Held { schema: Schema; folder: string; title: string; fields: Record<string, unknown>; files: string[] }
+/** Whether a placed entry is new (a key "new:…" instead of a GUID). */
+const isNew = (g: string) => g.startsWith("new:");
+
+/** Document content with the keys of new entries changed by f (in placements and references). */
+function mapKeys<T>(v: T, f: (key: string) => string): T {
+  if (Array.isArray(v)) return v.map((x) => mapKeys(x, f)) as T;
+  if (!v || typeof v !== "object") return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if ((k === "entry" || k === "ref") && typeof x === "string" && isNew(x)) {
+      const [key, sec] = x.split("#");
+      out[k] = f(key) + (sec ? "#" + sec : "");
+    } else out[k] = mapKeys(x, f);
+  }
+  return out as T;
+}
 
 @customElement("corestone-document")
 export class DocumentView extends LitElement {
@@ -25,9 +50,10 @@ export class DocumentView extends LitElement {
   @state() private view: View | null = null;
   @state() private schema: Schema | null = null;
   @state() private docTitle = "";
-  @state() private blocks: Block[] = [];
+  @state() private content: DocNode[] = [];
   @state() private fields: Record<string, unknown> = {};
-  @state() private focused: string | null = null;
+  @state() private outline: OutlineItem[] = [];
+  @state() private current: string | null = null; // the placed entry last clicked
   @state() private busy = false;
   @state() private error = "";
   @state() private rel: Relationships | null = null;
@@ -35,12 +61,32 @@ export class DocumentView extends LitElement {
   @state() private commentType: string | null = null;
   @state() private history: LogEntry[] = [];
   @state() private commentText = "";
-  private entries = new Map<string, Summary | null>();
+  @state() private pendingFiles: File[] = [];
+  @state() private removedFiles: string[] = [];
   private lastTick = -1;
   private editing = false;
   private loadSeq = 0;
+  /** Entries placed in the document, shown lazily and kept while the view lives. */
+  private entries = new Map<string, Loaded | "loading">();
+  /** New entries by key; and the GUIDs saves gave them (the undo history may bring a key back). */
+  private held = new Map<string, Held>();
+  private savedKeys = new Map<string, string>();
+  /** The entry types converting text makes: the document type's entryTypes that are allowed in
+   *  its folder (in that order), or every entry type allowed there. */
+  private convertTypes: Schema[] = [];
+  /** What the server said is wrong with each new entry (its check), by key. */
+  private problems = new Map<string, string[]>();
+  private checkTimer = 0;
+  /** The missing fields in the entry sidebar flash (to draw attention to them). */
+  @state() private flash = false;
+  private schemas = new Map<string, Promise<Schema | null>>();
+  private observer?: IntersectionObserver;
+  private blobUrls = new WeakMap<File, string>();
+  @state() private dragId: string | null = null;
+  @state() private dropAt: number | "end" | null = null;
 
   override createRenderRoot() { return this; }
+
   /** Asked by the router before leaving this document with unsaved changes. */
   private leaveGuard: LeaveGuard = {
     dirty: () => this.dirty,
@@ -49,32 +95,93 @@ export class DocumentView extends LitElement {
     label: () => (this.view ? hidLabel(this.view.meta) : "This document"),
   };
 
-  /** Drops unsaved edits: title, blocks and fields go back to the stored version. */
+  private get editor(): DocumentElement | null { return this.querySelector("cs-document"); }
+
+  /** Drops unsaved edits: title, content, fields and files go back to the stored version. */
   private discard() {
     if (!this.view) return;
     const d = this.view.data as Record<string, unknown>;
     this.docTitle = String(d.title ?? "");
-    this.blocks = structuredClone((d.content as Block[]) ?? []);
+    this.content = structuredClone((d.content as DocNode[]) ?? []);
     this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
+    this.pendingFiles = [];
+    this.removedFiles = [];
+    if (this.editor) this.editor.value = this.content;
     if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
   }
 
   override connectedCallback() {
     super.connectedCallback();
     setLeaveGuard(this.leaveGuard);
+    this.observer = new IntersectionObserver((list) => {
+      for (const e of list) {
+        if (!e.isIntersecting) continue;
+        this.observer!.unobserve(e.target);
+        const g = (e.target as HTMLElement).dataset.placement;
+        if (g && !this.held.has(g)) void this.loadEntry(this.real(g));
+      }
+    }, { rootMargin: "600px 0px" });
     this.unsub = store.subscribe((s) => {
       this.s = s;
-      if (s.refreshTick !== this.lastTick) { this.lastTick = s.refreshTick; if (this.view) this.loadSide(); }
+      if (s.refreshTick !== this.lastTick) {
+        this.lastTick = s.refreshTick;
+        if (this.view) { this.loadSide(); this.reloadEntries(); }
+      }
       this.requestUpdate();
     });
   }
-  override disconnectedCallback() { this.unsub?.(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() {
+    this.resizes?.disconnect();
+    this.watched = undefined;
+    this.unsub?.();
+    this.observer?.disconnect();
+    clearLeaveGuard(this.leaveGuard);
+    if (this.editing) announceEdit(this.guid, false);
+    super.disconnectedCallback();
+  }
   override willUpdate(changed: Map<string, unknown>) { if (changed.has("guid") && this.guid) this.load(); }
+
+  /** The editor's toolbar lives in the heading bar, next to the sidebar switches. */
+  override updated() {
+    const slot = this.querySelector(".doc-tools");
+    const bar = this.editor?.toolbar();
+    if (slot && bar && bar.parentElement !== slot) slot.replaceChildren(bar);
+    const scroll = this.querySelector(".doc-scroll");
+    if (scroll && scroll !== this.watched) {
+      this.resizes ??= new ResizeObserver(() => this.alignTools());
+      this.resizes.disconnect();
+      this.resizes.observe(scroll);
+      this.resizes.observe(this);
+      this.watched = scroll;
+    }
+    this.alignTools();
+  }
+  private resizes?: ResizeObserver;
+  private watched?: Element;
+
+  /** The toolbar starts where the paper starts, when the bar has room for that; otherwise it
+   *  follows the left part after a separator. */
+  private alignTools() {
+    const tools = this.querySelector<HTMLElement>(".doc-tools");
+    const page = this.querySelector(".doc-page");
+    const right = this.querySelector(".doc-switches");
+    const head = this.querySelector(".doc-head");
+    if (!tools || !page || !right || !head) return;
+    tools.style.marginLeft = "0px";
+    const natural = tools.getBoundingClientRect().left;
+    // room up to the right part (the right part keeps its place at the bar's end)
+    const room = right.getBoundingClientRect().left - 12 - (natural + tools.getBoundingClientRect().width);
+    const shift = Math.min(page.getBoundingClientRect().left - natural, room);
+    const aligned = shift > 0 && right.getBoundingClientRect().top < tools.getBoundingClientRect().bottom;
+    tools.style.marginLeft = aligned ? `${Math.round(shift)}px` : "0px";
+    head.classList.toggle("aligned", aligned);
+  }
 
   private get dirty(): boolean {
     if (!this.view) return false;
     const d = this.view.data as Record<string, unknown>;
-    return this.docTitle !== (d.title ?? "") || !deepEqual(this.blocks, d.content ?? []) || !deepEqual(this.fields, d.fields ?? {});
+    return this.docTitle.trim() !== (d.title ?? "") || !deepEqual(this.content, d.content ?? []) || !deepEqual(this.fields, d.fields ?? {})
+      || this.pendingFiles.length > 0 || this.removedFiles.length > 0;
   }
 
   private async load() {
@@ -82,39 +189,43 @@ export class DocumentView extends LitElement {
     const guid = this.guid;
     this.error = "";
     this.view = null;
+    this.entries.clear();
     try {
       const view = await api.get(guid);
       if (seq !== this.loadSeq) return;
       this.view = view;
-      const d = this.view.data as Record<string, unknown>;
+      const d = view.data as Record<string, unknown>;
       this.docTitle = String(d.title ?? "");
-      this.blocks = structuredClone((d.content as Block[]) ?? []);
+      this.content = structuredClone((d.content as DocNode[]) ?? []);
       this.fields = structuredClone((d.fields as Record<string, unknown>) ?? {});
+      this.pendingFiles = [];
+      this.removedFiles = [];
       const [schema, types] = await Promise.all([api.schemaOf(this.guid).catch(() => ({ schema: null })), api.types(view.meta.folder).catch(() => ({ types: [] }))]);
       if (seq !== this.loadSeq) return;
       this.schema = schema.schema;
       this.commentType = commentTypeOf(types.types);
+      const entryTypes = types.types.filter((t) => t.kind === "entry");
+      const wanted = this.schema?.entryTypes;
+      this.convertTypes = wanted ? wanted.map((id) => entryTypes.find((t) => t.type === id)).filter((t): t is Schema => !!t) : entryTypes;
+      this.editor?.refresh(); // the toolbar offers these types
       this.loadSide();
-      this.resolveEntries();
       void this.revealEntry();
     } catch (e) {
       this.error = e instanceof ApiError ? e.message : String(e);
     }
   }
 
-  /** A deep link to an entry (?tab=entry:<guid>, from "Documents" on the entry) focuses and scrolls to its block once. */
+  /** A deep link to an entry (?tab=entry:<guid>, from "Documents" on the entry) scrolls to it once. */
   private async revealEntry() {
     const tab = store.state.route.tab;
     if (!tab.startsWith("entry:")) return;
     const guid = tab.slice("entry:".length);
     navigate({ tab: "" }, true);
-    let found: Block | undefined;
-    const walk = (bs: Block[]) => { for (const b of bs) { if (found) return; if (b.type === "entry" && b.guid === guid) found = b; walk(b.children ?? []); walk(b.items ?? []); } };
-    walk(this.blocks);
-    if (!found) return;
-    if (found.id) this.focused = found.id;
     await this.updateComplete;
-    this.querySelector(`[data-entry="${CSS.escape(guid)}"]`)?.scrollIntoView({ block: "center" });
+    const el = this.querySelector(`.cs-placement[data-placement="${CSS.escape(guid)}"]`);
+    if (!el) return;
+    this.current = guid;
+    el.scrollIntoView({ block: "center" });
   }
 
   private async loadSide() {
@@ -124,23 +235,287 @@ export class DocumentView extends LitElement {
     this.history = h.history;
   }
 
-  private resolveEntries() {
-    const walk = (bs: Block[]) => {
-      for (const b of bs) {
-        if (b.type === "entry" && b.guid && !this.entries.has(b.guid)) {
-          this.entries.set(b.guid, null);
-          api.get(b.guid).then((v) => { this.entries.set(b.guid!, v.meta); this.requestUpdate(); }).catch(() => this.requestUpdate());
-        }
-        walk(b.children ?? []);
-        walk(b.items ?? []);
-      }
-    };
-    walk(this.blocks);
+  // ---- entries placed in the document ----
+
+  private schemaOf(v: View): Promise<Schema | null> {
+    const key = `${v.meta.type}@${v.meta.folder}`;
+    let p = this.schemas.get(key);
+    if (!p) { p = api.schemaOf(v.meta.guid).then((r) => r.schema).catch(() => null); this.schemas.set(key, p); }
+    return p;
   }
+
+  /** The last known name of a deleted entry (its HID and title), for "missing entry". */
+  private lastKnown(guid: string): Promise<{ hid?: string; title?: string } | undefined> {
+    return api.deleted(guid).then((r) => r.deleted[0]).catch(() => undefined);
+  }
+
+  private async loadEntry(guid: string) {
+    if (this.entries.has(guid)) return;
+    this.entries.set(guid, "loading");
+    let loaded: Loaded;
+    try {
+      const view = await api.get(guid);
+      loaded = { view, schema: await this.schemaOf(view) };
+    } catch (e) {
+      loaded = { view: null, schema: null, missing: e instanceof ApiError && e.status === 404 ? (await this.lastKnown(guid)) ?? {} : {} };
+    }
+    this.entries.set(guid, loaded);
+    this.editor?.refresh(); // shown again, with its name in cross-references
+    if (this.current === guid) this.requestUpdate();
+  }
+
+  /** After changes elsewhere: the entries shown are loaded again. */
+  private reloadEntries() {
+    const shown = [...this.entries.keys()];
+    this.entries.clear();
+    for (const g of shown) void this.loadEntry(g);
+  }
+
+  private readonly host: DocumentHost = {
+    guid: undefined,
+    pickEntries: (taken) => new Promise((resolve) => {
+      store.set({ picker: { kind: "pick", title: "Insert entries", kinds: ["entry"], taken: { guids: new Set(taken), note: "already in this document" },
+        multi: { verb: "Insert" }, onPickMany: (guids: string[]) => resolve(guids), onCancel: () => resolve([]) } });
+    }),
+    renderEntry: (el, p) => this.renderEntry(el, p),
+    openEntry: (key, newTab) => {
+      const guid = this.real(key);
+      if (isNew(guid)) { store.toast("This entry is created when the document is saved.", "info"); return; }
+      if (newTab) window.open(`/artifact/${guid}`, "_blank", "noopener");
+      else navigate({ guid });
+    },
+    entryLabel: (key) => {
+      const guid = this.real(key);
+      const h = this.held.get(guid);
+      if (h) return h.title || "New entry";
+      const e = this.entries.get(guid);
+      if (!e || e === "loading") return undefined;
+      return e.view ? (e.view.meta.hid || e.view.meta.title || undefined) : e.missing?.hid;
+    },
+    entryNumbers: true,
+    convertToEntry: (c) => this.newEntry(c),
+    entryTypes: () => ({
+      remember: this.view?.meta.type ?? "",
+      types: this.convertTypes.map((t) => ({ id: t.type, name: t.displayName ?? t.type, icon: () => {
+        const el = document.createElement("corestone-type-icon") as HTMLElement & { kind: string; type: string; folder: string; schema: Schema };
+        Object.assign(el, { kind: "entry", type: t.type, folder: this.view?.meta.folder ?? "", schema: t });
+        return el;
+      } })),
+    }),
+    entryAsText: (key) => this.entryAsText(this.real(key)),
+  };
+
+  /** A key's GUID once a save gave it one; otherwise the key (or GUID) itself. */
+  private real(key: string): string { return this.savedKeys.get(key) ?? key; }
+
+  /** Makes a new entry of document text, held until the save: of the chosen entry type, its
+   *  text in the type's first rich-text field, its fields' defaults set. */
+  private async newEntry(c: { type: string; title: string; text: RichText; files: string[] }): Promise<string | null> {
+    const folder = this.view?.meta.folder ?? "";
+    const schema = this.convertTypes.find((t) => t.type === c.type);
+    if (!schema) { store.toast(`Entries of type ${c.type} cannot be made in ${folder || "/"}.`, "error"); return null; }
+    const fields: Record<string, unknown> = {};
+    for (const f of schema.fields ?? []) if (f.default != null) fields[f.id] = f.default;
+    const hasText = Array.isArray(c.text) ? c.text.length > 0 : !!c.text;
+    if (hasText) {
+      const rich = (schema.fields ?? []).find((f) => f.type === "richtext");
+      if (!rich) { store.toast(`${schema.displayName ?? schema.type} has no rich-text field for the text; select a single line for its title.`, "error"); return null; }
+      fields[rich.id] = c.text;
+    }
+    const key = "new:" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    this.held.set(key, { schema, folder, title: c.title, fields, files: c.files });
+    void this.check(key).then((ok) => { if (!ok) this.attend(key); });
+    return key;
+  }
+
+  /** The required fields of a new entry that are still empty. */
+  private missing(h: Held): Field[] {
+    const empty = (v: unknown) => v == null || v === "" || (Array.isArray(v) && !v.length);
+    return (h.schema.fields ?? []).filter((f) => f.required && empty(h.fields[f.id]));
+  }
+
+  /** Asks the server whether a new entry could be created; true when it could. */
+  private async check(key: string): Promise<boolean> {
+    const h = this.held.get(key);
+    if (!h) return true;
+    let problems: string[];
+    try {
+      problems = (await api.check("entries", { path: h.folder, type: h.schema.type, title: h.title, fields: h.fields })).problems;
+    } catch {
+      problems = []; // unknown: the save checks again
+    }
+    if (this.held.get(key) !== h) return true;
+    if (problems.length) this.problems.set(key, problems); else this.problems.delete(key);
+    this.editor?.refresh(); // the card shows what is missing
+    this.requestUpdate();
+    return !problems.length && !this.missing(h).length;
+  }
+
+  /** Shows a new entry with problems in the entry sidebar (opened if needed), its missing fields flashing. */
+  private attend(key: string) {
+    this.current = key;
+    this.editor?.refresh();
+    if (!this.s.route.sidebars.includes("entry")) navigate({ sidebars: [...this.s.route.sidebars, "entry"] }, true);
+    this.flash = false;
+    requestAnimationFrame(() => { this.flash = true; window.setTimeout(() => (this.flash = false), 1600); });
+  }
+
+  /** A field of a new entry changed (in the sidebar): kept, shown, checked again after a pause. */
+  private editHeld(key: string, change: (h: Held) => void) {
+    const h = this.held.get(key);
+    if (!h) return;
+    change(h);
+    this.touch();
+    this.editor?.refresh();
+    this.requestUpdate();
+    window.clearTimeout(this.checkTimer);
+    this.checkTimer = window.setTimeout(() => void this.check(key), 400);
+  }
+
+  /** Copies files (pictures of a text) from one artifact to another; names: their new names. */
+  private async copyFiles(names: string[], get: (n: string) => Promise<Blob>, put: (n: string, f: File) => Promise<unknown>): Promise<Map<string, string>> {
+    const renamed = new Map<string, string>();
+    for (const n of names) {
+      try {
+        const blob = await get(n);
+        const r = await put(n, new File([blob], n, { type: blob.type }));
+        if (typeof r === "string" && r !== n) renamed.set(n, r);
+      } catch (e) {
+        store.toast(`The file ${n} could not be copied: ${(e as Error).message ?? e}`, "error");
+      }
+    }
+    return renamed;
+  }
+
+  /** A placed entry as text of the document: its title (bold), then its rich-text fields (each
+   *  under its name when there are several); its pictures become files of the document. */
+  private async entryAsText(guid: string): Promise<{ text: RichText } | { error: string }> {
+    const h = this.held.get(guid);
+    if (h) return { text: this.asText(h.title, h.schema, h.fields) }; // (its pictures are the document's already)
+    let v: View, schema: Schema | null;
+    try {
+      v = await api.get(guid);
+      schema = await this.schemaOf(v);
+    } catch (e) {
+      return { error: `The entry could not be read: ${(e as Error).message ?? e}` };
+    }
+    const blocks = this.asText(v.meta.title || v.meta.hid || "", schema, ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {});
+    const names = fileNames(blocks);
+    const renamed = await this.copyFiles(names, async (n) => {
+      const res = await fetch(api.fileUrl(guid, n), { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    }, (_n, f) => this.docFiles.add(f));
+    return { text: renameFiles(blocks, renamed) };
+  }
+
+  /** An entry as document text: its title (bold), then its rich-text fields (each under its
+   *  name when there are several). */
+  private asText(title: string, schema: Schema | null, values: Record<string, unknown>): Block[] {
+    const rich = (schema?.fields ?? []).filter((f) => f.type === "richtext" && values[f.id] != null && values[f.id] !== "");
+    const blocks: Block[] = [{ text: [{ text: title || "Untitled", bold: true }] }];
+    for (const f of rich) {
+      if (rich.length > 1) blocks.push({ text: [{ text: f.name ?? f.id, italic: true }] });
+      const val = values[f.id] as RichText;
+      blocks.push(...(typeof val === "string" ? val.split("\n").map((t): Block => ({ text: t })) : val));
+    }
+    return blocks;
+  }
+
+  /** A placed entry: the built-in card (type, number, HID, title, state and its rich-text fields). */
+  private renderEntry(el: HTMLElement, p: Placed) {
+    el.classList.add("doc-entry");
+    const guid = this.real(p.guid);
+    const h = this.held.get(guid);
+    if (h) {
+      // a new entry: as it will be, marked until the save creates it (its pictures are the document's)
+      const rich = (h.schema.fields ?? []).filter((f) => f.type === "richtext" && h.fields[f.id] != null && h.fields[f.id] !== "");
+      render(html`<div class="entry-card new ${this.current === p.guid ? "current" : ""}">
+        <div class="head">${p.number ? html`<span class="num">${p.number}</span>` : nothing}
+          <corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder}></corestone-type-icon>
+          <b class="title">${h.title || html`<span class="muted">Untitled</span>`}</b>
+          <span class="pill unsaved" title="This entry is created when the document is saved">not saved yet</span>
+          ${this.missing(h).length || this.problems.has(p.guid) ? html`<span class="pill problem" title=${(this.problems.get(p.guid) ?? []).join("\n")}>${this.missing(h).length
+            ? `${this.missing(h).map((f) => f.name ?? f.id).join(", ")} missing` : "cannot be created"}</span>` : nothing}</div>
+        ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
+          <cs-richtext readonly .value=${h.fields[f.id] as RichText} .files=${this.docFiles}></cs-richtext></div>`)}
+      </div>`, el);
+      return;
+    }
+    const e = this.entries.get(guid);
+    if (!e || e === "loading") {
+      render(html`<div class="entry-card loading"><span class="num">${p.number}</span> Loading entry…</div>`, el);
+      if (!e) this.observer?.observe(el);
+      return;
+    }
+    if (!e.view) {
+      const name = e.missing?.hid || e.missing?.title || p.guid;
+      render(html`<div class="entry-card missing" title="This entry is not in the repository any more">
+        <span class="num">${p.number}</span> Missing entry <b>${name}</b></div>`, el);
+      return;
+    }
+    const v = e.view;
+    const d = v.data as Record<string, unknown>;
+    const values = (d.fields as Record<string, unknown>) ?? {};
+    const rich = (e.schema?.fields ?? []).filter((f) => f.type === "richtext" && values[f.id] != null && values[f.id] !== "");
+    const files: EntryFiles = { add: () => Promise.reject(new Error("read-only")), url: (n) => api.fileUrl(v.meta.guid, n), list: async () => [] };
+    render(html`<div class="entry-card ${this.current === p.guid ? "current" : ""}">
+      <div class="head">${p.number ? html`<span class="num">${p.number}</span>` : nothing}
+        <corestone-type-icon kind="entry" .type=${v.meta.type} .folder=${v.meta.folder}></corestone-type-icon>
+        ${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : nothing}<b class="title">${v.meta.title}</b>
+        ${Object.entries(v.meta.workflows ?? {}).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
+      ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
+        <cs-richtext readonly .value=${values[f.id] as RichText} .files=${files}></cs-richtext></div>`)}
+    </div>`, el);
+  }
+
+  // ---- the document's files (pictures in the text), kept with Save ----
+
+  private readonly docFiles: EntryFiles = {
+    add: async (file) => {
+      if (file.size > MAX_ATTACHMENT) throw new Error(`it is larger than ${MAX_ATTACHMENT >> 20} MiB`);
+      const name = freeFileName(file, new Set(await this.docFiles.list()));
+      const f = name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
+      this.pendingFiles = [...this.pendingFiles, f];
+      this.touch();
+      return name;
+    },
+    url: (name) => {
+      const p = this.pendingFiles.find((f) => f.name === name);
+      if (p) {
+        let u = this.blobUrls.get(p);
+        if (!u) { u = URL.createObjectURL(p); this.blobUrls.set(p, u); }
+        return u;
+      }
+      return api.fileUrl(this.guid, name);
+    },
+    list: async () => [...new Set([
+      ...(this.view?.attachments ?? []).map((a) => a.name).filter((n) => !this.removedFiles.includes(n)),
+      ...this.pendingFiles.map((f) => f.name)])],
+    get: async (name) => {
+      const p = this.pendingFiles.find((f) => f.name === name);
+      if (p) return p;
+      const res = await fetch(api.fileUrl(this.guid, name), { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`the file could not be read (${res.status})`);
+      return res.blob();
+    },
+  };
+
+  /** Links in the text to items: chosen with the item picker, opened like references. */
+  private readonly itemLinks: ItemLinks = {
+    pick: () => new Promise((resolve) => {
+      store.set({ picker: { kind: "pick", title: "Link to an item", onPick: (s: Summary) => resolve({ ref: s.guid, label: label(s) }), onCancel: () => resolve(null) } });
+    }),
+    label: (g) => api.get(g.split("#")[0]).then((v) => label(v.meta)).catch(() => "Missing item"),
+    open: (g, newTab) => {
+      const guid = g.split("#")[0];
+      if (newTab) window.open(`/artifact/${guid}`, "_blank", "noopener");
+      else navigate({ guid });
+    },
+  };
 
   private touch() {
     if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
-    this.blocks = [...this.blocks];
   }
 
   private async save() {
@@ -149,8 +524,38 @@ export class DocumentView extends LitElement {
     this.error = "";
     const d = this.view.data as Record<string, unknown>;
     const patch: Record<string, unknown> = {};
-    if (this.docTitle !== (d.title ?? "")) patch.title = this.docTitle;
-    if (!deepEqual(this.blocks, d.content ?? [])) patch.content = this.blocks;
+    const sent = { title: this.docTitle, content: this.content, fields: this.fields };
+    if (this.docTitle.trim() !== (d.title ?? "")) patch.title = this.docTitle.trim();
+    // new entries: keys saved before are GUIDs now; those still in the document are created with it
+    const used = new Set<string>();
+    const content = mapKeys(this.content, (k) => { const g = this.savedKeys.get(k); if (!g) used.add(k); return g ?? k; });
+    if (!deepEqual(content, d.content ?? [])) patch.content = content;
+    // every new entry must check out first: otherwise it is shown, and nothing is sent
+    for (const key of used) {
+      if (this.held.has(key) && !(await this.check(key))) {
+        this.attend(key);
+        this.error = "Not saved: a new entry is not complete; see the entry sidebar.";
+        this.busy = false;
+        return;
+      }
+    }
+    const addEntries: NonNullable<SaveChanges["addEntries"]> = [];
+    const entryFiles: { key: string; file: File }[] = [];
+    try {
+      for (const key of used) {
+        const h = this.held.get(key);
+        if (!h) throw new Error(`the new entry ${key} is not known any more; remove it from the document`);
+        addEntries.push({ key, path: h.folder, type: h.schema.type, title: h.title, fields: h.fields });
+        for (const n of h.files) {
+          const blob = await this.docFiles.get!(n);
+          entryFiles.push({ key, file: blob instanceof File ? blob : new File([blob], n, { type: blob.type }) });
+        }
+      }
+    } catch (e) {
+      this.error = `Not saved: ${(e as Error).message ?? e}`;
+      this.busy = false;
+      return;
+    }
     if (!deepEqual(this.fields, d.fields ?? {})) {
       const f: Record<string, unknown> = {};
       const old = (d.fields as Record<string, unknown>) ?? {};
@@ -159,7 +564,24 @@ export class DocumentView extends LitElement {
       patch.fields = f;
     }
     try {
-      this.view = await api.update(this.guid, patch, this.view.etag);
+      const saved = await api.save(this.guid, { patch, removeFiles: this.removedFiles, ...(addEntries.length ? { addEntries } : {}) },
+        this.pendingFiles, this.view.etag, entryFiles);
+      this.view = saved;
+      // the new entries exist now: their GUIDs go into the document in place of their keys
+      const unchanged = this.content === sent.content;
+      for (const [key, guid] of Object.entries(saved.created ?? {})) { this.savedKeys.set(key, guid); this.held.delete(key); }
+      if (this.savedKeys.size) this.editor?.renameEntries(this.savedKeys);
+      this.pendingFiles = [];
+      this.removedFiles = [];
+      // changes made elsewhere to other parts were merged in: show the stored version, except
+      // where the user changed something while it was saved
+      const sd = saved.data as Record<string, unknown>;
+      if (this.docTitle === sent.title) this.docTitle = String(sd.title ?? "");
+      if (this.fields === sent.fields) this.fields = structuredClone((sd.fields as Record<string, unknown>) ?? {});
+      if (unchanged && !deepEqual(this.content, sd.content ?? [])) {
+        this.content = structuredClone((sd.content as DocNode[]) ?? []);
+        if (this.editor) this.editor.value = this.content;
+      }
       store.toast("Document saved", "success");
       if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
       store.refresh();
@@ -170,293 +592,171 @@ export class DocumentView extends LitElement {
     }
   }
 
-  // ---- block operations ----
-  private locate(id: string, list: Block[] = this.blocks): { list: Block[]; index: number } | null {
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i];
-      if (b.id === id) return { list, index: i };
-      for (const kids of [b.children, b.items]) {
-        if (kids) { const r = this.locate(id, kids); if (r) return r; }
-      }
-    }
-    return null;
-  }
-
-  private insertAfter(id: string | null, block: Block) {
-    block.id ??= blockId();
-    const loc = id ? this.locate(id) : null;
-    if (!loc) this.blocks.push(block);
-    else {
-      const cur = loc.list[loc.index];
-      if (cur.type === "section" && cur.children && block.type !== "section") cur.children.unshift(block);
-      else loc.list.splice(loc.index + 1, 0, block);
-    }
-    this.focused = block.id!;
-    this.touch();
-    this.updateComplete.then(() => this.querySelector<HTMLElement>(`[data-block="${block.id}"] .block[contenteditable]`)?.focus());
-  }
-
-  private removeBlock(id: string) {
-    const loc = this.locate(id);
-    if (!loc) return;
-    loc.list.splice(loc.index, 1);
-    this.focused = null;
-    this.touch();
-  }
-
-  private moveBlock(id: string, delta: number) {
-    const loc = this.locate(id);
-    if (!loc) return;
-    const j = loc.index + delta;
-    if (j < 0 || j >= loc.list.length) return;
-    [loc.list[loc.index], loc.list[j]] = [loc.list[j], loc.list[loc.index]];
-    this.touch();
-  }
-
-  private indent(id: string) {
-    const loc = this.locate(id);
-    if (!loc || loc.index === 0) return;
-    const prev = loc.list[loc.index - 1];
-    if (prev.type !== "section") return;
-    const [b] = loc.list.splice(loc.index, 1);
-    (prev.children ??= []).push(b);
-    this.touch();
-  }
-
-  private outdent(id: string) {
-    // find parent section containing this block
-    const find = (list: Block[], parentList: Block[] | null, parent: Block | null): boolean => {
-      for (let i = 0; i < list.length; i++) {
-        const b = list[i];
-        if (b.id === id && parent && parentList) {
-          list.splice(i, 1);
-          parentList.splice(parentList.indexOf(parent) + 1, 0, b);
-          return true;
-        }
-        if (b.children && find(b.children, list, b)) return true;
-        if (b.items && find(b.items, list, b)) return true;
-      }
-      return false;
-    };
-    if (find(this.blocks, null, null)) this.touch();
-  }
-
-  /** The GUIDs of all entries this document already references. */
-  private usedEntries(): Set<string> {
-    const out = new Set<string>();
-    const walk = (bs: Block[]) => { for (const b of bs) { if (b.type === "entry" && b.guid) out.add(b.guid); walk(b.children ?? []); walk(b.items ?? []); } };
-    walk(this.blocks);
-    return out;
-  }
-
-  /** An entry appears at most once per document, so entries already in it cannot be picked again. */
-  private insertEntry(afterId: string | null) {
-    store.set({ picker: { kind: "pick", title: "Insert entry reference", kinds: ["entry"], taken: { guids: this.usedEntries(), note: "already in this document" }, onPick: (s: Summary) => {
-      if (this.usedEntries().has(s.guid)) return;
-      this.entries.set(s.guid, s);
-      this.insertAfter(afterId, { id: blockId(), type: "entry", guid: s.guid });
-    } } });
-  }
-
-  private onKey(e: KeyboardEvent, b: Block) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      this.commitText(e.target as HTMLElement, b);
-      this.insertAfter(b.id!, { id: blockId(), type: b.type === "list" ? "paragraph" : "paragraph", text: "" });
-    } else if (e.key === "Backspace" && (e.target as HTMLElement).textContent === "" && b.type === "paragraph") {
-      e.preventDefault();
-      const loc = this.locate(b.id!);
-      const prev = loc && loc.index > 0 ? loc.list[loc.index - 1] : null;
-      this.removeBlock(b.id!);
-      if (prev?.id) this.updateComplete.then(() => this.querySelector<HTMLElement>(`[data-block="${prev.id}"] .block[contenteditable]`)?.focus());
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      this.commitText(e.target as HTMLElement, b);
-      if (e.shiftKey) this.outdent(b.id!); else this.indent(b.id!);
-    } else if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-      e.preventDefault();
-      this.commitText(e.target as HTMLElement, b);
-      this.save();
-    }
-  }
-
-  private commitText(el: HTMLElement, b: Block) {
-    const text = el.innerText.replace(/\n$/, "");
-    const key = b.type === "section" ? "title" : "text";
-    if (b[key] !== text) { b[key] = text; this.touch(); }
-  }
-
-  private block(b: Block, depth: number): TemplateResult {
-    b.id ??= blockId();
-    const focused = this.focused === b.id;
-    const handle = html`<div class="handle" contenteditable="false">
-      <button title="Move up" @click=${() => this.moveBlock(b.id!, -1)}>▲</button><button title="Move down" @click=${() => this.moveBlock(b.id!, 1)}>▼</button>
-      <button title="Indent into previous section (Tab)" @click=${() => this.indent(b.id!)}>→</button><button title="Outdent (Shift+Tab)" @click=${() => this.outdent(b.id!)}>←</button>
-      <button type="button" title="Delete block" aria-label="Delete block" @click=${() => this.removeBlock(b.id!)}>✕</button></div>`;
-    // The text is bound with live() so re-renders never rewrite (and thus
-    // never move the caret in) a block the user is typing into.
-    const editable = (cls: string, key: "title" | "text", placeholder: string) => html`<div class="block ${cls}" contenteditable="plaintext-only" data-placeholder=${placeholder} spellcheck="true"
-      .textContent=${live(b[key] ?? "")}
-      @focus=${() => (this.focused = b.id!)} @input=${(e: Event) => this.commitText(e.target as HTMLElement, b)}
-      @blur=${(e: Event) => this.commitText(e.target as HTMLElement, b)} @keydown=${(e: KeyboardEvent) => this.onKey(e, b)}></div>`;
-    let body: TemplateResult;
-    switch (b.type) {
-      case "section":
-        // the number is display-only: computed from the outline, never part of the title
-        body = html`<div class="sec-head l${Math.min(depth + 1, 3)}"><span class="sec-num" contenteditable="false">${this.sectionNumbers.get(b.id) ?? ""}</span>${editable(`h l${Math.min(depth + 1, 3)}`, "title", "Section title")}</div>
-          <div class="section-children"><div class="blocks">${(b.children ?? []).map((c) => this.block(c, depth + 1))}</div>
-          <button class="btn sm" style="margin:4px 0" @click=${() => { (b.children ??= []).push({ id: blockId(), type: "paragraph", text: "" }); this.touch(); }}>＋ paragraph in section</button></div>`;
-        break;
-      case "paragraph":
-        body = editable("", "text", "Type text…");
-        break;
-      case "code":
-        body = editable("code", "text", "code");
-        break;
-      case "list":
-        body = html`<div class="blocks">${(b.items ?? []).map((c) => html`<div class="list-item">${this.block(c, depth + 1)}</div>`)}</div>`;
-        break;
-      case "toc":
-        body = this.toc(b);
-        break;
-      case "image":
-        {
-          const src = safeImageSrc(b.src, (name) => api.fileUrl(this.guid, name));
-          body = src ? html`<img class="doc-image" src=${src} alt=${b.alt ?? ""} /><div class="muted small">${b.alt ?? b.src}</div>`
-            : html`<div class="notice error">Image source not allowed: <code>${b.src}</code></div>`;
-        }
-        break;
-      case "entry": {
-        const meta = this.entries.get(b.guid ?? "");
-        body = meta ? html`<div class="entry-card" data-entry=${b.guid ?? ""} @click=${() => navigate({ guid: b.guid! })}>
-            <div class="head"><corestone-type-icon kind="entry" .type=${meta.type} .folder=${meta.folder}></corestone-type-icon>${meta.hid ? html`<span class="hid">${meta.hid}</span>` : nothing}<b>${meta.title}</b><span class="muted small">${meta.type}</span>
-              ${Object.entries(meta.workflows ?? {}).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
-            <div class="fields">${Object.entries(meta.fields ?? {}).slice(0, 6).map(([k, v]) => html`<span><b>${k}</b>: ${showValue(v)}</span>`)}</div></div>`
-          : html`<div class="entry-card missing" data-entry=${b.guid ?? ""}>${this.entries.has(b.guid ?? "") ? html`Entry <code>${b.guid}</code> is missing` : "Loading entry…"}</div>`;
-        break;
-      }
-      default:
-        body = html`<pre class="json">${JSON.stringify(b)}</pre>`;
-    }
-    return html`<div class="block-wrap ${focused ? "focused" : ""}" data-block=${b.id} data-type=${b.type} @click=${() => (this.focused = b.id!)}>${handle}${body}</div>`;
-  }
-
-  /** Section numbers by block id, as in the table of contents; refreshed on every render. */
-  private sectionNumbers = new Map<string, string>();
-
-  /** The numbered section outline (1, 1.1, 1.2, 2, …) down to maxLevel. */
-  private outline(maxLevel: number) {
-    const out: { id: string; title: string; num: string; level: number }[] = [];
-    const walk = (bs: Block[], level: number, prefix: string) => {
-      let n = 0;
-      for (const b of bs) {
-        if (b.type !== "section") continue;
-        b.id ??= blockId();
-        const num = prefix + ++n;
-        out.push({ id: b.id, title: b.title ?? "", num, level });
-        if (level < maxLevel) walk(b.children ?? [], level + 1, num + ".");
-      }
-    };
-    walk(this.blocks, 1, "");
-    return out;
-  }
-
-  /** A table of contents, generated from the sections on every render, so
-   *  it follows renames and moves; the block stores only its depth. */
-  private toc(b: Block): TemplateResult {
-    const rows = this.outline(b.depth ?? Infinity);
-    const levels = [1, 2, 3, 4, 5, 6];
-    if (b.depth && !levels.includes(b.depth)) levels.push(b.depth);
-    const setDepth = (e: Event) => {
-      const v = (e.target as HTMLSelectElement).value;
-      if (v) b.depth = Number(v); else delete b.depth;
-      this.touch();
-    };
-    const go = (e: Event, id: string) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.focused = id;
-      this.querySelector(`[data-block="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    };
-    return html`<nav class="toc" aria-label="Table of contents" contenteditable="false">
-      <div class="toc-head"><b>Contents</b>
-        <label class="muted small">Levels <select data-test="toc-depth" @change=${setDepth} @click=${(e: Event) => e.stopPropagation()}>
-          <option value="" ?selected=${!b.depth}>all</option>
-          ${levels.map((l) => html`<option value=${l} ?selected=${b.depth === l}>${l}</option>`)}
-        </select></label></div>
-      ${rows.length ? rows.map((r) => html`<a class="toc-row" href="#" data-target=${r.id} style=${`padding-left:${(r.level - 1) * 18}px`} @click=${(e: Event) => go(e, r.id)}>
-          <span class="num">${r.num}</span>${r.title || html`<span class="muted">Untitled section</span>`}</a>`)
-        : html`<div class="muted small">Add sections to fill the table of contents.</div>`}
-    </nav>`;
-  }
+  // ---- render ----
 
   override render() {
     if (!this.view) return html`<div class="empty-state">${this.error || "Loading…"}</div>`;
     const r = this.s.route;
     const v = this.view;
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
-    const after = this.focused;
-    this.sectionNumbers = new Map(this.outline(Infinity).map((r) => [r.id, r.num]));
+    this.host.guid = this.guid;
     return html`
-      <div class="doc-main">
-        <div class="doc-toolbar">
-          <button class="btn sm icon" title="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [] })}>✕</button>
-          ${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : nothing}
-          <span class="muted small">${this.schema?.displayName ?? v.meta.type} · ${v.meta.folder || "/"}</span>
-          ${others.length ? html`<span class="presence">✎ ${others.join(", ")} editing</span>` : nothing}
+      <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
+          <div class="doc-left"><button class="icon-btn" data-tip="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [] })}>${appIcon("close")}</button>
+          <span class="doc-kind" title=${`${this.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.schema?.displayName ?? v.meta.type}</span>`}</span>
+          <input class="doc-title-input" aria-label="Title" placeholder="Title" .value=${live(this.docTitle)} size=${Math.max(8, Math.min(48, this.docTitle.length + 1))}
+            @input=${(e: Event) => { this.docTitle = (e.target as HTMLInputElement).value; this.touch(); }}
+            @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); this.editor?.focus(); } }} />
+          ${others.length ? html`<span class="presence">✎ ${others.join(", ")} editing</span>` : nothing}</div>
+          <span class="sep doc-sep"></span>
+          <div class="doc-tools"></div>
+          <span class="doc-switches">${SIDEBARS.map(([id, name]) => html`<button class="icon-btn" data-test=${"sb-" + id} aria-pressed=${r.sidebars.includes(id)}
+              aria-label=${name} data-tip=${(r.sidebars.includes(id) ? "Hide " : "Show ") + name.toLowerCase()}
+              @click=${() => navigate({ sidebars: r.sidebars.includes(id) ? r.sidebars.filter((x) => x !== id) : [...r.sidebars, id] }, true)}>${appIcon(id)}</button>`)}
           <span class="sep"></span>
-          <button class="btn sm" @click=${() => this.insertAfter(after, { type: "section", title: "", children: [] })}>＋ Section</button>
-          <button class="btn sm" @click=${() => this.insertAfter(after, { type: "paragraph", text: "" })}>＋ Paragraph</button>
-          <button class="btn sm" data-test="insert-entry" @click=${() => this.insertEntry(after)}>＋ Entry reference</button>
-          <button class="btn sm" @click=${() => this.insertAfter(after, { type: "list", items: [{ id: blockId(), type: "paragraph", text: "" }] })}>＋ List</button>
-          <button class="btn sm" @click=${() => this.insertAfter(after, { type: "code", text: "" })}>＋ Code</button>
-          <button class="btn sm" data-test="insert-toc" title="Table of contents, numbered and generated from the sections" @click=${() => this.insertAfter(after, { type: "toc" })}>＋ Contents</button>
-          <button class="btn sm" @click=${() => store.prompt("Insert image", { text: "An attachment name of this document or an image URL.", placeholder: "diagram.png or https://…", confirmLabel: "Insert" }).then((src) => { if (src?.trim()) this.insertAfter(after, { type: "image", src: src.trim(), alt: "" }); })}>＋ Image</button>
-          <span class="grow"></span>
-          ${SIDEBARS.map(([id, name]) => html`<button class="chip ${r.sidebars.includes(id) ? "on" : ""}" data-test=${"sb-" + id}
-            @click=${() => navigate({ sidebars: r.sidebars.includes(id) ? r.sidebars.filter((x) => x !== id) : [...r.sidebars, id] }, true)}>${name}</button>`)}
-          <span class="sep"></span>
-          <button class="btn primary sm" data-test="save" ?disabled=${!this.dirty || this.busy} @click=${this.save}>${this.busy ? "Saving…" : this.dirty ? "Save" : "Saved"}</button>
-        </div>
-        ${this.error ? html`<div class="notice error">${this.error} <button class="btn sm" @click=${this.load}>Reload</button></div>` : nothing}
+          <button class="icon-btn save ${this.dirty ? "dirty" : ""}" data-test="save" ?disabled=${!this.dirty || this.busy} @click=${this.save}
+            data-tip=${this.busy ? "Saving…" : this.dirty ? "Save (Ctrl+S)" : "Saved: no changes"}>${appIcon("save")}<span class="vh">${this.busy ? "Saving…" : this.dirty ? "Save" : "Saved"}</span></button></span>
+      </div>
+      <div class="doc-main" @keydown=${this.saveKey}>
+        ${this.error ? html`<div class="notice error">${this.error} <button class="icon-btn" data-tip="Reload the stored version" @click=${this.load}>${appIcon("reload")}<span class="vh">Reload</span></button></div>` : nothing}
         <div class="doc-scroll"><div class="doc-page">
-          <h1 class="doc-title" contenteditable="plaintext-only" data-test="doc-title" @input=${(e: Event) => { this.docTitle = (e.target as HTMLElement).innerText.trim(); if (!this.editing) { this.editing = true; announceEdit(this.guid, true); } }}>${(v.data as Record<string, unknown>).title as string}</h1>
-          <div class="blocks">${this.blocks.map((b) => this.block(b, 0))}</div>
-          ${!this.blocks.length ? html`<div class="muted">Empty document. Add a section or paragraph from the toolbar.</div>` : nothing}
+          <cs-document .host=${this.host} .items=${this.itemLinks} .files=${this.docFiles} .diagrams=${server.diagrams || undefined} .value=${this.content}
+            @change=${(e: CustomEvent<DocNode[]>) => { if (e.target !== e.currentTarget) return; this.content = e.detail; this.touch(); }}
+            @outline=${(e: CustomEvent<OutlineItem[]>) => { this.outline = e.detail; }}
+            @click=${(e: Event) => { const g = (e.target as HTMLElement).closest<HTMLElement>(".cs-placement")?.dataset.placement; if (g && g !== this.current) { this.current = g; this.editor?.refresh(); } }}></cs-document>
         </div></div>
       </div>
       ${r.sidebars.length ? html`<aside class="doc-side">${r.sidebars.map((id) => this.sidebar(id))}</aside>` : nothing}`;
   }
 
+  /** Ctrl+S saves. */
+  private readonly saveKey = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void this.save(); } };
+
+  /** A sidebar's heading, with a button that closes it. */
+  private sideHead(id: string, title: string): TemplateResult {
+    return html`<div class="side-head"><h4>${title}</h4><button class="icon-btn" data-tip="Close" aria-label="Close ${title}" data-test=${"close-" + id}
+      @click=${() => navigate({ sidebars: this.s.route.sidebars.filter((x) => x !== id) }, true)}>${appIcon("close", 16)}</button></div>`;
+  }
+
+  /** The outline: the sections in order; a click goes there. A section is moved with its grip:
+   *  over the upper half of a row it goes before that row, over the lower half before the next
+   *  one, below the last row to the end; a line shows where, indented to the level it takes. */
+  private outlinePanel(): TemplateResult {
+    const items = this.outline;
+    if (!items.length) return html`<div class="muted small">No headings yet. Make a paragraph a heading with H in the toolbar.</div>`;
+    const parentOf = (i: number): string | null => {
+      for (let j = i - 1; j >= 0; j--) if (items[j].depth === items[i].depth - 1) return items[j].id;
+      return null;
+    };
+    const indexOf = (i: number): number => {
+      let n = 0;
+      for (let j = i - 1; j >= 0 && items[j].depth >= items[i].depth; j--) if (items[j].depth === items[i].depth) n++;
+      return n;
+    };
+    const indent = (depth: number) => (depth - 1) * 14 + 4;
+    // the dragged section and the ones inside it: no place to drop it
+    const from = items.findIndex((x) => x.id === this.dragId);
+    const inside = (i: number) => {
+      if (from < 0 || i < from) return false;
+      for (let j = from + 1; j <= i; j++) if (items[j].depth <= items[from].depth) return false;
+      return true;
+    };
+    const over = (e: DragEvent, at: number | "end") => {
+      if (!this.dragId) return;
+      if (at !== "end" && at >= items.length) at = "end";
+      if (at !== "end" && inside(at)) { this.dropAt = null; return; }
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      this.dropAt = at;
+    };
+    const overRow = (e: DragEvent, i: number) => {
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      over(e, e.clientY > r.top + r.height / 2 ? i + 1 : i);
+    };
+    const end = () => { this.dragId = null; this.dropAt = null; };
+    const drop = (e: DragEvent) => {
+      e.preventDefault();
+      const id = this.dragId, at = this.dropAt;
+      end();
+      if (!id || at === null) return;
+      if (at === "end") this.editor?.moveSection(id, null, Number.MAX_SAFE_INTEGER);
+      else if (!inside(at)) this.editor?.moveSection(id, parentOf(at), indexOf(at));
+    };
+    const last = items.length - 1;
+    return html`<div class="outline ${this.dragId ? "dragging" : ""}" role="tree" aria-label="Outline"
+        @dragover=${(e: DragEvent) => over(e, "end")} @drop=${drop} @dragleave=${(e: DragEvent) => {
+          if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as globalThis.Node | null)) this.dropAt = null; }}>
+      ${items.map((it, i) => html`<div class="outline-row ${this.dropAt === i ? "drop-before" : ""} ${i === last && this.dropAt === "end" ? "drop-after" : ""}
+          ${this.dragId === it.id ? "moving" : ""}" role="treeitem" aria-level=${it.depth} data-section=${it.id}
+          style=${`--ind:${indent(it.depth)}px`}
+          @dragover=${(e: DragEvent) => overRow(e, i)} @drop=${drop}
+          @click=${() => this.editor?.revealSection(it.id)}>
+          <span class="num">${it.number}</span><span class="t">${it.title || html`<span class="muted">Untitled</span>`}</span>
+          ${it.entries ? html`<span class="count" title="Entries in this section">${it.entries}</span>` : nothing}
+          <span class="grip" draggable="true" data-tip="Drag to move the section" aria-label="Move ${it.title || "section"}" @click=${(e: Event) => e.stopPropagation()}
+            @dragstart=${(e: DragEvent) => {
+              this.dragId = it.id;
+              e.dataTransfer?.setData("text/plain", it.title);
+              if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setDragImage((e.target as HTMLElement).closest(".outline-row")!, 12, 12); }
+            }}
+            @dragend=${end}>${appIcon("grip", 14)}</span></div>`)}
+    </div>`;
+  }
+
+  /** A new entry in the entry sidebar: its title and fields, editable; what is missing marked. */
+  private heldPanel(key: string): TemplateResult {
+    const h = this.held.get(key)!;
+    const missing = new Set(this.missing(h).map((f) => f.id));
+    const problems = this.problems.get(key) ?? [];
+    return html`${this.sideHead("entry", "New entry")}
+      <div class="held-entry ${this.flash ? "flash" : ""}">
+        <div class="muted small"><corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder} .schema=${h.schema}></corestone-type-icon>
+          ${h.schema.displayName ?? h.schema.type} in ${h.folder || "/"} · created when the document is saved</div>
+        ${missing.size || problems.length ? html`<div class="notice error" role="alert" data-test="held-problems">${missing.size
+          ? `Fill in ${[...missing].map((id) => h.schema.fields?.find((f) => f.id === id)?.name ?? id).join(", ")}: the entry cannot be created without.`
+          : problems.join(" ")}</div>` : nothing}
+        <div class="field"><label for="held-title">Title</label><div class="value">
+          <input id="held-title" type="text" .value=${live(h.title)} @input=${(e: Event) => this.editHeld(key, (x) => { x.title = (e.target as HTMLInputElement).value; })} /></div></div>
+        ${(h.schema.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field class=${missing.has(f.id) ? "missing" : ""} .field=${f} .value=${h.fields[f.id]}
+          .files=${this.docFiles} .typeId=${h.schema.type} .folder=${h.folder}
+          @field-change=${(e: CustomEvent) => this.editHeld(key, (x) => { if (e.detail.value == null) delete x.fields[e.detail.id]; else x.fields[e.detail.id] = e.detail.value; })}></corestone-field>`)}
+      </div>`;
+  }
+
   private sidebar(id: string): TemplateResult {
     const v = this.view!;
     switch (id) {
+      case "outline":
+        return html`${this.sideHead(id, "Outline")}${this.outlinePanel()}`;
       case "props":
-        return html`<h4>Document properties</h4>
+        return html`${this.sideHead(id, "Document properties")}
           <dl class="kv"><dt>Type</dt><dd>${v.meta.type}</dd><dt>Folder</dt><dd>${v.meta.folder || "/"}</dd><dt>GUID</dt><dd class="mono small">${v.meta.guid}</dd><dt>Modified</dt><dd>${relTime(v.meta.modifiedAt)}</dd>
             ${Object.entries(v.meta.workflows ?? {}).map(([w, st]) => html`<dt>${w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
           ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type} .folder=${v.meta.folder}
-            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; }}></corestone-field>`)}
+            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; this.touch(); }}></corestone-field>`)}
           ${Object.keys(this.fields).filter((k) => !this.schema?.fields?.some((f) => f.id === k)).map((k) => html`<corestone-field .field=${undeclaredField(k, this.fields[k])} .value=${this.fields[k]} undeclared
-            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; }}></corestone-field>`)}
-          <button class="btn sm" style="margin-top:8px" @click=${() => navigate({ guid: this.guid, tab: "general" }, true)}>Open as artifact detail</button>`;
+            @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; this.touch(); }}></corestone-field>`)}
+          <button class="icon-btn" style="margin-top:8px" data-tip="Open as artifact detail" @click=${() => navigate({ guid: this.guid, tab: "general" }, true)}>${appIcon("open")}<span class="vh">Open as artifact detail</span></button>`;
       case "entry": {
-        const focusedBlock = this.focused ? this.locate(this.focused)?.list[this.locate(this.focused)!.index] : null;
-        const meta = focusedBlock?.type === "entry" ? this.entries.get(focusedBlock.guid ?? "") : null;
-        return html`<h4>Current entry</h4>${meta ? html`<div><b>${meta.hid ?? ""}</b> ${meta.title}</div>
-          <dl class="kv">${Object.entries(meta.fields ?? {}).map(([k, val]) => html`<dt>${k}</dt><dd class="pre-line">${showValue(val)}</dd>`)}</dl>
-          <button class="btn sm" @click=${() => navigate({ guid: meta.guid })}>Open entry</button>` : html`<div class="muted small">Select an entry reference in the document.</div>`}`;
+        if (this.current && this.held.has(this.current)) return this.heldPanel(this.current);
+        const e = this.current ? this.entries.get(this.real(this.current)) : undefined;
+        const meta = e && e !== "loading" ? e.view?.meta : undefined;
+        const fields = (e && e !== "loading" ? (e.view?.data as Record<string, unknown> | undefined)?.fields : undefined) as Record<string, unknown> | undefined;
+        return html`${this.sideHead(id, "Current entry")}${meta ? html`<div><b>${meta.hid ?? ""}</b> ${meta.title}</div>
+          <dl class="kv">${Object.entries(fields ?? {}).map(([k, val]) => html`<dt>${k}</dt><dd class="pre-line">${showValue(val)}</dd>`)}</dl>
+          <button class="icon-btn" data-tip="Open the entry" @click=${() => navigate({ guid: meta.guid })}>${appIcon("open")}<span class="vh">Open entry</span></button>` : html`<div class="muted small">Click an entry in the document.</div>`}`;
       }
       case "rel":
-        return html`<h4>Relationships</h4>${!this.rel || (!this.rel.incoming.length && !this.rel.outgoing.length) ? html`<div class="muted small">No links.</div>` : nothing}
+        return html`${this.sideHead(id, "Relationships")}${!this.rel || (!this.rel.incoming.length && !this.rel.outgoing.length) ? html`<div class="muted small">No links.</div>` : nothing}
           ${this.rel?.outgoing.map((l) => html`<div>→ <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}
           ${this.rel?.incoming.map((l) => html`<div>← <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}`;
       case "comments":
-        return html`<h4>Comments</h4>${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
+        return html`${this.sideHead(id, "Comments")}${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
           ${!this.commentType ? html`<div class="muted small">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
-          <button class="btn sm primary" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>Post</button></div>`}`;
+          <button class="icon-btn" data-tip="Post the comment" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>${appIcon("send")}<span class="vh">Post</span></button></div>`}`;
       case "versions":
-        return html`<h4>Versions</h4>${this.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
+        return html`${this.sideHead(id, "Versions")}${this.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
     }
     return html``;
   }

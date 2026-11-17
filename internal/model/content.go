@@ -1,132 +1,264 @@
 package model
 
 import (
-	"encoding/json"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/thomdehoog/corestone/internal/ojson"
 )
 
-// Document content is a tree of blocks (design guide §2.3.2): sections
-// carry a title and children; paragraphs carry text; entry blocks reference
-// reusable entries by GUID; images/media reference attachments or URLs; a
-// table of contents is generated from the section titles when shown, and
-// stores only how many section levels it lists ("depth", default all).
+// Document content (docs/design/Corestone documents.md) is the list of the
+// root's children: the document is the root of a tree of sections, its title
+// the root's heading, its own content the introduction. A node is one of:
+//
+//	{"text": …}                                a paragraph, as in rich-text fields
+//	{"table": …}                               a table, as in rich-text fields
+//	{"entry": "<guid>", "view": "card", "pin": "<commit>"}   an entry placed here
+//	{"toc": "sections", "depth": 3}           a generated list (sections, figures, tables)
+//	{"section": "<id>", "title": "Scope", "children": [ … ]}  a section
+//
+// A section's id is 8 characters a-z0-9, unique in the document and
+// permanent; its title is one line of plain text. A list holds its content
+// first, then its sections. An entry is placed at most once per document.
 const (
-	BlockSection   = "section"
-	BlockParagraph = "paragraph"
-	BlockEntry     = "entry"
-	BlockImage     = "image"
-	BlockList      = "list"
-	BlockCode      = "code"
-	BlockTOC       = "toc"
+	maxSectionDepth = 16
+	maxNodes        = 20000
+	maxTitleLen     = 500
+	// MaxDocumentText is the longest text a document holds, in bytes.
+	MaxDocumentText = 16 * MaxTextLen
 )
 
-const (
-	maxBlockDepth = 16
-	maxBlocks     = 20000
+var (
+	sectionID = regexp.MustCompile(`^[a-z0-9]{8}$`)
+	viewID    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	commitID  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
-// ValidateContent checks a document's block tree.
-func ValidateContent(blocks []any) error {
-	n := 0
-	return validateBlocks(blocks, 0, &n)
+// IsSectionID reports whether s has the form of a section id.
+func IsSectionID(s string) bool { return sectionID.MatchString(s) }
+
+// ValidateContent checks a document's content.
+func ValidateContent(nodes []any) error {
+	v := contentCheck{ids: map[string]bool{}, entries: map[string]bool{}}
+	if err := v.list("document", nodes, 0); err != nil {
+		return err
+	}
+	if v.text > MaxDocumentText {
+		return Invalid("document text longer than %d bytes", MaxDocumentText)
+	}
+	return nil
 }
 
-func validateBlocks(blocks []any, depth int, count *int) error {
-	if depth > maxBlockDepth {
-		return Invalid("document nesting deeper than %d", maxBlockDepth)
-	}
-	for _, raw := range blocks {
-		*count++
-		if *count > maxBlocks {
-			return Invalid("document has more than %d blocks", maxBlocks)
+type contentCheck struct {
+	ids     map[string]bool
+	entries map[string]bool
+	nodes   int
+	text    int
+}
+
+func (v *contentCheck) list(at string, nodes []any, depth int) error {
+	inSections := false
+	for i, raw := range nodes {
+		v.nodes++
+		if v.nodes > maxNodes {
+			return Invalid("document has more than %d parts", maxNodes)
 		}
-		b, ok := raw.(*ojson.Object)
+		o, ok := raw.(*ojson.Object)
 		if !ok {
-			return Invalid("document block must be an object")
+			return Invalid("%s, part %d is not an object", at, i+1)
 		}
-		switch b.String("type") {
-		case BlockSection:
-			if err := validateBlocks(b.Array("children"), depth+1, count); err != nil {
+		where := at + ", part " + strconv.Itoa(i+1)
+		if _, old := o.Get("type"); old {
+			return Invalid("%s uses the old document format (\"type\"); documents are written in the new format now", where)
+		}
+		if _, isSection := o.Get("section"); isSection {
+			inSections = true
+			if err := v.section(where, o, depth); err != nil {
 				return err
 			}
-		case BlockParagraph, BlockCode:
-			if v, ok := b.Get("text"); ok {
-				if _, isStr := v.(string); !isStr {
-					return Invalid("block text must be a string")
-				}
-			}
-		case BlockEntry:
-			if !IsGUID(b.String("guid")) {
-				return Invalid("entry block needs a GUID")
-			}
-		case BlockImage:
-			if b.String("src") == "" {
-				return Invalid("image block needs a src")
-			}
-		case BlockList:
-			if err := validateBlocks(b.Array("items"), depth+1, count); err != nil {
-				return err
-			}
-		case BlockTOC:
-			if v, ok := b.Get("depth"); ok {
-				n, isNum := v.(json.Number)
-				d, err := n.Int64()
-				if !isNum || err != nil || d < 1 || d > maxBlockDepth {
-					return Invalid("table of contents depth must be a whole number from 1 to %d", maxBlockDepth)
-				}
-			}
-		default:
-			return Invalid("unknown block type %q", b.String("type"))
+			continue
+		}
+		if inSections {
+			return Invalid("%s: content follows a section; a section's content comes before its subsections", where)
+		}
+		var err error
+		switch {
+		case has(o, "entry"):
+			err = v.entry(where, o)
+		case has(o, "toc"):
+			err = toc(where, o)
+		default: // a paragraph or a table, as in rich-text fields
+			var n int
+			n, err = validateRichBlocks(where, []any{o}, false)
+			v.text += n
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// ContentRefs collects the GUIDs of entries referenced by a document.
-func ContentRefs(blocks []any) []string {
-	var out []string
-	var walk func([]any)
-	walk = func(bs []any) {
-		for _, raw := range bs {
-			b, ok := raw.(*ojson.Object)
-			if !ok {
-				continue
+func (v *contentCheck) section(at string, o *ojson.Object, depth int) error {
+	if depth >= maxSectionDepth {
+		return Invalid("%s: sections nested deeper than %d", at, maxSectionDepth)
+	}
+	id := o.String("section")
+	if !IsSectionID(id) {
+		return Invalid("%s: a section id is 8 characters a-z and 0-9", at)
+	}
+	if v.ids[id] {
+		return Invalid("%s: section id %s is used twice", at, id)
+	}
+	v.ids[id] = true
+	for _, k := range o.Keys() {
+		val, _ := o.Get(k)
+		switch k {
+		case "section":
+		case "title":
+			s, ok := val.(string)
+			if !ok || strings.ContainsAny(s, "\n\r") || len(s) > maxTitleLen {
+				return Invalid("%s: a section title is one line of text, at most %d bytes", at, maxTitleLen)
 			}
-			switch b.String("type") {
-			case BlockEntry:
-				out = append(out, b.String("guid"))
-			case BlockSection:
-				walk(b.Array("children"))
-			case BlockList:
-				walk(b.Array("items"))
+			v.text += len(s)
+		case "children":
+			if _, ok := val.([]any); !ok {
+				return Invalid("%s: children is a list", at)
 			}
+		default:
+			return Invalid("%s: unknown property %q", at, k)
 		}
 	}
-	walk(blocks)
+	return v.list("section "+id, o.Array("children"), depth+1)
+}
+
+func (v *contentCheck) entry(at string, o *ojson.Object) error {
+	g := o.String("entry")
+	if !IsGUID(g) {
+		return Invalid("%s: entry is an entry id (GUID)", at)
+	}
+	if v.entries[g] {
+		return Invalid("%s: entry %s is placed more than once; an entry is in a document at most once", at, g)
+	}
+	v.entries[g] = true
+	for _, k := range o.Keys() {
+		val, _ := o.Get(k)
+		switch k {
+		case "entry":
+		case "view":
+			if s, _ := val.(string); !viewID.MatchString(s) {
+				return Invalid("%s: view is the id of an entry view", at)
+			}
+		case "pin":
+			if s, _ := val.(string); !commitID.MatchString(s) {
+				return Invalid("%s: pin is a commit id", at)
+			}
+		default:
+			return Invalid("%s: unknown property %q", at, k)
+		}
+	}
+	return nil
+}
+
+func toc(at string, o *ojson.Object) error {
+	for _, k := range o.Keys() {
+		val, _ := o.Get(k)
+		switch k {
+		case "toc":
+			if s, _ := val.(string); s != "sections" && s != "figures" && s != "tables" {
+				return Invalid("%s: toc is sections, figures or tables", at)
+			}
+		case "depth":
+			if d, ok := integer(val); !ok || d < 1 || d > maxSectionDepth {
+				return Invalid("%s: depth is a whole number from 1 to %d", at, maxSectionDepth)
+			}
+		default:
+			return Invalid("%s: unknown property %q", at, k)
+		}
+	}
+	return nil
+}
+
+func has(o *ojson.Object, k string) bool { _, ok := o.Get(k); return ok }
+
+// walkContent calls fn for every node of a document's content, depth first in
+// document order; a section before its children.
+func walkContent(nodes []any, fn func(o *ojson.Object)) {
+	for _, raw := range nodes {
+		o, ok := raw.(*ojson.Object)
+		if !ok {
+			continue
+		}
+		fn(o)
+		if has(o, "section") {
+			walkContent(o.Array("children"), fn)
+		}
+	}
+}
+
+// ContentRefs collects the GUIDs of the entries placed in a document.
+func ContentRefs(nodes []any) []string {
+	var out []string
+	walkContent(nodes, func(o *ojson.Object) {
+		if g := o.String("entry"); g != "" {
+			out = append(out, g)
+		}
+	})
 	return out
 }
 
-// ContentText extracts the readable text of a document for search.
-func ContentText(blocks []any) string {
-	var buf []byte
+// ContentLinks collects the items the document's text links to, each once
+// (GUIDs; a link to a section counts as one to its document).
+func ContentLinks(nodes []any) []string {
+	var blocks []any
+	walkContent(nodes, func(o *ojson.Object) {
+		if has(o, "text") || has(o, "table") {
+			blocks = append(blocks, o)
+		}
+	})
+	var out []string
+	seen := map[string]bool{}
+	for _, g := range RichTextRefs(blocks) {
+		if !seen[g] {
+			seen[g] = true
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// ContentText extracts the readable text of a document for search: section
+// titles and paragraphs, one per line (lists numbered as they read).
+func ContentText(nodes []any) string {
+	var lines []string
 	var walk func([]any)
-	walk = func(bs []any) {
-		for _, raw := range bs {
-			b, ok := raw.(*ojson.Object)
+	walk = func(list []any) {
+		var run []any // consecutive paragraphs and tables, read together
+		flush := func() {
+			if len(run) > 0 {
+				lines = append(lines, RichTextPlain(run))
+				run = nil
+			}
+		}
+		for _, raw := range list {
+			o, ok := raw.(*ojson.Object)
 			if !ok {
 				continue
 			}
-			for _, k := range []string{"title", "text", "alt", "caption"} {
-				if s := b.String(k); s != "" {
-					buf = append(buf, s...)
-					buf = append(buf, ' ')
-				}
+			switch {
+			case has(o, "text") || has(o, "table"):
+				run = append(run, o)
+			case has(o, "section"):
+				flush()
+				lines = append(lines, o.String("title"))
+				walk(o.Array("children"))
+			default:
+				flush()
 			}
-			walk(b.Array("children"))
-			walk(b.Array("items"))
 		}
+		flush()
 	}
-	walk(blocks)
-	return string(buf)
+	walk(nodes)
+	return strings.Join(lines, "\n")
 }

@@ -791,6 +791,11 @@ func (idx *ConfigIndex) Problems() []ConfigProblem {
 					report(ConfigProblem{file, m})
 				}
 				if td := local.typeByID[typ]; td != nil {
+					for _, et := range td.Schema.EntryTypes {
+						if kind, _, ok := idx.kindOf(et, scope); !ok || kind != KindEntry {
+							report(ConfigProblem{file, fmt.Sprintf("document type %q makes entry type %q, which is not an entry type here", typ, et)})
+						}
+					}
 					if icon, _ := td.Schema.Presentation["icon"].(string); icon != "" {
 						if _, ok := idx.IconScope(icon, scope); !ok {
 							report(ConfigProblem{file, fmt.Sprintf("type %q uses icon %q, which is not defined", typ, icon)})

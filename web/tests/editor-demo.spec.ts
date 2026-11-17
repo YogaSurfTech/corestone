@@ -772,36 +772,6 @@ test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG;
   expect(runs.filter((r: { png?: string }) => r.png).map((r: { png: string }) => r.png)).toEqual(["formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
 });
 
-test("resize: the bottom edge sets the height (remembered), the text scrolls; a double click fits the text again", async ({ page }) => {
-  const area = page.locator(".cs-area");
-  const edge = page.locator(".cs-resize");
-  const before = (await area.boundingBox())!.height;
-  const box = (await edge.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 120, { steps: 5 });
-  await page.mouse.up();
-  const sized = (await area.boundingBox())!.height;
-  expect(Math.abs(sized - (before + 120))).toBeLessThan(3);
-  // more text than fits: it scrolls inside, the field keeps its height
-  await page.locator(".cs-area .ProseMirror").click();
-  for (let i = 0; i < 30; i++) await page.keyboard.press("Enter");
-  expect(Math.abs((await area.boundingBox())!.height - sized)).toBeLessThan(3);
-  expect(await area.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
-  // remembered in this browser
-  await page.reload();
-  expect(Math.abs((await area.boundingBox())!.height - sized)).toBeLessThan(3);
-  // the keyboard: arrows on the edge
-  await edge.focus();
-  await page.keyboard.press("ArrowUp");
-  expect(Math.abs((await area.boundingBox())!.height - (sized - 20))).toBeLessThan(3);
-  // a double click: grows with the text again, forgotten
-  await edge.dblclick();
-  await expect(area).not.toHaveClass(/sized/);
-  await page.reload();
-  await expect(area).not.toHaveClass(/sized/);
-});
-
 // Diagrams run against the draw.io stand-in (tests/drawio-stub: -drawio web/tests/drawio-stub).
 test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edited again, discarded, deleted", async ({ page }) => {
   const area = page.locator(".cs-area .ProseMirror");

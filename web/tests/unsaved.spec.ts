@@ -134,11 +134,11 @@ test("the browser's back button asks too", async ({ page }) => {
 
 test("a document with unsaved changes asks before closing", async ({ page }) => {
   await page.goto(`/artifact/${guids.d}`);
-  const docTitle = page.locator("[data-test=doc-title]");
+  const docTitle = page.locator(".doc-title-input");
   await docTitle.click();
   await page.keyboard.press("End");
   await page.keyboard.type(" v2");
-  await page.locator("corestone-document button[title='Back to overview']").click();
+  await page.locator("corestone-document button[aria-label='Back to overview']").click();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await dialog.locator("[data-test=dialog-confirm]").click();
   await expect(page.locator("corestone-document")).toHaveCount(0);

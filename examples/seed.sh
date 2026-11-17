@@ -133,13 +133,13 @@ post comments "{\"subject\":\"$R1\",\"parent\":\"$CM\",\"author\":\"bob\",\"text
 post comments "{\"subject\":\"$R3\",\"author\":\"carol\",\"text\":\"Needs ASIL C evidence before release.\"}" >/dev/null
 
 D1=$(post documents "{\"path\":\"docs\",\"type\":\"spec\",\"title\":\"Boot Specification\",\"fields\":{\"audience\":\"customer\"},
-  \"content\":[{\"id\":\"s1\",\"type\":\"section\",\"title\":\"Timing\",\"children\":[
-    {\"id\":\"p1\",\"type\":\"paragraph\",\"text\":\"The following requirements apply to every product variant:\"},
-    {\"id\":\"e1\",\"type\":\"entry\",\"guid\":\"$R1\"},{\"id\":\"e2\",\"type\":\"entry\",\"guid\":\"$R2\"}]},
-   {\"id\":\"s2\",\"type\":\"section\",\"title\":\"Safety\",\"children\":[
-    {\"id\":\"p2\",\"type\":\"paragraph\",\"text\":\"Safety requirements are owned by the safety team and refined under specs/safety.\"},
-    {\"id\":\"e3\",\"type\":\"entry\",\"guid\":\"$R3\"},
-    {\"id\":\"l1\",\"type\":\"list\",\"items\":[{\"id\":\"i1\",\"type\":\"paragraph\",\"text\":\"Evidence: watchdog test report\"},{\"id\":\"i2\",\"type\":\"paragraph\",\"text\":\"Evidence: FMEA sheet\"}]}]}]}" | guid)
+  \"content\":[{\"section\":\"timing01\",\"title\":\"Timing\",\"children\":[
+    {\"text\":\"The following requirements apply to every product variant:\"},
+    {\"entry\":\"$R1\"},{\"entry\":\"$R2\"}]},
+   {\"section\":\"safety01\",\"title\":\"Safety\",\"children\":[
+    {\"text\":\"Safety requirements are owned by the safety team and refined under specs/safety.\"},
+    {\"entry\":\"$R3\"},
+    {\"text\":\"Evidence: watchdog test report\",\"list\":\"ul\"},{\"text\":\"Evidence: FMEA sheet\",\"list\":\"ul\"}]}]}" | guid)
 post "artifacts/$R1/transition" '{"workflow":"dev","to":"submit"}' >/dev/null
 post "artifacts/$R3/transition" '{"workflow":"dev","to":"submit"}' >/dev/null
 post "artifacts/$R3/transition" '{"workflow":"dev","to":"approve"}' >/dev/null

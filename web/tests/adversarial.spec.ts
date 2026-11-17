@@ -113,12 +113,15 @@ test("orphaned and cyclic comment threads still show", async ({ page }) => {
   await expect(page.locator("#sec-comments .comment")).toHaveCount(2);
 });
 
-test("document with a hostile image source shows a notice, not an image", async ({ page }) => {
+test("document with a hostile image name shows no script source, and markup as text", async ({ page }) => {
   const d = await post("/documents", { path: folder, type: "page", title: "hostile doc",
-    content: [{ id: "i1", type: "image", src: "javascript:alert(1)", alt: "x" }, { id: "p", type: "paragraph", text: "<script>bad</script>" }] });
+    content: [{ text: [{ image: "javascript:alert(1)", alt: "x" }] }, { text: "<script>bad</script>" }] });
   expect(d.status).toBe(201);
   await page.goto(`/artifact/${d.meta!.guid}`);
-  await expect(page.locator(".doc-page .notice.error")).toContainText("not allowed");
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  await expect(ed.locator("p").nth(1)).toHaveText("<script>bad</script>");
+  // a picture is always a file of the document: the name is never used as an address
+  await expect(ed.locator("img[data-file]")).toHaveAttribute("src", /\/files\/javascript/);
   expect(await page.locator('img[src^="javascript:"]').count()).toBe(0);
-  await expect(page.locator(".block-wrap[data-type=paragraph] .block")).toHaveText("<script>bad</script>");
+  expect(await ed.locator("script").count()).toBe(0);
 });
