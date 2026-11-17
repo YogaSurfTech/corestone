@@ -742,3 +742,31 @@ func TestSaveCreatesEntries(t *testing.T) {
 		t.Fatalf("history: document %s\nentry %s", dh.raw, eh.raw)
 	}
 }
+
+// The check answers whether an entry could be created, without creating it.
+func TestCheckEntry(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	before := a.ok("GET", "/api/repository", "", 200).raw
+	r := a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"requirement","title":"Fine","fields":{"priority":"low"}}`, 200)
+	if r.body["ok"] != true || len(r.body["problems"].([]any)) != 0 {
+		t.Fatalf("a valid entry: %s", r.raw)
+	}
+	r = a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"requirement","title":"Lacks"}`, 200)
+	if p := r.body["problems"].([]any); r.body["ok"] != false || len(p) != 1 || !strings.Contains(p[0].(string), "priority") {
+		t.Fatalf("a missing required field: %s", r.raw)
+	}
+	r = a.ok("POST", "/api/entries/check", `{"path":"reqs","type":"nosuchtype","title":"X"}`, 200)
+	if r.body["ok"] != false {
+		t.Fatalf("an unknown type: %s", r.raw)
+	}
+	// nothing was created
+	if s := a.ok("GET", "/api/repository/search?q=Fine&kind=entry", "", 200); s.body["total"].(float64) != 0 {
+		t.Fatalf("the check created an entry: %s", s.raw)
+	}
+	if after := a.ok("GET", "/api/repository", "", 200).raw; string(after) != string(before) {
+		t.Fatalf("the check changed the repository:\n%s\n%s", before, after)
+	}
+	a.ok("POST", "/api/documents/check", `{"path":"docs","type":"spec","title":"D"}`, 200)
+	a.ok("POST", "/api/entries/check", `not json`, 400)
+}

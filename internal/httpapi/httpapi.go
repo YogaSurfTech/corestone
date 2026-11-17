@@ -120,6 +120,9 @@ func (s *Server) routes() {
 	}{{"entries", model.KindEntry}, {"documents", model.KindDocument}, {"links", model.KindLink}, {"comments", model.KindComment}} {
 		kind := k.kind
 		m.HandleFunc("POST /api/"+k.path, func(w http.ResponseWriter, r *http.Request) { s.create(w, r, kind) })
+		if kind.IsFolderKind() {
+			m.HandleFunc("POST /api/"+k.path+"/check", func(w http.ResponseWriter, r *http.Request) { s.check(w, r, kind) })
+		}
 		m.HandleFunc("GET /api/"+k.path+"/{guid}", func(w http.ResponseWriter, r *http.Request) { s.get(w, r, kind) })
 		m.HandleFunc("PUT /api/"+k.path+"/{guid}", func(w http.ResponseWriter, r *http.Request) { s.update(w, r, kind) })
 		m.HandleFunc("PATCH /api/"+k.path+"/{guid}", func(w http.ResponseWriter, r *http.Request) { s.update(w, r, kind) })
@@ -311,6 +314,25 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, kind model.Kind)
 	setETag(w, v.ETag)
 	w.Header().Set("Location", "/api/"+collection(v.Meta.Kind)+"/"+v.Meta.GUID)
 	writeJSON(w, http.StatusCreated, v)
+}
+
+// check answers whether an entry or document could be created from the
+// body (as for creating it), without creating it: {ok, problems}. A
+// problem is reported as a result, not as an error status.
+func (s *Server) check(w http.ResponseWriter, r *http.Request, kind model.Kind) {
+	body, ok := readObject(w, r)
+	if !ok {
+		return
+	}
+	err := s.F.CheckArtifact(r.Context(), kind, body)
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "problems": []string{}})
+	case errors.Is(err, model.ErrValidation):
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "problems": []string{strip(err, model.ErrValidation, "validation failed")}})
+	default:
+		fail(w, err)
+	}
 }
 
 func collection(k model.Kind) string {

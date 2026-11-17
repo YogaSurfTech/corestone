@@ -52,6 +52,23 @@ func (f *Foundation) CreateArtifact(ctx context.Context, kind model.Kind, req *o
 	return res.(*View), nil
 }
 
+// CheckArtifact checks whether an entry or document could be created as
+// CreateArtifact would, without creating it: nil, or why not (the same
+// error creating it would give).
+func (f *Foundation) CheckArtifact(ctx context.Context, kind model.Kind, req *ojson.Object) error {
+	if !kind.IsFolderKind() {
+		return model.Invalid("kind %s is created through its own endpoint", kind)
+	}
+	// built as for creating, then dropped: an empty change publishes nothing
+	_, err := f.write(ctx, true, func(t *txn) (*changeset, error) {
+		if _, err := t.createArtifact(kind, req); err != nil {
+			return nil, err
+		}
+		return &changeset{}, nil
+	})
+	return err
+}
+
 // createArtifact creates an entry or document (see CreateArtifact); the
 // changeset's result is its View.
 func (t *txn) createArtifact(kind model.Kind, req *ojson.Object) (*changeset, error) {
