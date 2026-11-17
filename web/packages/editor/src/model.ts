@@ -8,6 +8,7 @@ import { BORDERS, FLAGS, GUID, ITEM_REF, STRIPES, safeFileName, safeHref, schema
 
 export interface Marks {
   bold?: true; italic?: true; underline?: true; strike?: true; sub?: true; sup?: true;
+  code?: true;    // code within a line
   color?: string; // #rrggbb
   bg?: string;    // #rrggbb
   font?: string;  // one of FONTS
@@ -44,12 +45,17 @@ export type Inline = Run | ImageRun | DiagramRun | FormulaRun;
 const isObject = (r: Inline): r is ImageRun | DiagramRun | FormulaRun => isImage(r) || isDiagram(r) || isFormula(r);
 export const MAX_FORMULA = 4000; // bytes of LaTeX, as the server allows
 
-/** A paragraph; with list it is a list item (level 1 when absent). */
+/** A paragraph; with list it is a list item (level 1 when absent). With code it is a code
+ *  listing: its text is a plain string, its lines separated by "\n"; lang names its language,
+ *  numbers switches the line numbers on or off (absent: shown when the listing is long). */
 export interface Paragraph {
   text: string | Inline[];
   align?: Exclude<Align, "left">;
   list?: "ul" | "ol";
   level?: number;
+  code?: true;
+  lang?: string;
+  numbers?: boolean;
 }
 
 /** A table: rows of cells. stripes shades every other row or column (colors: the first and
@@ -111,6 +117,13 @@ function blockNodes(value: RichText | null | undefined, inCell: boolean): Node[]
       close(0);
       const t = inCell ? null : tableNode(b); // no tables in tables
       if (t) top.push(t);
+      continue;
+    }
+    if (b.code === true) {
+      close(0);
+      const text = typeof b.text === "string" ? b.text : Array.isArray(b.text) ? b.text.map((r) => (typeof (r as Run)?.text === "string" ? (r as Run).text : "")).join("") : "";
+      top.push(schema.node("code_block", { lang: typeof b.lang === "string" && /^[a-z0-9][a-z0-9+#.-]{0,29}$/.test(b.lang) ? b.lang : null,
+        numbers: typeof b.numbers === "boolean" ? b.numbers : null }, text ? schema.text(text.replace(/\r\n?/g, "\n")) : undefined));
       continue;
     }
     const p = schema.node("paragraph", { align: b.align ?? null }, inline(b.text));
@@ -215,7 +228,7 @@ export function toStorage(doc: Node): RichText {
   const v = storeBlocks(doc);
   if (typeof v === "string") return v;
   // the empty lines the editor keeps before / after a table at the start or the end
-  const empty = (b: Block | undefined) => !!b && !isTable(b) && b.text === "" && !b.align && !b.list;
+  const empty = (b: Block | undefined) => !!b && !isTable(b) && b.text === "" && !b.align && !b.list && !b.code;
   if (empty(v[0]) && v[1] && isTable(v[1])) v.shift();
   if (empty(v[v.length - 1]) && v.length > 1 && isTable(v[v.length - 2])) v.pop();
   return v;
@@ -226,7 +239,7 @@ function storeBlocks(parent: Node): RichText {
   const out = blockList(parent);
   // nothing but unformatted lines: plain text, as a plain text field stores it
   const plain = (b: Block): b is Paragraph & { text: string } =>
-    !isTable(b) && typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list;
+    !isTable(b) && typeof b.text === "string" && !b.text.includes("\n") && !b.align && !b.list && !b.code;
   if (out.every(plain)) return out.map((b) => (b as Paragraph).text as string).join("\n");
   return out;
 }
@@ -250,6 +263,11 @@ function blockList(parent: Node | Node[]): Block[] {
       n.forEach((li) => li.forEach((c) => walk(c, kind, level + 1)));
     } else if (n.type === schema.nodes.table) {
       out.push(storeTable(n));
+    } else if (n.type === schema.nodes.code_block) {
+      const b: Paragraph = { text: n.textContent, code: true };
+      if (n.attrs.lang) b.lang = n.attrs.lang;
+      if (typeof n.attrs.numbers === "boolean") b.numbers = n.attrs.numbers;
+      out.push(b);
     }
   };
   if (Array.isArray(parent)) parent.forEach((n) => walk(n, null, 0));
@@ -493,7 +511,7 @@ export function documentToStorage(doc: Node): DocNode[] {
   const out = storeChildren(doc, doc.firstChild?.type === schema.nodes.doc_title ? 1 : 0);
   // an empty document (the one empty line the editor keeps to type in) is stored empty
   if (out.length === 1 && !isSectionNode(out[0]) && !isEntryNode(out[0]) && !isTocNode(out[0]) && !isTable(out[0])
-    && (out[0] as Paragraph).text === "" && !(out[0] as Paragraph).list) return [];
+    && (out[0] as Paragraph).text === "" && !(out[0] as Paragraph).list && !(out[0] as Paragraph).code) return [];
   return out;
 }
 

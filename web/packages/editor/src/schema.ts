@@ -63,12 +63,26 @@ const nodes: Record<string, NodeSpec> = {
     attrs: alignAttr,
     parseDOM: [{ tag: "p", getAttrs: (d) => alignOf(d as HTMLElement) },
       // headings and other blocks become plain paragraphs in a field
-      { tag: "h1, h2, h3, h4, h5, h6, div, pre, blockquote", getAttrs: (d) => alignOf(d as HTMLElement) }],
+      { tag: "h1, h2, h3, h4, h5, h6, div, blockquote", getAttrs: (d) => alignOf(d as HTMLElement) }],
     toDOM: (n) => ["p", alignStyle(n), 0],
+  },
+  // a code listing: plain text in a fixed-width font, its lines separated by "\n", no formatting
+  // inside. lang: its language (an id); numbers: line numbers on or off (null: on when it is long)
+  code_block: {
+    content: "text*", marks: "", group: "block cellblock", code: true, defining: true,
+    attrs: { lang: { default: null as string | null }, numbers: { default: null as boolean | null } },
+    parseDOM: [{ tag: "pre", preserveWhitespace: "full", getAttrs: (d) => {
+      const e = d as HTMLElement;
+      const lang = e.getAttribute("data-lang") ?? "";
+      const n = e.getAttribute("data-numbers");
+      return { lang: /^[a-z0-9][a-z0-9+#.-]{0,29}$/.test(lang) ? lang : null, numbers: n === "on" ? true : n === "off" ? false : null };
+    } }],
+    toDOM: (n) => ["pre", { class: "cs-code", "data-lang": n.attrs.lang, "data-numbers": n.attrs.numbers === null ? null : n.attrs.numbers ? "on" : "off" }, ["code", 0]],
   },
   bullet_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ul" }], toDOM: () => ["ul", 0] },
   ordered_list: { content: "list_item+", group: "block cellblock", parseDOM: [{ tag: "ol" }], toDOM: () => ["ol", 0] },
-  list_item: { content: "paragraph cellblock*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
+  // (an item holds paragraphs and lists; a code listing is not put into a list)
+  list_item: { content: "paragraph (paragraph | bullet_list | ordered_list)*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
   // table (stripes, borders), table_row, table_cell, table_header (colspan, rowspan, colwidth);
   // a header cell is formatting: it looks like a header and is a <th> for screen readers
   ...tables(),
@@ -285,6 +299,8 @@ const marks: Record<string, MarkSpec> = {
   strike: flag(["s", "del", "strike"], ["text-decoration", "line-through"], "s"),
   sub: { excludes: "sub sup", parseDOM: [{ tag: "sub" }], toDOM: () => ["sub", 0] },
   sup: { excludes: "sub sup", parseDOM: [{ tag: "sup" }], toDOM: () => ["sup", 0] },
+  // code within a line: a fixed-width font on a light background
+  code: { parseDOM: [{ tag: "code" }, { tag: "tt" }, { tag: "kbd" }, { tag: "samp" }], toDOM: () => ["code", { class: "cs-inline-code" }, 0] },
   color: valued("color", hexColor, (v) => `color:${v}`),
   bg: valued("background-color", hexColor, (v) => `background-color:${v}`),
   font: valued("font-family", fontOf, (v) => `font-family:${FONTS.find((f) => f.name === v)?.css ?? v}`),
@@ -294,5 +310,5 @@ const marks: Record<string, MarkSpec> = {
 export const schema = new Schema({ nodes, marks });
 
 /** The marks that are on or off (no value). */
-export const FLAGS = ["bold", "italic", "underline", "strike", "sub", "sup"] as const;
+export const FLAGS = ["bold", "italic", "underline", "strike", "sub", "sup", "code"] as const;
 export type Flag = (typeof FLAGS)[number];

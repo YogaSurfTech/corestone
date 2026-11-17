@@ -300,3 +300,37 @@
 .cs-xrefpop .row { text-align: left; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text); cursor: pointer; }
 .cs-xrefpop .row:hover, .cs-xrefpop .row:focus-visible { background: var(--cs-hover); outline: none; }
 .cs-xrefpop .none { color: var(--cs-muted); padding: 4px 8px; }
+
+/* code: a listing (fixed-width, tighter lines, a frame; line numbers, language and a copy button) and code within a line */
+.cs-area .cs-inline-code { font-family: 'Courier New', Courier, monospace; background: var(--cs-hover); border-radius: 3px; padding: 0 .25em; }
+.cs-area .cs-code { position: relative; margin: .2em 0 .7em; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-panel);
+  font-family: 'Courier New', Courier, monospace; font-size: .92em; line-height: 1.25; --cs-gutter: calc(var(--cs-digits, 2) * 1ch + 18px); }
+/* (pre and code are not positioned: the numbers are placed against the frame, so they stay put when the text scrolls sideways) */
+.cs-area .cs-code pre { min-width: 0; min-height: 0; max-height: none; margin: 0; padding: 8px 12px; overflow-x: auto; white-space: pre; font: inherit;
+  border: 0; border-radius: 0; background: transparent; color: inherit; }
+.cs-area .cs-code code { display: block; min-width: max-content; white-space: pre; font: inherit; outline: none; padding: 0; border: 0; background: transparent; }
+/* with numbers: a column left of the text, and a strip above the first line for the small × that hides them */
+.cs-area .cs-code.numbered pre { margin-left: var(--cs-gutter); padding-top: 16px; border-left: 1px solid var(--cs-border); }
+.cs-area .cs-code .ln { display: none; }
+.cs-area .cs-code.numbered .ln { display: block; position: absolute; left: 0; width: calc(var(--cs-gutter) - 8px); text-align: right; color: var(--cs-muted);
+  user-select: none; pointer-events: none; }
+.cs-area .cs-code .ln::before { content: attr(data-n); }
+.cs-area .cs-code .off { display: none; position: absolute; top: 1px; left: calc(var(--cs-gutter) - 22px); width: 14px; height: 14px; padding: 0; border: 0;
+  background: transparent; color: var(--cs-muted); font: 11px/14px Arial, Helvetica, sans-serif; cursor: pointer; border-radius: 3px; }
+.cs-area .cs-code.numbered .off { display: block; }
+.cs-area .cs-code .off:hover { background: var(--cs-hover); color: var(--cs-text); }
+.cs-area .cs-code .tools { position: absolute; top: 3px; right: 4px; display: flex; align-items: center; gap: 6px; opacity: .5; }
+.cs-area .cs-code .tools:hover, .cs-area .cs-code .tools:focus-within { opacity: 1; }
+.cs-area .cs-code .lang { font: 11px Arial, Helvetica, sans-serif; color: var(--cs-muted); user-select: none; }
+.cs-area .cs-code .copy { display: grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 1px solid var(--cs-border); border-radius: 5px;
+  background: var(--cs-panel); color: var(--cs-text); cursor: pointer; }
+.cs-area .cs-code .copy:hover { background: var(--cs-hover); }
+.cs-area .cs-code .copy.done { color: var(--cs-link); border-color: var(--cs-link); }
+.cs-editor.readonly .cs-code.numbered .off { display: none; }
+/* on paper nothing scrolls: long lines wrap (anywhere, if they have no spaces), and a number stays with its line */
+@media print {
+  .cs-area .cs-code .tools, .cs-area .cs-code.numbered .off { display: none; }
+  .cs-area .cs-code pre { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cs-area .cs-code code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cs-area .cs-code.numbered pre { padding-top: 8px; }
+}

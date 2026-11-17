@@ -6,6 +6,7 @@ import {
 import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
+import { codeActive, codeAt, toggleCode } from "./code";
 import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, selectedText, styleAt } from "./structure";
 
 // The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
@@ -195,8 +196,12 @@ export class Toolbar {
       { i: "bold", t: "Bold", k: "Ctrl+B" }, { i: "italic", t: "Italic", k: "Ctrl+I" }, { i: "underline", t: "Underline", k: "Ctrl+U" },
       { i: "strike", t: "Strikethrough" }, { i: "sub", t: "Subscript", k: "Ctrl+," }, { i: "sup", t: "Superscript", k: "Ctrl+." },
     ];
-    this.split("fmt", "Text format", flags.map((f) => ({ i: f.i, tip: { t: f.t, k: f.k }, run: () => this.run(toggleFlag(f.i)),
-      pressed: (s: EditorState) => flagActive(s, f.i) })));
+    const noFormat = () => (codeAt(S()) ? "A code listing has no formatting of its own." : null);
+    this.split("fmt", "Text format", [...flags.map((f) => ({ i: f.i as string, tip: { t: f.t, k: f.k, dis: noFormat }, run: () => this.run(toggleFlag(f.i)),
+      pressed: (s: EditorState) => flagActive(s, f.i) })),
+    // code: part of a line selected becomes code within the line, otherwise the paragraphs become a listing
+    { i: "code", tip: { t: "Code", k: "Ctrl+Alt+C", dis: () => (this.can(toggleCode) ? null : "Code is made of text: not of a heading, a table or a placed entry.") },
+      run: () => this.run(toggleCode), pressed: (s: EditorState) => codeActive(s) }]);
     this.colour("color", "fcolor", "Font color", "#c62828");
     this.colour("bg", "bcolor", "Background color", "#fff59d");
     this.font();
