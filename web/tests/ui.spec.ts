@@ -171,7 +171,7 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   const t = await post("/entries", { path: folder, type: "tc", title: `Linked test ${stamp}` });
   await page.goto(`/artifact/${t.meta.guid}`);
   await page.locator("#sec-relationships .actions button", { hasText: "verifies" }).click();
-  await page.locator("corestone-picker input").fill(`Linked requirement ${stamp}`);
+  await page.locator("corestone-picker input[type=search]").fill(`Linked requirement ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Linked requirement ${stamp}` }).click();
   await expect(page.locator("#sec-relationships .link-row.pending-add")).toHaveCount(1);
   await page.locator("[data-test=save]").click();
@@ -193,7 +193,7 @@ test("one Save publishes edits, a transition, a link and a comment as a single c
   await page.locator("[data-test=title]").fill(`Batch edited ${stamp}`);
   await page.locator(".workflow[data-workflow=dev] select").selectOption("submit");
   await page.locator("#sec-relationships .actions button", { hasText: "related" }).click();
-  await page.locator("corestone-picker input").fill(`Batch target ${stamp}`);
+  await page.locator("corestone-picker input[type=search]").fill(`Batch target ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Batch target ${stamp}` }).click();
   await page.locator("[data-test=comment-add]").click();
   await page.locator("[data-test=comment-text]").fill("staged remark");
@@ -261,13 +261,14 @@ test("documents: compose from entries and edit in the document editor", async ({
   await ed.click();
   await page.keyboard.type("Timing");
   await page.keyboard.press("Control+Alt+1");
-  await page.getByRole("button", { name: "Insert entry…" }).click();
-  await page.locator("corestone-picker input").fill(`Referenced in doc ${stamp}`);
+  await page.getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(`Referenced in doc ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Referenced in doc ${stamp}` }).click();
+  await page.locator("[data-test=pick-chosen]").click();
   await expect(ed.locator(`.cs-placement[data-placement="${r.meta.guid}"]`)).toContainText(`Referenced in doc ${stamp}`);
   // an entry can be placed only once per document
-  await page.getByRole("button", { name: "Insert entry…" }).click();
-  await page.locator("corestone-picker input").fill(`Referenced in doc ${stamp}`);
+  await page.getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(`Referenced in doc ${stamp}`);
   const again = page.locator(`.picker-results .row[data-guid="${r.meta.guid}"]`);
   await expect(again).toHaveAttribute("aria-disabled", "true");
   await expect(again).toContainText("already in this document");

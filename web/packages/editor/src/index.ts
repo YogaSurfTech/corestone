@@ -11,7 +11,7 @@ import type { Palette } from "./toolbar";
 export { RichTextEditor, type EditorOptions } from "./editor";
 export { type ItemLinks } from "./links";
 export { type EntryFiles } from "./files";
-export { documentFromStorage, documentText, documentTitle, documentToStorage, fromStorage, isEntryNode, isSectionNode, isTable, isTocNode, newSectionId, plainText, toStorage,
+export { documentFromStorage, documentText, documentTitle, documentToStorage, fileNames, fromStorage, isEntryNode, isSectionNode, isTable, isTocNode, newSectionId, plainText, renameFiles, toStorage,
   type DocNode, type EntryNode, type SectionNode, type TocNode, type Block, type Cell, type DiagramRun, type FormulaRun, type ImageRun, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
 export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
@@ -34,15 +34,6 @@ export class RichTextElement extends HTMLElement {
     this.drawio = v;
     this.editor?.refresh(); // the toolbar offers diagrams (or not)
   }
-  private key?: string;
-  /** Under which name a height dragged with the bottom edge is remembered in this browser
-   *  (e.g. the field's type and name); without it the height is not remembered. */
-  get sizeKey(): string | undefined { return this.key; }
-  set sizeKey(v: string | undefined) {
-    if (v === this.key) return;
-    this.key = v;
-    if (this.editor) this.editor.sizeKey = v;
-  }
 
   get value(): RichText | null { return this.editor ? (this.editor.value as RichText) : this.pending; }
   set value(v: RichText | null) {
@@ -59,7 +50,6 @@ export class RichTextElement extends HTMLElement {
       readonly: this.hasAttribute("readonly"),
       items: () => this.items,
       files: () => this.files,
-      sizeKey: this.key,
       diagrams: () => this.drawio,
       onChange: (value) => { this.pending = value as RichText; this.dispatchEvent(new CustomEvent("change", { detail: value, bubbles: true })); },
     });

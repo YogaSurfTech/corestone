@@ -1,8 +1,10 @@
+import { Fragment } from "prosemirror-model";
 import { NodeSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { buildMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
-import { insertXref, placeEntry, placedEntries, structureKey, xrefText, type DocumentHost } from "./structure";
+import { fileNames, toStorage } from "./model";
+import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, structureKey, xrefText, type DocumentHost } from "./structure";
 
 // The document's own panels: the menu of a placed entry and the cross-reference picker.
 
@@ -32,14 +34,50 @@ export class DocumentUI {
     root.append(this.menu, this.picker);
   }
 
-  /** Lets the host pick an entry and places it at the cursor. */
+  /** Lets the host pick entries and places them at the cursor, in the order picked. */
   async insertEntry() {
     const h = this.host();
     if (!h) return;
-    const guid = await h.pickEntry(placedEntries(this.view().state.doc));
+    const guids = await h.pickEntries(placedEntries(this.view().state.doc));
+    if (!guids.length) return;
+    const v = this.view();
+    if (!placeEntries(guids)(v.state, v.dispatch)) this.notice(guids.length === 1 ? "The entry is in this document already; an entry is placed once per document."
+      : "These entries are in this document already; an entry is placed once per document.");
+    v.focus();
+  }
+
+  /** Makes an entry of the selected text: its first line is the title, the rest its text (the
+   *  host asks for the type and the rest). The entry takes the text's place. */
+  async convert() {
+    const h = this.host();
+    if (!h?.convertToEntry) return;
+    const sel = selectedText(this.view().state);
+    if (typeof sel === "string") { this.notice(sel); return; }
+    const [first, ...rest] = sel.nodes;
+    const titled = first.type === schema.nodes.paragraph;
+    const body = titled ? rest : sel.nodes;
+    const text = body.length ? toStorage(schema.node("doc", null, body)) : "";
+    const guid = await h.convertToEntry({ title: titled ? first.textContent.replace(/\s+/g, " ").trim() : "", text, files: fileNames(text) });
     if (!guid) return;
     const v = this.view();
-    if (!placeEntry(guid)(v.state, v.dispatch)) this.notice("The entry is in this document already; an entry is placed once per document.");
+    // the text is replaced where it is, if it is still there unchanged; otherwise the entry is placed at the cursor
+    const same = sel.to <= v.state.doc.content.size && v.state.doc.slice(sel.from, sel.to).content.eq(Fragment.from(sel.nodes));
+    if (same) replaceWithEntry(sel.from, sel.to, guid)(v.state, v.dispatch);
+    else if (!placeEntries([guid])(v.state, v.dispatch)) this.notice("The entry is made, but the text changed meanwhile; insert it with Insert entries.");
+    v.focus();
+  }
+
+  /** Puts a placed entry's text in its place (the entry stays in the repository). */
+  async unmark(guid?: string) {
+    const h = this.host();
+    if (!h?.entryAsText) return;
+    const sel = this.view().state.selection;
+    guid ??= sel instanceof NodeSelection && sel.node.type === schema.nodes.placement ? sel.node.attrs.guid as string : undefined;
+    if (!guid) { this.notice("Select a placed entry first."); return; }
+    const r = await h.entryAsText(guid);
+    if ("error" in r) { this.notice(r.error); return; }
+    const v = this.view();
+    if (!entryToText(guid, r.text)(v.state, v.dispatch)) this.notice("The entry is not in the document any more.");
     v.focus();
   }
 
@@ -52,6 +90,7 @@ export class DocumentUI {
     const pos = sel.from;
     const items: MenuItem[] = [
       { label: "Open", run: () => this.host()?.openEntry(guid, false) },
+      ...(this.host()?.entryAsText ? [{ label: "Turn into text", run: () => void this.unmark(guid) }] : []),
       { label: "Remove from document", danger: true, cmd: (state, dispatch) => {
         const n = state.doc.nodeAt(pos);
         if (n?.type !== schema.nodes.placement) return false;

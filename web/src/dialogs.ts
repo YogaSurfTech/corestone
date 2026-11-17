@@ -3,7 +3,8 @@ import { customElement, state } from "lit/decorators.js";
 import { api, ApiError } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
-import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
+import type { RichText } from "@corestone/editor";
+import type { Kind, Schema, SortLevel, Summary, TableFilter, View } from "./types";
 import type { Table, TableColumn } from "./table";
 import "./table";
 import { collectionOf, displayName, kindLabel, kindPlural, label } from "./util";
@@ -185,6 +186,8 @@ export class NewDialog extends LitElement {
   override connectedCallback() {
     super.connectedCallback();
     this.path = (this.dialog.folder as string) ?? store.state.route.folder;
+    // made from text of a document: title and text given; the caller gets the entry (onCreated)
+    if (typeof this.dialog.presetTitle === "string") this.titleText = this.dialog.presetTitle;
     const preset = this.dialog.type as string | undefined;
     api.types(this.path).then((r) => {
       this.types = r.types.filter((t) => !this.dialog.kinds || (this.dialog.kinds as Kind[]).includes(t.kind));
@@ -208,6 +211,13 @@ export class NewDialog extends LitElement {
     this.values = {};
     for (const f of s.fields ?? []) if (f.default != null) this.values[f.id] = f.default;
     this.error = "";
+    // the given text goes into the type's first rich-text field
+    const fill = this.dialog.fill as RichText | undefined;
+    if (fill && fill.length) {
+      const f = (s.fields ?? []).find((x) => x.type === "richtext");
+      if (f) this.values[f.id] = fill;
+      else this.error = `${displayName(s, s.type)} has no rich-text field: only the title is taken from the text, the rest stays in the document.`;
+    }
     this.scopeError = "";
     this.updateComplete.then(() => (this.querySelector<HTMLInputElement>("#new-title, #new-text"))?.focus());
   }
@@ -254,6 +264,12 @@ export class NewDialog extends LitElement {
 
   private kindOf(): Kind { return this.schema?.kind ?? "entry"; }
 
+  private cancel() {
+    const c = this.dialog.onCancel as (() => void) | undefined;
+    store.set({ dialog: null });
+    c?.();
+  }
+
   private async create() {
     if (!this.schema || this.busy || this.scopeError) return; // a second click before re-render must be a no-op
     this.busy = true;
@@ -285,6 +301,13 @@ export class NewDialog extends LitElement {
       if (kind === "document") body.content = [];
       view = await api.create(collectionOf[kind], body);
       store.toast(`${kindLabel[kind]} ${view.meta.hid || ""} created`, "success");
+      const onCreated = this.dialog.onCreated as ((v: View) => void | Promise<void>) | undefined;
+      if (onCreated) {
+        store.set({ dialog: null });
+        store.refresh();
+        await onCreated(view);
+        return;
+      }
       store.set({ dialog: null });
       store.refresh();
       navigate({ guid: view.meta.guid, folder: view.meta.folder, tab: "" });
@@ -336,7 +359,7 @@ export class NewDialog extends LitElement {
           @field-change=${(e: CustomEvent) => { this.values = { ...this.values, [e.detail.id]: e.detail.value }; }}></corestone-field>`)}
         ${s.workflows?.length ? html`<div class="help" style="margin-top:8px">Workflows ${s.workflows.join(", ")} start in their initial state.</div>` : nothing}
         <div class="foot">
-          <button type="button" class="btn" @click=${() => store.set({ dialog: null })}>Cancel</button>
+          <button type="button" class="btn" @click=${() => this.cancel()}>Cancel</button>
           <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.scopeError} data-test="create">${this.busy ? "Creating…" : "Create"}</button>
         </div>
       </form>`;
@@ -366,7 +389,7 @@ export class NewDialog extends LitElement {
         <select id="custom-kind"><option value="entry">entry</option><option value="document">document</option></select>
         <button class="btn" ?disabled=${!this.customType.trim()} @click=${() => this.choose({ type: this.customType.trim(), kind: (this.querySelector("#custom-kind") as HTMLSelectElement).value as Kind })}>Use</button>
       </div>
-      <div class="foot"><button class="btn" @click=${() => store.set({ dialog: null })}>Cancel</button></div>`;
+      <div class="foot"><button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
   }
 }
 
@@ -380,8 +403,12 @@ function pickerSort(): SortLevel[] {
 }
 
 /** Picker columns; the last one names why a row cannot be picked. */
-function pickerColumns(taken?: { guids: Set<string>; note: string }): TableColumn[] {
+function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: () => Set<string>): TableColumn[] {
   return [
+    // choosing several: a checkbox per row (a click on the row ticks it)
+    ...(chosen ? [{ id: "$check", name: "", width: 34, sortable: false, cls: "pick-check",
+      render: (r: Summary) => html`<input type="checkbox" tabindex="-1" aria-label="Choose ${r.hid || r.title}" .checked=${chosen().has(r.guid)}
+        ?disabled=${!!taken?.guids.has(r.guid)} @click=${(e: Event) => e.preventDefault()} />` } satisfies TableColumn] : []),
     { id: "$hid", name: "ID", width: 110,
       render: (r) => r.hid ? html`<span class="hid">${r.hid}</span>` : html`<span class="muted mono">${r.guid.slice(0, 8)}</span>` },
     { id: "$title", name: "Title", title: (r) => r.title ?? "",
@@ -398,13 +425,15 @@ export class Picker extends LitElement {
   @state() private q = "";
   @state() private filter: TableFilter = {};
   @state() private total = -1;
+  /** Choosing several (dialog.multi): the chosen rows, in the order chosen. */
+  @state() private chosen = new Set<string>();
   private sort = pickerSort();
   private columns: TableColumn[] = [];
   private timer = 0;
   override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
-    this.columns = pickerColumns(this.dialog.taken as { guids: Set<string>; note: string } | undefined);
+    this.columns = pickerColumns(this.dialog.taken as { guids: Set<string>; note: string } | undefined, this.multi ? () => this.chosen : undefined);
     this.applyFilter();
     this.updateComplete.then(() => this.querySelector<HTMLInputElement>("input")?.focus());
   }
@@ -428,7 +457,34 @@ export class Picker extends LitElement {
     if (!table) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); table.move(e.key === "ArrowDown" ? 1 : -1); }
     else if (e.key === "PageDown" || e.key === "PageUp") { e.preventDefault(); table.move(e.key === "PageDown" ? 10 : -10); }
-    else if (e.key === "Enter") { e.preventDefault(); table.pickActive(); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      // choosing several: Enter takes the chosen ones (or the active row when none is chosen yet)
+      if (this.multi && this.chosen.size) this.done([...this.chosen]);
+      else table.pickActive();
+    }
+  }
+
+  /** dialog.multi: { verb } — rows are chosen with checkboxes (a click on a row ticks it), then
+   *  "<verb> n" or "<verb> all" (every match of the search); onPickMany gets their GUIDs. */
+  private get multi(): { verb: string } | undefined { return this.dialog.multi as { verb: string } | undefined; }
+
+  private done(guids: string[]) {
+    if (!guids.length) return;
+    store.set({ picker: null });
+    (this.dialog.onPickMany as (guids: string[]) => void)(guids);
+  }
+
+  private toggle(s: Summary) {
+    const next = new Set(this.chosen);
+    if (!next.delete(s.guid)) next.add(s.guid);
+    this.chosen = next;
+  }
+
+  /** All matching rows that can be chosen, in the table's order. */
+  private allMatches(): string[] {
+    const taken = this.dialog.taken as { guids: Set<string> } | undefined;
+    return (this.querySelector<Table>("corestone-table")?.matchingKeys ?? []).filter((g) => !taken?.guids.has(g));
   }
 
   private cancel() { const c = this.dialog.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }
@@ -443,13 +499,28 @@ export class Picker extends LitElement {
       <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
       <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
+        .selected=${this.multi ? (r: Summary) => this.chosen.has(r.guid) : undefined}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
-        @row-click=${(e: CustomEvent<Summary>) => { store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(e.detail); }}></corestone-table>
+        @row-click=${(e: CustomEvent<Summary>) => {
+          if (this.multi) { this.toggle(e.detail); return; }
+          store.set({ picker: null }); (this.dialog.onPick as (s: Summary) => void)(e.detail); }}></corestone-table>
       <div class="picker-count muted small" data-test="picker-count">${this.total < 0 ? "" : `${this.total} ${this.total === 1 ? "match" : "matches"}`}</div>
       <div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
           @click=${() => { store.set({ picker: null }); a.run(); }}><span class="act-icon" aria-hidden="true">${a.tone === "add" ? "＋" : "✕"}</span>${a.label}</button>`)}
         <span class="grow"></span>
+        ${this.multi ? this.multiButtons(this.multi.verb) : nothing}
         <button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
+  }
+
+  private multiButtons(verb: string) {
+    const taken = (this.dialog.taken as { guids: Set<string> } | undefined)?.guids;
+    // (the count of all matches less those that cannot be chosen; the table knows which)
+    const all = this.total < 0 ? 0 : this.total;
+    const n = this.chosen.size;
+    return html`<button class="btn" data-test="pick-all" ?disabled=${!all}
+        title=${`Every match of the search, in the order shown${taken?.size ? " (without those that cannot be chosen)" : ""}`}
+        @click=${() => this.done(this.allMatches())}>${verb} all</button>
+      <button class="btn primary" data-test="pick-chosen" ?disabled=${!n} @click=${() => this.done([...this.chosen])}>${verb}${n ? ` ${n}` : ""}</button>`;
   }
 }

@@ -1,12 +1,12 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
-import type { Command, EditorState } from "prosemirror-state";
+import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
 import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
-import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, styleAt } from "./structure";
+import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, selectedText, styleAt } from "./structure";
 
 // The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
 // without paragraph styles and entries, in a document with them; split buttons
@@ -33,8 +33,12 @@ export interface ToolbarHost {
   diagram(): void;
   /** In a document: placing entries and cross-references (absent in a field). */
   structure?: {
-    /** Lets the user pick an entry and places it at the cursor. */
+    /** Lets the user pick entries and places them at the cursor. */
     entry(): void;
+    /** Makes an entry of the selected text (absent: the host cannot). */
+    convert?(): void;
+    /** Turns the selected placed entry into text (absent: the host cannot). */
+    unmark?(): void;
     /** Opens the cross-reference picker. */
     xref(at?: { x: number; y: number }): void;
   };
@@ -160,16 +164,27 @@ export class Toolbar {
     // structure (documents): paragraph style and entries
     const st = this.host.structure;
     if (st) {
-      // paragraph style and heading level: H (heading), ¶ (normal text), H− (one level up), H+ (one
-      // level deeper); the main button repeats the last used, like the other groups
+      // paragraph style and heading level: ¶ (normal text), then H− (one level up), H (heading), H+
+      // (one level deeper); the main button repeats the last used (at first H), like the other groups
       const noStyle = () => (styleAt(S()) ? null : "Only paragraphs of the text have a style, not lists, tables or the title.");
       this.split("heading", "Heading level", [
-        { i: "heading", tip: { t: "Heading", k: "Ctrl+Alt+1", dis: noStyle }, run: () => this.run(makeHeading), pressed: (s) => styleAt(s) === "heading" },
         { i: "para", tip: { t: "Normal text", k: "Ctrl+Alt+0", dis: noStyle }, run: () => this.run(makeNormal), pressed: (s) => styleAt(s) === "normal" },
         { i: "hminus", tip: { t: "Heading one level up", k: "Shift+Tab", dis: () => promoteBlocked(S()) }, run: () => this.run(promoteSection) },
+        { i: "heading", tip: { t: "Heading", k: "Ctrl+Alt+1", dis: noStyle }, run: () => this.run(makeHeading), pressed: (s) => styleAt(s) === "heading" },
         { i: "hplus", tip: { t: "Heading one level deeper", k: "Tab", dis: () => demoteBlocked(S()) }, run: () => this.run(demoteSection) },
-      ]);
-      this.add(this.button("entry", { t: "Insert entry…", dis: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, () => st.entry()));
+      ], "heading");
+      // entries: insert; and one button that makes an entry of the selected text, or (a placed
+      // entry selected) turns that entry into text
+      const insert = { i: "entry", tip: { t: "Insert entries…", dis: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.entry() };
+      if (st.convert && st.unmark) {
+        const onEntry = (s: EditorState) => s.selection instanceof NodeSelection && s.selection.node.type === schema.nodes.placement;
+        const conv = { t: "Convert selection to entry", i: "toentry" }, back = { t: "Turn the entry into text", i: "unentry" };
+        this.split("entries", "Entries", [insert, {
+          i: "toentry", tip: { t: conv.t, dis: () => { const s = S(); return onEntry(s) ? null : (r => typeof r === "string" ? r : null)(selectedText(s)); } },
+          run: () => (onEntry(S()) ? st.unmark!() : st.convert!()),
+          vary: (s) => (onEntry(s) ? back : conv),
+        }], "entry");
+      } else this.add(this.button(insert.i, insert.tip, insert.run));
       this.sep();
     }
     // character formatting
@@ -262,10 +277,12 @@ export class Toolbar {
   private remember(key: string, v: string) { this.last[key] = v; store(LAST_KEY, this.last); }
 
   /** A split button: the main part repeats the last-used item, ▾ shows them all. */
-  private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean }[]) {
+  private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean;
+    /** a button that changes with the selection: its icon and tooltip */
+    vary?: (s: EditorState) => { i: string; t: string } }[], main0?: string) {
     const menu = document.createElement("div");
     menu.className = "pop";
-    let current = items.find((x) => x.i === this.last[key]) ?? items[0];
+    let current = items.find((x) => x.i === this.last[key]) ?? items.find((x) => x.i === main0) ?? items[0];
     const main = this.button(current.i, current.tip, () => current.run());
     const show = () => {
       main.innerHTML = icon(current.i);
@@ -287,7 +304,18 @@ export class Toolbar {
     });
     this.wrap(main, label, menu);
     this.updaters.push((s) => {
-      items.forEach((it, n) => { if (it.pressed) buttons[n].setAttribute("aria-pressed", String(it.pressed(s))); });
+      items.forEach((it, n) => {
+        if (it.pressed) buttons[n].setAttribute("aria-pressed", String(it.pressed(s)));
+        if (!it.vary) return;
+        const v = it.vary(s);
+        for (const b of current === it ? [buttons[n], main] : [buttons[n]]) {
+          if (b.dataset.cmd === v.i) continue;
+          b.innerHTML = icon(v.i);
+          b.dataset.cmd = v.i;
+          b.setAttribute("aria-label", v.t);
+          b._tip = { ...it.tip, t: v.t };
+        }
+      });
       if (current.pressed) main.setAttribute("aria-pressed", String(current.pressed(s)));
       else main.removeAttribute("aria-pressed");
     });

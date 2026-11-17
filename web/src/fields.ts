@@ -162,7 +162,7 @@ export class FieldEditor extends LitElement {
       case "richtext":
         // plain text (older values, or nothing formatted) or paragraphs; empty is unset
         return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} .files=${this.files} ?readonly=${this.disabled}
-          .sizeKey=${`${this.typeId}/${this.field.id}`} .diagrams=${server.diagrams || undefined}
+          .diagrams=${server.diagrams || undefined}
           @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();

@@ -124,12 +124,12 @@ test("all field types round-trip through the generated form", async ({ page }) =
   await d.locator("[data-field=blob] textarea").blur();
   // reference through the picker (restricted to req)
   await d.locator("[data-field=ref] button", { hasText: "Select" }).click();
-  await page.locator("corestone-picker input").fill(target.title);
+  await page.locator("corestone-picker input[type=search]").fill(target.title);
   await page.locator(".picker-results .row", { hasText: target.title }).click();
   await expect(d.locator("[data-field=ref] .ref-chip")).toContainText(target.title);
   // multi reference: pick twice (same artifact is deduplicated)
   await d.locator("[data-field=refs] button").click();
-  await page.locator("corestone-picker input").fill(target.title);
+  await page.locator("corestone-picker input[type=search]").fill(target.title);
   await page.locator(".picker-results .row", { hasText: target.title }).click();
   await expect(d.locator("[data-field=refs] .ref-chip")).toHaveCount(1);
   await d.locator("[data-test=create]").click();
@@ -280,7 +280,7 @@ test("rich text: links to items are picked, shown by name, opened, and kept by t
   await page.waitForTimeout(150); // the editor reads a selection made by the browser a moment later
   await page.keyboard.press("Control+k");
   await rich.locator(".cs-linkpop .pick").click();
-  await page.locator("corestone-picker input").fill(target.title);
+  await page.locator("corestone-picker input[type=search]").fill(target.title);
   await page.locator(".picker-results .row", { hasText: target.title }).click();
   await expect(rich.locator(".ProseMirror a.cs-item")).toHaveText("target");
   await page.locator("[data-test=save]").click();

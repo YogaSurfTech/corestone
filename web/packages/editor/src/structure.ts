@@ -1,7 +1,7 @@
 import { Fragment, type Node, type ResolvedPos } from "prosemirror-model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type Command, type EditorState, type Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "prosemirror-view";
-import { newSectionId } from "./model";
+import { fromStorage, newSectionId, type RichText } from "./model";
 import { schema } from "./schema";
 
 // Documents (docs/design/Corestone documents.md): a tree of sections under the document's
@@ -13,8 +13,16 @@ import { schema } from "./schema";
 export interface DocumentHost {
   /** The document's own GUID: references to its sections are "<GUID>#<section id>". */
   guid?: string;
-  /** Lets the user choose an entry to place; taken: the entries already in the document. */
-  pickEntry(taken: string[]): Promise<string | null>;
+  /** Lets the user choose entries to place (in this order; none: cancelled); taken: the entries
+   *  already in the document. */
+  pickEntries(taken: string[]): Promise<string[]>;
+  /** Makes an entry of text of the document (asking the user for its type and the rest):
+   *  title, its first line; text, the rest; files, the document's files the text uses (to be
+   *  copied to the entry). The entry's GUID, or null when cancelled. */
+  convertToEntry?(c: { title: string; text: RichText; files: string[] }): Promise<string | null>;
+  /** A placed entry's text, to put in its place (its files copied to the document, the names
+   *  in the text changed to theirs), or why it cannot be had. */
+  entryAsText?(guid: string): Promise<{ text: RichText } | { error: string }>;
   /** Shows a placed entry in el; called again when its number or settings change. */
   renderEntry(el: HTMLElement, p: Placed): void;
   /** Opens an entry. */
@@ -409,15 +417,74 @@ function placeAt(state: EditorState): { from: number; to: number } | null {
   return { from: p, to: p };
 }
 
-/** Places an entry at the cursor (each entry once per document). */
-export function placeEntry(guid: string): Command {
+/** Places entries at the cursor, in this order, as one step (undone together); entries already
+ *  in the document are left out. False when none can be placed. */
+export function placeEntries(guids: string[]): Command {
   return (state, dispatch) => {
-    if (placedEntries(state.doc).includes(guid)) return false;
+    const placed = new Set(placedEntries(state.doc));
+    const fresh = guids.filter((g) => !placed.has(g) && (placed.add(g), true));
+    if (!fresh.length) return false;
     const at = placeAt(state);
     if (!at) return false;
     if (dispatch) {
-      const tr = state.tr.replaceWith(at.from, at.to, schema.node("placement", { guid }));
-      dispatch(tr.setSelection(NodeSelection.create(tr.doc, at.from)).scrollIntoView());
+      const nodes = fresh.map((guid) => schema.node("placement", { guid }));
+      const tr = state.tr.replaceWith(at.from, at.to, nodes);
+      const last = at.from + nodes.slice(0, -1).reduce((n, x) => n + x.nodeSize, 0);
+      dispatch(tr.setSelection(NodeSelection.create(tr.doc, last)).scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/** The text the selection covers, as whole blocks of one section's text (or the introduction),
+ *  for "Convert to entry"; or why it cannot be converted. */
+export function selectedText(state: EditorState): { from: number; to: number; nodes: Node[] } | string {
+  const sel = state.selection;
+  if (sel instanceof NodeSelection || sel.empty) return "Select the text that becomes the entry.";
+  const { $from, $to } = sel;
+  const a = blockAt($from), b = blockAt($to);
+  if (!a || !b || a.blockDepth !== b.blockDepth || $from.before(a.blockDepth) > $to.before(b.blockDepth)
+    || (a.listDepth > 0 && $from.before(a.listDepth) !== $to.before(b.listDepth)))
+    return "Select text within one section: the selection goes across a heading.";
+  const d = a.listDepth;
+  const parent = $from.node(d);
+  let i = $from.index(d), j = $to.index(d);
+  // a selection that ends at the very start of a block leaves that block out
+  if (j > i && !state.doc.textBetween($to.before(b.blockDepth), $to.pos).length) j--;
+  const nodes: Node[] = [];
+  for (let k = i; k <= j; k++) {
+    const n = parent.child(k);
+    if (isTitle(n)) return "Headings stay in the document: select only text.";
+    if (!n.type.isInGroup("block")) return "Select only text: a placed entry or a list of contents is in the selection.";
+    nodes.push(n);
+  }
+  return { from: $from.posAtIndex(i, d), to: $from.posAtIndex(j + 1, d), nodes };
+}
+
+/** Puts an entry in place of from…to (the converted text), selected. */
+export function replaceWithEntry(from: number, to: number, guid: string): Command {
+  return (state, dispatch) => {
+    if (dispatch) {
+      const tr = state.tr.replaceWith(from, to, schema.node("placement", { guid }));
+      dispatch(tr.setSelection(NodeSelection.create(tr.doc, from)).scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/** Puts text in place of a placed entry (its card becomes ordinary text of the document). */
+export function entryToText(guid: string, text: RichText): Command {
+  return (state, dispatch) => {
+    let at = -1;
+    state.doc.descendants((n, pos) => {
+      if (at < 0 && n.type === schema.nodes.placement && n.attrs.guid === guid) at = pos;
+      return at < 0 && (n.type === schema.nodes.docroot || n.type === schema.nodes.section);
+    });
+    if (at < 0) return false;
+    if (dispatch) {
+      const content = fromStorage(text).content;
+      const tr = state.tr.replaceWith(at, at + 1, content);
+      dispatch(tr.setSelection(TextSelection.near(tr.doc.resolve(at + content.size), -1)).scrollIntoView());
     }
     return true;
   };

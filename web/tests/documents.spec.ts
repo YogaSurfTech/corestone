@@ -1,4 +1,4 @@
-import { api, expect, get, post, seedDomain, stamp, test } from "./fixtures";
+import { api, defineTypes, expect, get, post, seedDomain, stamp, test } from "./fixtures";
 
 // Documents (docs/design/Corestone documents.md): one editor for the whole document, headings
 // that make sections (Normal/Heading, Tab/Shift+Tab, Enter, Backspace), numbers, placed entries,
@@ -115,9 +115,10 @@ test("placed entries: insert, numbers, card, open, remove; once per document; mi
   await page.goto(`/artifact/${d.meta.guid}`);
   const ed = page.locator(".doc-page cs-document .ProseMirror");
   const pick = async (title: string) => {
-    await page.getByRole("button", { name: "Insert entry…" }).click();
-    await page.locator("corestone-picker input").fill(title);
-    await page.locator(".picker-results .row", { hasText: title }).click();
+    await page.getByRole("button", { name: "Insert entries…" }).click();
+    await page.locator("corestone-picker input[type=search]").fill(title);
+    await page.locator(".picker-results .row", { hasText: title }).click(); // ticks it
+    await page.locator("[data-test=pick-chosen]").click();
   };
   // into the section (replacing its empty paragraph), then one in the introduction
   await ed.locator("section .cs-heading").click();
@@ -130,9 +131,10 @@ test("placed entries: insert, numbers, card, open, remove; once per document; mi
   const cardB = ed.locator(`.cs-placement[data-placement="${b.meta.guid}"]`);
   await expect(cardB).toHaveAttribute("data-num", "0-1");
   // an entry already placed cannot be picked again
-  await page.getByRole("button", { name: "Insert entry…" }).click();
-  await page.locator("corestone-picker input").fill(`Card A ${id}`);
+  await page.getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(`Card A ${id}`);
   await expect(page.locator(".picker-results .row", { hasText: `Card A ${id}` })).toContainText("already in this document");
+  await expect(page.locator(".picker-results .row", { hasText: `Card A ${id}` }).locator("input[type=checkbox]")).toBeDisabled();
   await page.keyboard.press("Escape");
   // saved as {entry}
   await page.locator("[data-test=save]").click();
@@ -162,6 +164,106 @@ test("placed entries: insert, numbers, card, open, remove; once per document; mi
   await ed.locator(`.cs-placement[data-placement="${other.meta.guid}"] .entry-card`).dblclick();
   await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
   await expect(page).toHaveURL(new RegExp(other.meta.guid));
+});
+
+test("several entries at once: chosen with checkboxes, or all matches of the search", async ({ page }) => {
+  const tag = `Multi ${id}`;
+  const e = await Promise.all([1, 2, 3, 4].map((n) => post("/entries", { path: folder, type: "req", title: `${tag} ${n}`, fields: { priority: "low" } })));
+  const d = await newDoc(`Several ${id}`, [{ text: "intro" }]);
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  await ed.locator("p", { hasText: "intro" }).click();
+  // two ticked, in the order ticked: one step, one undo
+  await page.getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(tag);
+  await expect(page.locator("[data-test=pick-chosen]")).toBeDisabled();
+  await page.locator(".picker-results .row", { hasText: `${tag} 3` }).click();
+  await page.locator(".picker-results .row", { hasText: `${tag} 1` }).click();
+  await expect(page.locator("[data-test=pick-chosen]")).toHaveText("Insert 2");
+  await page.locator("[data-test=pick-chosen]").click();
+  const cards = ed.locator(".cs-placement");
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toHaveAttribute("data-placement", e[2].meta.guid);
+  await expect(cards.nth(1)).toHaveAttribute("data-placement", e[0].meta.guid);
+  await page.keyboard.press("Control+z");
+  await expect(cards).toHaveCount(0);
+  await page.keyboard.press("Control+y");
+  await expect(cards).toHaveCount(2);
+  // all matches: those already placed are left out
+  await page.getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(tag);
+  await expect(page.locator("[data-test=picker-count]")).toHaveText("4 matches");
+  await page.locator("[data-test=pick-all]").click();
+  await expect(cards).toHaveCount(4);
+  await expect(cards.nth(1)).toHaveAttribute("data-placement", e[0].meta.guid);
+});
+
+test("selected text becomes an entry (first line the title), and an entry becomes text again", async ({ page }) => {
+  // a type with a rich-text field, in a folder below the document types' folder
+  const notes = `${folder}/notes`;
+  await defineTypes(notes, "entries", [{ id: "note", displayName: "Note", fields: [{ id: "body", name: "Body", type: "richtext" }] }]);
+  const d = await post("/documents", { path: notes, type: "spec", title: `Convert ${id}`, content: [
+    { text: "before" }, { text: `Made here ${id}` }, { text: [{ text: "Body ", bold: true }, { text: "line" }] }, { text: "after" }] });
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror").first(); // (cards hold editors too)
+  const menu = page.getByRole("button", { name: "More: Entries" });
+  // nothing selected: the button says why
+  await ed.locator("p", { hasText: "before" }).click();
+  await menu.click();
+  await expect(page.getByRole("button", { name: "Convert selection to entry" })).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+  // select the two paragraphs (from the first's start into the second)
+  await ed.locator("p", { hasText: "Made here" }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Shift+End");
+  await menu.click();
+  await page.getByRole("button", { name: "Convert selection to entry" }).click();
+  // the create dialog: the type, then title and text given
+  await page.locator(".type-card[data-type=note]").click();
+  await expect(page.locator("#new-title")).toHaveValue(`Made here ${id}`);
+  await expect(page.locator(".dialog cs-richtext .ProseMirror")).toHaveText("Body line");
+  await page.locator("[data-test=create]").click();
+  const card = ed.locator(".cs-placement");
+  await expect(card).toContainText(`Made here ${id}`);
+  await expect(card).toContainText("Body line");
+  await expect(ed.locator("p", { hasText: "Made here" })).toHaveCount(0);
+  await expect(ed.locator("> p")).toHaveText(["before", "after"]);
+  const guid = await card.getAttribute("data-placement");
+  const entry = await get<{ meta: { title: string }; data: { fields: Record<string, unknown> } }>(`/entries/${guid}`);
+  expect(entry.meta.title).toBe(`Made here ${id}`);
+  expect(entry.data.fields.body).toEqual([{ text: [{ text: "Body ", bold: true }, { text: "line" }] }]);
+  // the placed entry selected: the same button turns it into text (the entry stays)
+  await card.click();
+  await menu.click();
+  // (the main button repeats the last one used: it says the same now)
+  await expect(page.locator(".pop.open").getByRole("button", { name: "Turn the entry into text" })).toBeVisible();
+  await page.locator(".pop.open").getByRole("button", { name: "Turn the entry into text" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(ed.locator("> p")).toHaveText(["before", `Made here ${id}`, "Body line", "after"]);
+  await expect(ed.locator("> p").nth(1).locator("strong, b")).toHaveText(`Made here ${id}`);
+  expect((await get<{ meta: { title: string } }>(`/entries/${guid}`)).meta.title).toBe(`Made here ${id}`);
+
+  // an entry's pictures become files of the document (saved with it)
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const pic = await post("/entries", { path: notes, type: "note", title: `Pictured ${id}`, fields: { body: [{ text: [{ image: "dot.png" }] }] } });
+  const up = await fetch(`${api}/artifacts/${pic.meta.guid}/files/dot.png`, { method: "PUT", body: png });
+  expect(up.ok).toBe(true);
+  await ed.locator("> p", { hasText: "after" }).click();
+  await menu.click(); // (the main button repeats the last used one)
+  await page.locator(".pop.open").getByRole("button", { name: "Insert entries…" }).click();
+  await page.locator("corestone-picker input[type=search]").fill(`Pictured ${id}`);
+  await page.locator(".picker-results .row", { hasText: `Pictured ${id}` }).click();
+  await page.locator("[data-test=pick-chosen]").click();
+  await card.click({ button: "right" });
+  await page.locator(".cs-placementmenu button", { hasText: "Turn into text" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(ed.locator("img[data-file='dot.png']")).toBeVisible();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const doc = await get<{ attachments?: { name: string }[]; data: { content: Node[] } }>(`/documents/${d.meta.guid}`);
+  expect((doc.attachments ?? []).map((a) => a.name)).toContain("dot.png");
+  expect(JSON.stringify(doc.data.content)).toContain('"image":"dot.png"');
 });
 
 test("outline: sections move with their grip, before a row or to the end", async ({ page }) => {

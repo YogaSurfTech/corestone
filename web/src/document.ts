@@ -2,7 +2,7 @@ import { LitElement, html, nothing, render, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
-import type { DocNode, DocumentElement, DocumentHost, EntryFiles, ItemLinks, OutlineItem, Placed, RichText } from "@corestone/editor";
+import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
@@ -240,9 +240,9 @@ export class DocumentView extends LitElement {
 
   private readonly host: DocumentHost = {
     guid: undefined,
-    pickEntry: (taken) => new Promise((resolve) => {
-      store.set({ picker: { kind: "pick", title: "Insert entry", kinds: ["entry"], taken: { guids: new Set(taken), note: "already in this document" },
-        onPick: (s: Summary) => resolve(s.guid), onCancel: () => resolve(null) } });
+    pickEntries: (taken) => new Promise((resolve) => {
+      store.set({ picker: { kind: "pick", title: "Insert entries", kinds: ["entry"], taken: { guids: new Set(taken), note: "already in this document" },
+        multi: { verb: "Insert" }, onPickMany: (guids: string[]) => resolve(guids), onCancel: () => resolve([]) } });
     }),
     renderEntry: (el, p) => this.renderEntry(el, p),
     openEntry: (guid, newTab) => {
@@ -255,7 +255,55 @@ export class DocumentView extends LitElement {
       return e.view ? (e.view.meta.hid || e.view.meta.title || undefined) : e.missing?.hid;
     },
     entryNumbers: true,
+    convertToEntry: (c) => new Promise((resolve) => {
+      store.set({ dialog: { kind: "new", kinds: ["entry"], folder: this.view?.meta.folder, presetTitle: c.title, fill: c.text,
+        onCreated: async (v: View) => { await this.copyFiles(c.files, (n) => this.docFiles.get!(n), (n, f) => api.uploadFile(v.meta.guid, n, f)); resolve(v.meta.guid); },
+        onCancel: () => resolve(null) } });
+    }),
+    entryAsText: (guid) => this.entryAsText(guid),
   };
+
+  /** Copies files (pictures of a text) from one artifact to another; names: their new names. */
+  private async copyFiles(names: string[], get: (n: string) => Promise<Blob>, put: (n: string, f: File) => Promise<unknown>): Promise<Map<string, string>> {
+    const renamed = new Map<string, string>();
+    for (const n of names) {
+      try {
+        const blob = await get(n);
+        const r = await put(n, new File([blob], n, { type: blob.type }));
+        if (typeof r === "string" && r !== n) renamed.set(n, r);
+      } catch (e) {
+        store.toast(`The file ${n} could not be copied: ${(e as Error).message ?? e}`, "error");
+      }
+    }
+    return renamed;
+  }
+
+  /** A placed entry as text of the document: its title (bold), then its rich-text fields (each
+   *  under its name when there are several); its pictures become files of the document. */
+  private async entryAsText(guid: string): Promise<{ text: RichText } | { error: string }> {
+    let v: View, schema: Schema | null;
+    try {
+      v = await api.get(guid);
+      schema = await this.schemaOf(v);
+    } catch (e) {
+      return { error: `The entry could not be read: ${(e as Error).message ?? e}` };
+    }
+    const values = ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {};
+    const rich = (schema?.fields ?? []).filter((f) => f.type === "richtext" && values[f.id] != null && values[f.id] !== "");
+    const blocks: Block[] = [{ text: [{ text: v.meta.title || v.meta.hid || "Untitled", bold: true }] }];
+    for (const f of rich) {
+      if (rich.length > 1) blocks.push({ text: [{ text: f.name ?? f.id, italic: true }] });
+      const val = values[f.id] as RichText;
+      blocks.push(...(typeof val === "string" ? val.split("\n").map((t): Block => ({ text: t })) : val));
+    }
+    const names = fileNames(blocks);
+    const renamed = await this.copyFiles(names, async (n) => {
+      const res = await fetch(api.fileUrl(guid, n), { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    }, (_n, f) => this.docFiles.add(f));
+    return { text: renameFiles(blocks, renamed) };
+  }
 
   /** A placed entry: the built-in card (type, number, HID, title, state and its rich-text fields). */
   private renderEntry(el: HTMLElement, p: Placed) {

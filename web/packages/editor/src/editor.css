@@ -48,15 +48,6 @@
 .cs-tip b { display: block; color: #ffb4a8; font-weight: 600; }
 
 .cs-area { background: var(--cs-panel); border: 1px solid var(--cs-border); border-top: 0; border-radius: 0 0 10px 10px; }
-.cs-area.sized { overflow: auto; }
-.cs-area.sized .ProseMirror { min-height: 100%; box-sizing: border-box; }
-/* the bottom edge: drag to set the height (on the area's bottom border) */
-.cs-resize { position: relative; height: 9px; margin-top: -5px; cursor: ns-resize; touch-action: none; outline: none; }
-/* a resize grip in the bottom right corner (the whole edge can be dragged) */
-.cs-resize::after { content: ""; position: absolute; right: 4px; bottom: 7px; width: 12px; height: 12px; background: var(--cs-muted);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' stroke='black' stroke-width='1.4' stroke-linecap='round'%3E%3Cpath d='M11 4 4 11M11 8 8 11'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' stroke='black' stroke-width='1.4' stroke-linecap='round'%3E%3Cpath d='M11 4 4 11M11 8 8 11'/%3E%3C/svg%3E") center / contain no-repeat; }
-.cs-resize:hover::after, .cs-resize:focus-visible::after, .cs-resize.dragging::after { background: var(--cs-link); }
-.cs-resize:focus-visible { box-shadow: 0 2px 0 var(--cs-link); }
 .cs-area .ProseMirror { min-height: 140px; padding: 14px 18px; outline: none; white-space: pre-wrap; word-wrap: break-word; font-variant-ligatures: none; }
 .cs-area .ProseMirror p { margin: 0 0 .5em; }
 /* List markers are drawn by the editor, at the start of an item's first line: they follow the
@@ -273,8 +264,7 @@
 /* a toolbar placed by the host elsewhere: its own row of the host's bar */
 .cs-editor.cs-tbhost { max-width: none; min-width: 0; }
 .cs-editor.cs-tbhost .cs-tb { border: 0; border-radius: 0; background: transparent; padding: 0; }
-.cs-editor.cs-document > .cs-resize { display: none; }
-.cs-editor.cs-tbaway .cs-area { border-top: 1px solid var(--cs-border); border-radius: 10px; }
+.cs-editor.cs-document > .cs-editor.cs-tbaway .cs-area { border-top: 1px solid var(--cs-border); border-radius: 10px; }
 .cs-document > .cs-area > .ProseMirror { min-height: 60vh; padding: 20px 28px; }
 .cs-document .cs-section { display: block; }
 .cs-document .cs-heading { font-family: Arial, Helvetica, sans-serif; font-weight: 700; line-height: 1.25; margin: 1em 0 .4em; }

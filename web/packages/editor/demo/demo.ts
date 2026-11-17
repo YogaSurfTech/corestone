@@ -69,7 +69,6 @@ const files: EntryFiles = {
   },
 };
 ed.files = files;
-ed.sizeKey = "demo"; // a dragged height is remembered
 // diagrams: where the server serves draw.io (absent: no diagrams)
 void fetch("/api/auth").then((r) => r.json()).then((a: { diagrams?: string }) => { ed.diagrams = a.diagrams; }).catch(() => undefined);
 (window as unknown as { demoFiles: Map<string, File> }).demoFiles = store;

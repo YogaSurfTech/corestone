@@ -265,6 +265,9 @@ export class Table extends LitElement {
     else if (top + this.rh > body.scrollTop + body.clientHeight - head) body.scrollTop = top + this.rh - body.clientHeight + head;
   }
 
+  /** The keys of all rows that match, in order (also those not loaded yet). */
+  get matchingKeys(): string[] { return this.local ? this.localRows.map((r) => this.rowKey(r)) : [...this.ids]; }
+
   /** Pick the keyboard-selected row, if it is loaded and selectable. */
   pickActive() { this.pick(this.local ? this.localRows[this.active] : this.rows.get(this.ids[this.active])); }
 

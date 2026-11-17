@@ -350,6 +350,39 @@ function sameMarks(run: Run, b: Marks): boolean {
  *  their marker, numbered lists numbered across levels as the editor shows them (1.2.3.),
  *  a table row per line with its cells separated by " | ", formulas as their LaTeX.
  *  The server computes the same (RichTextPlain in internal/model/richtext.go). */
+/** The names of the files a text uses: pictures, diagrams and formulas. */
+export function fileNames(value: RichText | null | undefined): string[] {
+  const out = new Set<string>();
+  const walk = (rt: RichText | null | undefined) => {
+    if (!Array.isArray(rt)) return;
+    for (const b of rt) {
+      if (isTable(b)) { for (const row of b.table) for (const c of row) walk(typeof c === "object" && c !== null && "content" in c ? c.content : c as RichText); continue; }
+      if (!Array.isArray(b.text)) continue;
+      for (const r of b.text) {
+        if (isImage(r)) out.add(r.image);
+        else if (isDiagram(r)) out.add(r.diagram);
+        else if (isFormula(r)) out.add(r.png);
+        else if ((r as Run).file) out.add((r as Run).file!);
+      }
+    }
+  };
+  walk(value);
+  return [...out];
+}
+
+/** The same text with file names changed (pictures, diagrams, formulas, file links). */
+export function renameFiles(value: RichText, names: Map<string, string>): RichText {
+  if (!Array.isArray(value) || !names.size) return value;
+  const n = (x: string) => names.get(x) ?? x;
+  const cell = (c: Cell): Cell => (typeof c === "object" && c !== null && "content" in c ? { ...c, content: renameFiles(c.content, names) } : renameFiles(c as RichText, names));
+  return value.map((b): Block => {
+    if (isTable(b)) return { ...b, table: b.table.map((row) => row.map(cell)) };
+    if (!Array.isArray(b.text)) return b;
+    return { ...b, text: b.text.map((r): Inline => isImage(r) ? { ...r, image: n(r.image) } : isDiagram(r) ? { ...r, diagram: n(r.diagram) }
+      : isFormula(r) ? { ...r, png: n(r.png) } : (r as Run).file ? { ...r, file: n((r as Run).file!) } : r) };
+  });
+}
+
 export function plainText(value: RichText | null | undefined): string {
   if (typeof value === "string" || value == null) return value ?? "";
   const lines: string[] = [];

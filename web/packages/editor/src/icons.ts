@@ -29,6 +29,10 @@ const ICONS: Record<string, string> = {
   hminus: '<path d="M4 5v14M13 5v14M4 12h9M16 12h6"/>',
   hplus: '<path d="M4 5v14M13 5v14M4 12h9M16 12h6M19 9v6"/>',
   entry: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 10h8M8 14h5"/>',
+  // text lines → a card: make an entry of the selected text
+  toentry: '<path d="M3 6h7M3 10h7M3 14h5"/><rect x="13" y="8" width="8" height="10" rx="1.5"/><path d="M15.5 12h3M15.5 15h2"/><path d="m9 18 2-2-2-2"/>',
+  // a card → text lines: turn the entry into text
+  unentry: '<rect x="3" y="5" width="8" height="10" rx="1.5"/><path d="M5.5 9h3M5.5 12h2"/><path d="M14 8h7M14 12h7M14 16h5"/><path d="m12 20 2-2-2-2" opacity="0"/>',
   xref: '<path d="M9 7h8v8"/><path d="M17 7 7 17"/><path d="M4 12v8h8"/>',
   chev: '<path d="m7 10 5 5 5-5"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/>',

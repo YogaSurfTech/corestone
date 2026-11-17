@@ -40,15 +40,10 @@ export interface EditorOptions {
   items?: () => ItemLinks | undefined;
   /** The entry's files, for images and file links (asked each time, like items). */
   files?: () => EntryFiles | undefined;
-  /** Under which name a height the user dragged the bottom edge to is remembered in this
-   *  browser (e.g. the field's type and name); without it the height is not remembered. */
-  sizeKey?: string;
   /** The address of the draw.io web app, for diagrams (asked each time; absent: no diagrams). */
   diagrams?: () => string | undefined;
 }
 
-const MIN_HEIGHT = 80;
-const SIZE_PREFIX = "cs-richtext-height:";
 
 /** A rich-text editor with its toolbar, in a host element. */
 export class RichTextEditor {
@@ -62,9 +57,6 @@ export class RichTextEditor {
   private readonly formulas: FormulaUI;
   private readonly diagrams: DiagramUI;
   private readonly doc?: DocumentUI;
-  private readonly area: HTMLElement;
-  private readonly edge: HTMLElement;
-  private key?: string;
 
   constructor(host: HTMLElement, private readonly opts: EditorOptions = {}) {
     const items = () => opts.items?.();
@@ -79,32 +71,17 @@ export class RichTextEditor {
       image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at),
       formula: (at) => this.formulas.edit(at),
       diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); },
-      structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at) } : undefined },
+      structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
+        // (offered when the host can make entries and give their text)
+        ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText
+          ? { convert: () => { void this.doc?.convert(); }, unmark: () => { void this.doc?.unmark(); } } : {}) } : undefined },
       opts.palette ?? DEFAULT_PALETTE);
     this.root.classList.toggle("cs-document", !!opts.document);
     const area = document.createElement("div");
     area.className = "cs-area";
-    // the bottom edge: dragged, the text area keeps that height and scrolls; a double click
-    // lets it grow with the text again
-    this.area = area;
-    this.edge = document.createElement("div");
-    this.edge.className = "cs-resize";
-    this.edge.tabIndex = 0;
-    this.edge.setAttribute("role", "separator");
-    this.edge.setAttribute("aria-orientation", "horizontal");
-    this.edge.setAttribute("aria-label", "Height of the text");
-    this.edge.title = "Drag to resize; double-click to fit the text";
-    this.edge.addEventListener("pointerdown", (e) => this.dragEdge(e));
-    this.edge.addEventListener("dblclick", () => this.setHeight(null, true));
-    this.edge.addEventListener("keydown", (e) => {
-      const step = e.key === "ArrowDown" ? 20 : e.key === "ArrowUp" ? -20 : 0;
-      if (!step) return;
-      e.preventDefault();
-      this.setHeight(area.getBoundingClientRect().height + step, true);
-    });
-    this.root.append(this.toolbar.el, area, this.edge);
+    // (the text area always grows with the text: the whole text is visible)
+    this.root.append(this.toolbar.el, area);
     host.append(this.root);
-    this.sizeKey = opts.sizeKey;
     this.files = new FileUI(() => this.view, this.root, files);
     this.links = new LinkUI(() => this.view, this.root, items, files,
       (chosen) => this.files.pick({ images: false, chosen: (name) => chosen(name) }));
@@ -341,45 +318,6 @@ export class RichTextEditor {
     this.toolbarHost?.classList.toggle("readonly", on);
     if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.files.close(); this.formulas.close(); this.diagrams.close(); this.doc?.close(); }
     this.view.setProps({}); // editable is asked again
-  }
-
-  /** The name the height is remembered under; setting it shows the height remembered for it. */
-  set sizeKey(key: string | undefined) {
-    this.key = key || undefined;
-    let h: number | null = null;
-    try { h = key ? Number(localStorage.getItem(SIZE_PREFIX + key)) || null : null; } catch { /* no storage */ }
-    this.setHeight(h, false);
-  }
-
-  /** Sets the text area's height (null: grows with the text); remember: keep it for the key. */
-  private setHeight(h: number | null, remember: boolean) {
-    const px = h == null ? null : Math.round(Math.max(MIN_HEIGHT, h));
-    this.area.style.height = px == null ? "" : `${px}px`;
-    this.area.classList.toggle("sized", px != null);
-    if (!remember || !this.key) return;
-    try {
-      if (px == null) localStorage.removeItem(SIZE_PREFIX + this.key);
-      else localStorage.setItem(SIZE_PREFIX + this.key, String(px));
-    } catch { /* not remembered */ }
-  }
-
-  private dragEdge(e: PointerEvent) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const startY = e.clientY, startH = this.area.getBoundingClientRect().height;
-    this.edge.setPointerCapture(e.pointerId);
-    this.edge.classList.add("dragging");
-    const move = (ev: PointerEvent) => this.setHeight(startH + ev.clientY - startY, false);
-    const up = (ev: PointerEvent) => {
-      this.edge.removeEventListener("pointermove", move);
-      this.edge.removeEventListener("pointerup", up);
-      this.edge.removeEventListener("pointercancel", up);
-      this.edge.classList.remove("dragging");
-      if (ev.clientY !== startY) this.setHeight(startH + ev.clientY - startY, true);
-    };
-    this.edge.addEventListener("pointermove", move);
-    this.edge.addEventListener("pointerup", up);
-    this.edge.addEventListener("pointercancel", up);
   }
 
   /** Shows the toolbar again for what the host now offers (e.g. diagrams); in a document also

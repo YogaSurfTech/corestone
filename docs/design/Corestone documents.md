@@ -138,8 +138,19 @@ document additions; the toolbar and context menus look and work the same.
 
 ### Entries
 
-- **Insert entry…** (Structure group) opens the picker; entries already in the document cannot be
-  picked.
+- **Insert entries…** (the Entries button in the toolbar) opens the picker. Entries are ticked
+  (a click on a row ticks it) and inserted in the order ticked, or **Insert all** inserts every
+  match of the search in the order shown. Entries already in the document cannot be picked. The
+  insertion is one step: one undo takes it back.
+- **Convert selection to entry** (the same button's menu) makes an entry of selected text: whole
+  paragraphs, lists or tables of one section (no headings, no placed entries). The create dialog
+  asks for the type and folder (starting in the document's folder); the first paragraph is the
+  title, the rest goes into the type's first rich-text field. Pictures and other files the text
+  uses are copied to the entry. The entry takes the text's place.
+- **Turn the entry into text** (the same menu item while a placed entry is selected, and in the
+  entry's right-click menu) replaces the card with the entry's text: the title in bold, then its
+  rich-text fields (each under its name when there are several). Its pictures become files of the
+  document. The entry stays in the repository; its other fields are not copied.
 - **New entry here…** creates an entry and places it at the cursor in one step. It asks for the
   type first, then stores the entry in the nearest folder above the document whose configuration
   allows that type. A document type can name a different folder (`entryFolder`, section 5).
@@ -149,6 +160,7 @@ document additions; the toolbar and context menus look and work the same.
   affects.
 - Its right-click menu offers:
   - Open;
+  - Turn into text;
   - View ▸ (section 5);
   - Replace with overlay, Replace with duplicate (section 6), each as a deliberate decision for
     this one entry;
@@ -156,7 +168,6 @@ document additions; the toolbar and context menus look and work the same.
   - Remove from document.
 - **Remove from document** and moving an entry to another place are document changes. The entry
   itself stays in the repository.
-- Later: "Convert selection to entry" and "Unmark entry" (editor notes).
 
 ### Saving and merging
 
@@ -392,7 +403,7 @@ columns.
    - generated lists.
 6. **Bulk actions** (ROADMAP 3.3), including the replacing ones, and **pinned entries** (TSK-33).
 
-Later: convert selection to entry and unmark, comments anchored to sections and text ranges
+Later: comments anchored to sections and text ranges
 (design guide §7.7), export (ROADMAP 3.2).
 
 ## 10. Open questions
