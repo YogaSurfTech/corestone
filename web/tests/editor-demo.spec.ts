@@ -713,7 +713,7 @@ test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG;
   expect(Math.abs(glyph.width / glyph.height - size.w / size.h)).toBeLessThan(0.05);
   const fontSize = await area.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   expect(Math.abs(glyph.width - (size.w / 2) * (fontSize / 16))).toBeLessThan(1.5);
-  // the menu: on a line of its own (a new picture), then edit with a double click
+  // the menu: on a line of its own (a new picture, in the same file), then edit with a double click
   await formula.click({ button: "right" });
   const menu = page.locator(".cs-formulamenu");
   await menu.getByRole("menuitemcheckbox", { name: "On a line of its own" }).click();
@@ -721,7 +721,9 @@ test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG;
   await page.locator("#save").click();
   runs = (await stored(page))[0].text;
   expect(runs[1]).toMatchObject({ formula: "E = mc^2", display: true });
-  expect(runs[1].png).toBe("formula-E_mc_2-2.png"); // a new picture, in a file of its own
+  expect(runs[1].png).toBe("formula-E_mc_2.png"); // the new picture replaces the old one
+  const demoFiles = () => page.evaluate(() => [...(window as unknown as { demoFiles: Map<string, File> }).demoFiles.keys()]);
+  expect(await demoFiles()).toEqual(["formula-E_mc_2.png"]);
   await formula.dblclick();
   await expect(dlg.locator("textarea")).toHaveValue("E = mc^2");
   await expect(dlg.getByRole("radio", { name: "On a line of its own" })).toHaveAttribute("aria-checked", "true");
@@ -734,7 +736,8 @@ test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG;
   await page.locator("#save").click();
   runs = (await stored(page))[0].text;
   expect(runs[1]).toEqual({ formula: "\\sqrt{a^2 + b^2}", png: "formula-sqrt_a_2_b_2.png" });
-  // a pasted formula (LaTeX only) gets a picture of its own
+  expect(await demoFiles()).toEqual(["formula-sqrt_a_2_b_2.png"]); // the old formula's picture is removed
+  // a pasted formula (LaTeX only) gets a picture; an equal formula's picture serves it
   await area.focus();
   await page.keyboard.press("Control+End");
   await page.waitForTimeout(150);
@@ -749,11 +752,24 @@ test("formulas: written in the dialog with a preview, stored as LaTeX and a PNG;
   expect(runs.filter((r: { formula?: string }) => r.formula).map((r: { formula: string; display?: boolean }) => [r.formula, !!r.display]))
     .toEqual([["\\sqrt{a^2 + b^2}", false], ["\\sqrt{a^2 + b^2}", false], ["x_1", true]]);
   expect(runs.filter((r: { png?: string }) => r.png).map((r: { png: string }) => r.png))
-    .toEqual(["formula-sqrt_a_2_b_2.png", "formula-sqrt_a_2_b_2-2.png", "formula-x_1.png"]);
-  // delete from the menu
+    .toEqual(["formula-sqrt_a_2_b_2.png", "formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
+  expect(await demoFiles()).toEqual(["formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
+  // delete from the menu: a picture another formula shows stays, one nobody shows goes; undo brings it back
   await formula.first().click({ button: "right" });
   await menu.getByRole("menuitem", { name: "Delete" }).click();
   await expect(page.locator(".cs-area .cs-formula")).toHaveCount(2);
+  expect(await demoFiles()).toEqual(["formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
+  await page.locator(".cs-area .cs-formula.display").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(page.locator(".cs-area .cs-formula")).toHaveCount(1);
+  expect(await demoFiles()).toEqual(["formula-sqrt_a_2_b_2.png"]);
+  await area.focus();
+  await page.keyboard.press("Control+z");
+  await expect(page.locator(".cs-area .cs-formula.display .glyph")).toHaveCount(1);
+  await expect.poll(demoFiles).toEqual(["formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
+  await page.locator("#save").click();
+  runs = (await stored(page))[0].text;
+  expect(runs.filter((r: { png?: string }) => r.png).map((r: { png: string }) => r.png)).toEqual(["formula-sqrt_a_2_b_2.png", "formula-x_1.png"]);
 });
 
 test("resize: the bottom edge sets the height (remembered), the text scrolls; a double click fits the text again", async ({ page }) => {
@@ -817,7 +833,7 @@ test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edite
   }, name);
   expect(await holds("diagram.drawio.png")).toContain("<mxfile>first</mxfile>");
 
-  // a double click edits it: draw.io gets the diagram back; the new version is a file of its own
+  // a double click edits it: draw.io gets the diagram back; the changed diagram stays in its file
   await img.click({ button: "right" });
   await page.locator(".cs-imagemenu").getByRole("menuitem", { name: "Alternative text…" }).click();
   await page.locator(".cs-altpop input").fill("The flow");
@@ -829,8 +845,9 @@ test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edite
   await drawio.getByRole("button", { name: "Save & Exit" }).click();
   await expect(pop).toBeHidden();
   await page.locator("#save").click();
-  expect((await stored(page))[0].text[1]).toEqual({ diagram: "diagram-2.drawio.png", alt: "The flow", width: 300 });
-  expect(await holds("diagram-2.drawio.png")).toContain("second");
+  expect((await stored(page))[0].text[1]).toEqual({ diagram: "diagram.drawio.png", alt: "The flow", width: 300 });
+  expect(await holds("diagram.drawio.png")).toContain("second");
+  expect(await page.evaluate(() => [...(window as unknown as { demoFiles: Map<string, File> }).demoFiles.keys()])).toEqual(["diagram.drawio.png"]);
 
   // closing with changes asks first; keep editing, then discard
   await img.click({ button: "right" });
@@ -845,7 +862,7 @@ test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edite
   await pop.getByRole("button", { name: "Discard" }).click();
   await expect(pop).toBeHidden();
   await page.locator("#save").click();
-  expect((await stored(page))[0].text[1].diagram).toBe("diagram-2.drawio.png");
+  expect((await stored(page))[0].text[1].diagram).toBe("diagram.drawio.png");
 
   // draw.io's own Exit closes without saving; Delete removes the diagram
   await img.dblclick();

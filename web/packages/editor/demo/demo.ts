@@ -53,12 +53,18 @@ function show(v: RichText | null, note: string) {
 const store = new Map<string, File>();
 const urls = new Map<string, string>();
 const files: EntryFiles = {
-  add: async (f) => {
+  add: async (f, replace) => {
     let name = f.name && f.name !== "image.png" ? f.name : "image.png";
-    for (let n = 2; store.has(name); n++) name = name.replace(/(-\d+)?(\.[^.]*)?$/, (_m, _n, ext = "") => `-${n}${ext}`);
+    for (let n = 2; !replace && store.has(name); n++) name = name.replace(/(-\d+)?(\.[^.]*)?$/, (_m, _n, ext = "") => `-${n}${ext}`);
     store.set(name, f);
+    if (urls.has(name)) URL.revokeObjectURL(urls.get(name)!);
     urls.set(name, URL.createObjectURL(f));
     return name;
+  },
+  remove: (name) => {
+    store.delete(name);
+    if (urls.has(name)) URL.revokeObjectURL(urls.get(name)!);
+    urls.delete(name);
   },
   url: (name) => urls.get(name) ?? "",
   list: async () => [...store.keys()],

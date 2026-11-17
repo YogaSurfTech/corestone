@@ -364,6 +364,17 @@ test("rich text: a formula is stored with Save as LaTeX and a PNG file of the en
   // after a reload the picture comes from the server
   await page.reload();
   await expect(rich.locator(".cs-formula .glyph")).toHaveCount(1);
+  // a changed formula gets its own picture; the old one is removed with Save (the history keeps it)
+  await rich.locator(".cs-formula").dblclick();
+  await dlg.locator("textarea").fill("x^2");
+  await expect(dlg.locator(".preview img")).toBeVisible({ timeout: 15000 });
+  await dlg.getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator(".attach-row.pending-add")).toHaveCount(1);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const again = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  expect((again.data.fields.rich as { text: unknown[] }[])[0].text).toEqual([{ text: "Energy:" }, { formula: "x^2", png: "formula-x_2.png" }]);
+  expect(again.attachments.map((a) => a.name)).toEqual(["formula-x_2.png"]);
 });
 
 test("rich text: a diagram is drawn in draw.io and stored with Save as a PNG file of the entry", async ({ page }) => {
@@ -391,6 +402,17 @@ test("rich text: a diagram is drawn in draw.io and stored with Save as a PNG fil
   await page.reload();
   await rich.locator(".cs-diagram img").dblclick();
   await expect(drawio.locator("#xml")).toHaveValue("<mxfile>flow</mxfile>");
+  // a changed diagram is saved over its file (the history keeps the old one), not as a second file
+  await drawio.locator("#xml").fill("<mxfile>changed</mxfile>");
+  await drawio.getByRole("button", { name: "Save & Exit" }).click();
+  await expect(page.locator(".cs-diagrampop")).toBeHidden();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  const again = await get<{ data: { fields: Record<string, unknown> }; attachments: { name: string }[] }>(`/entries/${entry.meta.guid}`);
+  expect((again.data.fields.rich as { text: unknown[] }[])[0].text).toEqual([{ text: "Flow:" }, { diagram: "diagram.drawio.png", width: 300 }]);
+  expect(again.attachments.map((a) => a.name)).toEqual(["diagram.drawio.png"]);
+  const png = await (await fetch(`${api}/artifacts/${entry.meta.guid}/files/diagram.drawio.png`)).arrayBuffer();
+  expect(decodeURIComponent(new TextDecoder("latin1").decode(png).split("mxfile\0")[1] ?? "")).toContain("changed");
 });
 
 test("rich text: invalid images, file links and formulas are refused by the server", async () => {

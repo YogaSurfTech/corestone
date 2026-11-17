@@ -396,14 +396,25 @@ export class Detail extends LitElement {
    *  it is saved). */
   private readonly blobUrls = new WeakMap<File, string>();
   private readonly entryFiles: EntryFiles = {
-    add: async (file) => {
+    add: async (file, replace) => {
       if (file.size > MAX_ATTACHMENT) throw new Error(`it is larger than ${MAX_ATTACHMENT >> 20} MiB`);
-      const name = freeFileName(file, new Set(await this.entryFiles.list()));
+      // replace: under its own name, in place of the stored or pending file (Save overwrites it)
+      const name = replace ? file.name : freeFileName(file, new Set(await this.entryFiles.list()));
       const f = name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
-      this.pending = { ...this.pending, files: [...this.pending.files, f], removedFiles: this.pending.removedFiles.filter((n) => n !== name) };
+      this.pending = { ...this.pending, files: [...this.pending.files.filter((p) => p.name !== name), f],
+        removedFiles: this.pending.removedFiles.filter((n) => n !== name) };
       this.setOpen("attachments", true, false); // as an upload there does: what Save will store shows
       this.touched();
       return name;
+    },
+    // a pending file is dropped, a stored one is removed with Save
+    remove: (name) => {
+      const p = this.pending;
+      if (p.files.some((f) => f.name === name)) this.pending = { ...p, files: p.files.filter((f) => f.name !== name) };
+      else if ((this.view?.attachments ?? []).some((a) => a.name === name) && !p.removedFiles.includes(name)) {
+        this.pending = { ...p, removedFiles: [...p.removedFiles, name] };
+        this.touched();
+      }
     },
     url: (name) => {
       const p = this.pending.files.find((f) => f.name === name);

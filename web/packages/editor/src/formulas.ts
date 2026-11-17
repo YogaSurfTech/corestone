@@ -112,17 +112,44 @@ export class FormulaView implements NodeView {
   ignoreMutation() { return true; }
 }
 
-/** Formulas without a picture (new, changed, pasted, or shown another way) get one, a new
- *  file of the entry. Those that cannot be made are left out, with a notice. */
+/** Formulas without a picture (new, changed, pasted, or shown another way) get one, a file of
+ *  the entry named after the LaTeX; equal formulas share it. A picture no formula shows any more
+ *  is removed (the history keeps it), so a changed formula's file does not linger and its name is
+ *  free again. Undo brings back formulas whose picture is gone or shows another formula: they get
+ *  it made again. Those that cannot be made are left out, with a notice. */
 export function formulaPictures(files: () => EntryFiles | undefined, notice: (msg: string) => void) {
   const done = new Map<string, string | null>(); // key → file name (null: failed)
   const started = new Set<string>();
   const keyOf = (n: Node) => JSON.stringify([n.attrs.latex, n.attrs.display]);
+  const known = new Map<string, string>(); // the pictures of this text: file name → key of its formula
+  const removed = new Set<string>(); // pictures removed here (until made again)
+  let removing: Promise<unknown> = Promise.resolve();
 
-  const make = async (latex: string, display: boolean): Promise<string> => {
+  const shown = (doc: Node) => {
+    const names = new Set<string>();
+    doc.descendants((n) => { if (n.type === schema.nodes.formula && n.attrs.png) names.add(n.attrs.png); });
+    return names;
+  };
+
+  const make = async (latex: string, display: boolean, key: string): Promise<string> => {
     const f = files();
     if (!f) throw new Error("no file store");
-    return f.add(new File([await formulaPng(latex, display)], formulaFile(latex), { type: "image/png" }));
+    const png = await formulaPng(latex, display);
+    await removing.catch(() => undefined); // names freed by removed pictures are free again
+    const name = await f.add(new File([png], formulaFile(latex), { type: "image/png" }));
+    removed.delete(name);
+    known.set(name, key);
+    return name;
+  };
+
+  // pictures no formula shows any more: removed from the entry
+  const collect = (doc: Node) => {
+    const f = files();
+    if (!f?.remove) return;
+    const names = shown(doc);
+    const gone = [...known.keys()].filter((n) => !names.has(n));
+    for (const name of gone) { known.delete(name); removed.add(name); }
+    if (gone.length) removing = Promise.all(gone.map((n) => f.remove!(n)));
   };
 
   const finish = (view: EditorView, key: string) => {
@@ -137,18 +164,36 @@ export function formulaPictures(files: () => EntryFiles | undefined, notice: (ms
       else tr.delete(pos, pos + node.nodeSize);
     }
     if (found.length) view.dispatch(tr.setMeta("addToHistory", false));
+    else collect(view.state.doc); // removed meanwhile: the picture is not needed
   };
 
   return new Plugin({
+    // a formula whose picture was removed here, or shows another formula (after an undo), gets a new one
+    appendTransaction: (trs, _old, state) => {
+      if (!trs.some((t) => t.docChanged)) return null;
+      const tr = state.tr;
+      state.doc.descendants((n, pos) => {
+        if (n.type !== schema.nodes.formula || !n.attrs.png) return;
+        const was = known.get(n.attrs.png);
+        if (removed.has(n.attrs.png) || (was !== undefined && was !== keyOf(n))) tr.setNodeMarkup(pos, null, { ...n.attrs, png: null });
+        else if (was === undefined) known.set(n.attrs.png, keyOf(n));
+      });
+      return tr.docChanged ? tr.setMeta("addToHistory", false) : null;
+    },
     view: (view) => {
+      view.state.doc.descendants((n) => { if (n.type === schema.nodes.formula && n.attrs.png) known.set(n.attrs.png, keyOf(n)); });
       const check = (v: EditorView) => {
         const todo = new Map<string, Node>();
         v.state.doc.descendants((n) => { if (n.type === schema.nodes.formula && !n.attrs.png) todo.set(keyOf(n), n); });
+        collect(v.state.doc);
         for (const [key, n] of todo) {
+          // an equal formula's picture serves this one too
+          const same = [...known].find(([, k]) => k === key)?.[0];
+          if (same) { done.set(key, same); finish(v, key); done.delete(key); continue; }
           if (done.has(key)) { finish(v, key); continue; }
           if (started.has(key)) continue;
           started.add(key);
-          make(n.attrs.latex, n.attrs.display).then((name) => done.set(key, name), (e) => {
+          make(n.attrs.latex, n.attrs.display, key).then((name) => done.set(key, name), (e) => {
             done.set(key, null);
             notice(files() ? `A formula could not be shown${e instanceof Error && e.message ? ": " + e.message : ""}; it was left out.`
               : "Formulas are kept with a saved item; the formula was left out.");

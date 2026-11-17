@@ -1,6 +1,7 @@
 import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import type { EntryFiles } from "./files";
+import type { Node } from "prosemirror-model";
+import { isPicture, type EntryFiles } from "./files";
 import { icon } from "./icons";
 import { schema } from "./schema";
 
@@ -17,14 +18,23 @@ export function selectedDiagram(state: EditorState) {
   return sel instanceof NodeSelection && sel.node.type === schema.nodes.diagram ? { pos: sel.from, node: sel.node } : null;
 }
 
-/** A free name for a diagram's file: "diagram.drawio.png", or numbered ("diagram-2.drawio.png"),
- *  after the one it replaces. Each version is a file of its own, like formulas. */
-async function freeName(files: EntryFiles, previous?: string): Promise<string> {
-  const base = (previous?.replace(/(-\d+)?\.drawio\.png$/i, "") || "diagram").slice(0, 200);
+/** A free name for a new diagram's file: "diagram.drawio.png", or numbered ("diagram-2.drawio.png"). */
+async function freeName(files: EntryFiles): Promise<string> {
   const taken = new Set(await files.list().catch(() => [] as string[]));
-  let name = `${base}.drawio.png`;
-  for (let n = 2; taken.has(name); n++) name = `${base}-${n}.drawio.png`;
+  let name = "diagram.drawio.png";
+  for (let n = 2; taken.has(name); n++) name = `diagram-${n}.drawio.png`;
   return name;
+}
+
+/** Whether a picture other than the one at pos shows the file (a copied diagram). */
+function sharedElsewhere(doc: Node, src: string, pos: number | null): boolean {
+  let shared = false;
+  doc.descendants((n, p) => {
+    if (shared) return false;
+    if (p !== pos && isPicture(n) && n.attrs.src === src) shared = true;
+    return undefined;
+  });
+  return shared;
 }
 
 const toDataUrl = (b: Blob) => new Promise<string>((ok, fail) => {
@@ -101,7 +111,7 @@ export class DiagramUI {
     // a frame of its own: no access to this page, its cookies or the host's API
     frame.setAttribute("sandbox", "allow-scripts allow-modals allow-downloads allow-popups");
     const params = new URLSearchParams({ embed: "1", proto: "json", spin: "1", saveAndExit: "1", noSaveBtn: "1", noExitBtn: "1",
-      stealth: "1", pwa: "0", lang: "en", libraries: "1" });
+      stealth: "1", pwa: "0", lang: "en", libraries: "1", dark: isDark(this.panel) ? "1" : "0" });
     frame.src = `${url}${url.includes("?") ? "&" : "?"}${params}`;
     this.frame = frame;
 
@@ -137,7 +147,9 @@ export class DiagramUI {
     };
     window.addEventListener("message", this.listener);
     this.panel.addEventListener("keydown", this.escape);
-    this.panel.replaceChildren(head, frame);
+    const box = el("div", "box");
+    box.append(head, frame);
+    this.panel.replaceChildren(box);
     this.panel.hidden = false;
     this.startTimer = window.setTimeout(() => {
       this.notice("The diagram editor did not start.");
@@ -159,8 +171,11 @@ export class DiagramUI {
       const bitmap = await createImageBitmap(blob);
       const width = Math.max(16, Math.min(4000, Math.round(bitmap.width / SCALE)));
       bitmap.close();
-      const name = await files.add(new File([blob], await freeName(files, previous ?? undefined), { type: "image/png" }));
       const view = this.view();
+      // a changed diagram stays in its file (the history keeps the old one); a new one, or one
+      // whose file another copy shows, gets a file of its own
+      const replace = !!previous && !sharedElsewhere(view.state.doc, previous, pos);
+      const name = await files.add(new File([blob], replace ? previous! : await freeName(files), { type: "image/png" }), replace);
       const old = pos != null ? view.state.doc.nodeAt(pos) : null;
       const tr = view.state.tr;
       if (old && old.type === schema.nodes.diagram && old.attrs.src === previous) {
@@ -191,6 +206,14 @@ export class DiagramUI {
   }
 
   destroy() { this.close(); }
+}
+
+/** Whether the page is shown dark: the colour scheme it sets, or the system's when it follows it. */
+function isDark(at: HTMLElement): boolean {
+  const scheme = getComputedStyle(at).colorScheme.trim();
+  if (scheme === "dark") return true;
+  if (scheme === "light") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
 function button(cls: string, text: string): HTMLButtonElement {
