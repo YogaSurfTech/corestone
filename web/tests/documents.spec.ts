@@ -224,7 +224,7 @@ test("selected text becomes a new entry, created only with the save; an entry be
   // nothing selected: the button says why
   await ed.locator("p", { hasText: "before" }).click();
   await menu.click();
-  await expect(page.getByRole("button", { name: "Convert selection to entry" })).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByRole("button", { name: "Convert selection to Note" })).toHaveAttribute("aria-disabled", "true");
   await page.keyboard.press("Escape");
   // two paragraphs: the first is the title, the second the text; no dialog, nothing on the server yet
   await ed.locator("p", { hasText: "Made here" }).click();
@@ -232,7 +232,7 @@ test("selected text becomes a new entry, created only with the save; an entry be
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+End");
   await menu.click();
-  await page.getByRole("button", { name: "Convert selection to entry" }).click();
+  await page.getByRole("button", { name: "Convert selection to Note" }).click();
   await expect(page.locator(".dialog")).toHaveCount(0);
   const card = ed.locator(".cs-placement");
   await expect(card).toContainText(`Made here ${id}`);
@@ -251,7 +251,7 @@ test("selected text becomes a new entry, created only with the save; an entry be
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
   await menu.click();
-  await page.locator(".pop.open").getByRole("button", { name: "Convert selection to entry" }).click();
+  await page.locator(".pop.open").getByRole("button", { name: "Convert selection to Note" }).click();
   await expect(card).toHaveCount(2);
   const cut = 40 + long.slice(40).search(/\s|$/);
   await expect(card.nth(1).locator(".title")).toHaveText(long.slice(0, cut));
@@ -301,6 +301,57 @@ test("selected text becomes a new entry, created only with the save; an entry be
   const doc = await get<{ attachments?: { name: string }[]; data: { content: Node[] } }>(`/documents/${d.meta.guid}`);
   expect((doc.attachments ?? []).map((a) => a.name)).toContain("dot.png");
   expect(JSON.stringify(doc.data.content)).toContain('"image":"dot.png"');
+});
+
+test("the document type names the entry types converting makes: one button each, the last used is the default", async ({ page }) => {
+  const two = `two-${id}`;
+  await defineTypes(two, "entries", [
+    { id: "note", displayName: "Note", fields: [{ id: "body", name: "Body", type: "richtext" }] },
+    { id: "memo", displayName: "Memo", fields: [{ id: "text", name: "Text", type: "richtext" }] },
+    { id: "other", displayName: "Other" }]);
+  await defineTypes(two, "documents", [{ id: "spec", displayName: "Specification", entryTypes: ["memo", "note"] }]);
+  const d = await post("/documents", { path: two, type: "spec", title: `Two ${id}`, content: [{ text: `First ${id}` }, { text: `Second ${id}` }] });
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror").first();
+  const menu = page.getByRole("button", { name: "More: Entries" });
+  const pop = page.locator(".pop.open");
+  // the types in the setting's order, each with its icon; not "Other" (not in the setting)
+  await menu.click();
+  await expect(pop.getByRole("button", { name: /^Convert selection to / })).toHaveCount(2);
+  await expect(pop.getByRole("button", { name: /^Convert selection to / }).first()).toHaveAttribute("aria-label", "Convert selection to Memo");
+  await expect(pop.getByRole("button", { name: "Convert selection to Note" }).locator("corestone-type-icon")).toHaveCount(1);
+  await menu.click(); // (closes the menu)
+  // convert to Note: the held card is a Note; the main button repeats it
+  await ed.locator("p", { hasText: "First" }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Home");
+  await menu.click();
+  await pop.getByRole("button", { name: "Convert selection to Note" }).click();
+  const card = ed.locator(".cs-placement");
+  await expect(card).toHaveCount(1);
+  expect(await card.locator(".entry-card corestone-type-icon").evaluate((e) => (e as unknown as { type: string }).type)).toBe("note");
+  const main = page.locator(".doc-tools .sp").filter({ has: menu }).locator("> button").first();
+  // a placed entry selected: the main button turns it into text; text selected: it converts to Note again
+  await expect(main).toHaveAttribute("aria-label", "Turn the entry into text");
+  await ed.locator("p", { hasText: "Second" }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Home");
+  await expect(main).toHaveAttribute("aria-label", "Convert selection to Note");
+  await main.click();
+  await expect(card).toHaveCount(2);
+  // saved: both are Notes
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  for (const n of [0, 1]) {
+    const g = (await card.nth(n).getAttribute("data-placement"))!;
+    expect((await get<{ meta: { type: string } }>(`/entries/${g}`)).meta.type).toBe("note");
+  }
+  // remembered per document type: another Specification starts with Note as well
+  const d2 = await post("/documents", { path: two, type: "spec", title: `Two again ${id}`, content: [{ text: "x" }] });
+  await page.goto(`/artifact/${d2.meta.guid}`);
+  await page.locator(".doc-page cs-document .ProseMirror").first().locator("p").click();
+  await page.keyboard.press("Shift+Home");
+  await expect(main).toHaveAttribute("aria-label", "Convert selection to Note");
 });
 
 test("outline: sections move with their grip, before a row or to the end", async ({ page }) => {

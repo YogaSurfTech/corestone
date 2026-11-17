@@ -73,8 +73,9 @@ export class RichTextEditor {
       diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); },
       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
         // (offered when the host can make entries and give their text)
-        ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText
-          ? { convert: () => { void this.doc?.convert(); }, unmark: () => { void this.doc?.unmark(); } } : {}) } : undefined },
+        ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
+          ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
+            entryTypes: () => opts.document?.()?.entryTypes?.() ?? { remember: "", types: [] } } : {}) } : undefined },
       opts.palette ?? DEFAULT_PALETTE);
     this.root.classList.toggle("cs-document", !!opts.document);
     const area = document.createElement("div");

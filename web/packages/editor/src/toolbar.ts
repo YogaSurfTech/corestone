@@ -35,8 +35,11 @@ export interface ToolbarHost {
   structure?: {
     /** Lets the user pick entries and places them at the cursor. */
     entry(): void;
-    /** Makes an entry of the selected text (absent: the host cannot). */
-    convert?(): void;
+    /** Makes an entry of the selected text, of an entry type (absent: the host cannot). */
+    convert?(type: string): void;
+    /** The entry types convert offers (each with its name and an icon element), and the name
+     *  the last one used is remembered under (e.g. the document's type). */
+    entryTypes?(): { remember: string; types: EntryTypeChoice[] };
     /** Turns the selected placed entry into text (absent: the host cannot). */
     unmark?(): void;
     /** Opens the cross-reference picker. */
@@ -90,6 +93,8 @@ export const DEFAULT_PALETTE: Palette = {
 
 /** A button's tooltip text and, when unavailable, the reason. */
 interface Tip { t: string; k?: string; dis?: () => string | null }
+/** An entry type "Convert selection to entry" can make. */
+export interface EntryTypeChoice { id: string; name: string; icon: () => HTMLElement }
 type El = HTMLElement & { _tip?: Tip | null };
 type Btn = HTMLButtonElement & { _tip?: Tip | null };
 
@@ -176,15 +181,8 @@ export class Toolbar {
       // entries: insert; and one button that makes an entry of the selected text, or (a placed
       // entry selected) turns that entry into text
       const insert = { i: "entry", tip: { t: "Insert entries…", dis: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.entry() };
-      if (st.convert && st.unmark) {
-        const onEntry = (s: EditorState) => s.selection instanceof NodeSelection && s.selection.node.type === schema.nodes.placement;
-        const conv = { t: "Convert selection to entry", i: "toentry" }, back = { t: "Turn the entry into text", i: "unentry" };
-        this.split("entries", "Entries", [insert, {
-          i: "toentry", tip: { t: conv.t, dis: () => { const s = S(); return onEntry(s) ? null : (r => typeof r === "string" ? r : null)(selectedText(s)); } },
-          run: () => (onEntry(S()) ? st.unmark!() : st.convert!()),
-          vary: (s) => (onEntry(s) ? back : conv),
-        }], "entry");
-      } else this.add(this.button(insert.i, insert.tip, insert.run));
+      if (st.convert && st.unmark && st.entryTypes) this.entriesGroup(st as Required<NonNullable<ToolbarHost["structure"]>>, insert);
+      else this.add(this.button(insert.i, insert.tip, insert.run));
       this.sep();
     }
     // character formatting
@@ -276,10 +274,70 @@ export class Toolbar {
 
   private remember(key: string, v: string) { this.last[key] = v; store(LAST_KEY, this.last); }
 
+  /** The Entries group: Insert entries…, a convert button per entry type the host offers (its
+   *  icon, its name on hover) and Turn into text. The main button repeats the last used (the
+   *  last type, remembered per host name); a convert with a placed entry selected turns that
+   *  entry into text instead. The type buttons follow the host's list (it may come later). */
+  private entriesGroup(st: Required<NonNullable<ToolbarHost["structure"]>>, insert: { i: string; tip: Tip; run: () => void }) {
+    const S = () => this.host.state();
+    const onEntry = (s: EditorState) => s.selection instanceof NodeSelection && s.selection.node.type === schema.nodes.placement;
+    const whyNot = () => { const r = selectedText(S()); return typeof r === "string" ? r : null; };
+    type Item = { key: string; tip: Tip; run: () => void; icon: () => Node };
+    const svg = (name: string) => () => { const t = document.createElement("template"); t.innerHTML = icon(name); return t.content; };
+    const unmark: Item = { key: "unmark", icon: svg("unentry"), run: () => st.unmark(),
+      tip: { t: "Turn the entry into text", dis: () => (onEntry(S()) ? null : "Select a placed entry first.") } };
+    const ins: Item = { key: "insert", icon: svg(insert.i), tip: insert.tip, run: insert.run };
+    let offer = st.entryTypes();
+    const convert = (t: EntryTypeChoice): Item => ({ key: "to:" + t.id, icon: t.icon, run: () => st.convert(t.id), tip: { t: `Convert selection to ${t.name}`, dis: whyNot } });
+    const lastType = () => offer.types.find((t) => t.id === this.last["entrytype:" + offer.remember]) ?? offer.types[0];
+    // the main button: insert, the last type's convert, or turn into text
+    // (s absent: while the toolbar is built, before the editor has a state)
+    const mainItem = (s?: EditorState): Item => {
+      const used = this.last.entries;
+      if (used === "unmark") return unmark;
+      if (used === "convert" && lastType()) return s && onEntry(s) ? unmark : convert(lastType()!);
+      return ins;
+    };
+    const menu = document.createElement("div");
+    menu.className = "pop";
+    const main = this.button("entry", ins.tip, () => shown.run());
+    let shown = ins;
+    const show = (it: Item) => {
+      shown = it;
+      main.replaceChildren(it.icon());
+      main.dataset.cmd = it.key;
+      main.setAttribute("aria-label", it.tip.t);
+      main._tip = it.tip;
+    };
+    const fill = () => {
+      const items = [ins, ...offer.types.map(convert), unmark];
+      menu.replaceChildren(...items.map((it) => {
+        const b = this.button(it.key, it.tip, () => {
+          it.run();
+          this.remember("entries", it.key === "insert" ? "insert" : it.key === "unmark" ? "unmark" : "convert");
+          if (it.key.startsWith("to:")) this.remember("entrytype:" + offer.remember, it.key.slice(3));
+          this.closeMenus();
+          this.update(S());
+        });
+        b.replaceChildren(it.icon());
+        return b;
+      }));
+    };
+    fill();
+    show(mainItem());
+    this.wrap(main, "Entries", menu);
+    let known = JSON.stringify(offer.types.map((t) => t.id)) + offer.remember;
+    this.updaters.push((s) => {
+      const next = st.entryTypes();
+      const sig = JSON.stringify(next.types.map((t) => t.id)) + next.remember;
+      if (sig !== known) { known = sig; offer = next; fill(); }
+      const it = mainItem(s);
+      if (it.key !== shown.key) show(it);
+    });
+  }
+
   /** A split button: the main part repeats the last-used item, ▾ shows them all. */
-  private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean;
-    /** a button that changes with the selection: its icon and tooltip */
-    vary?: (s: EditorState) => { i: string; t: string } }[], main0?: string) {
+  private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean }[], main0?: string) {
     const menu = document.createElement("div");
     menu.className = "pop";
     let current = items.find((x) => x.i === this.last[key]) ?? items.find((x) => x.i === main0) ?? items[0];
@@ -304,18 +362,7 @@ export class Toolbar {
     });
     this.wrap(main, label, menu);
     this.updaters.push((s) => {
-      items.forEach((it, n) => {
-        if (it.pressed) buttons[n].setAttribute("aria-pressed", String(it.pressed(s)));
-        if (!it.vary) return;
-        const v = it.vary(s);
-        for (const b of current === it ? [buttons[n], main] : [buttons[n]]) {
-          if (b.dataset.cmd === v.i) continue;
-          b.innerHTML = icon(v.i);
-          b.dataset.cmd = v.i;
-          b.setAttribute("aria-label", v.t);
-          b._tip = { ...it.tip, t: v.t };
-        }
-      });
+      items.forEach((it, n) => { if (it.pressed) buttons[n].setAttribute("aria-pressed", String(it.pressed(s))); });
       if (current.pressed) main.setAttribute("aria-pressed", String(current.pressed(s)));
       else main.removeAttribute("aria-pressed");
     });

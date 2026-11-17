@@ -50,7 +50,7 @@ export class DocumentUI {
    *  or more, the first paragraph is the title and the rest its text; a single block is the
    *  text, and its start the title (to the first word end after 40 characters). The entry
    *  takes the text's place. */
-  async convert() {
+  async convert(type: string) {
     const h = this.host();
     if (!h?.convertToEntry) return;
     const sel = selectedText(this.view().state);
@@ -61,7 +61,7 @@ export class DocumentUI {
     const text = body.length ? toStorage(schema.node("doc", null, body)) : "";
     const flat = (n: { textContent: string }) => n.textContent.replace(/\s+/g, " ").trim();
     const title = titled ? flat(first) : shortTitle(sel.nodes.map(flat).join(" "));
-    const guid = await h.convertToEntry({ title, text, files: fileNames(text) });
+    const guid = await h.convertToEntry({ type, title, text, files: fileNames(text) });
     if (!guid) return;
     const v = this.view();
     // the text is replaced where it is, if it is still there unchanged; otherwise the entry is placed at the cursor

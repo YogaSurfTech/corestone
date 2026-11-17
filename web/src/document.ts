@@ -71,6 +71,9 @@ export class DocumentView extends LitElement {
   /** New entries by key; and the GUIDs saves gave them (the undo history may bring a key back). */
   private held = new Map<string, Held>();
   private savedKeys = new Map<string, string>();
+  /** The entry types converting text makes: the document type's entryTypes that are allowed in
+   *  its folder (in that order), or every entry type allowed there. */
+  private convertTypes: Schema[] = [];
   private schemas = new Map<string, Promise<Schema | null>>();
   private observer?: IntersectionObserver;
   private blobUrls = new WeakMap<File, string>();
@@ -196,6 +199,10 @@ export class DocumentView extends LitElement {
       if (seq !== this.loadSeq) return;
       this.schema = schema.schema;
       this.commentType = commentTypeOf(types.types);
+      const entryTypes = types.types.filter((t) => t.kind === "entry");
+      const wanted = this.schema?.entryTypes;
+      this.convertTypes = wanted ? wanted.map((id) => entryTypes.find((t) => t.type === id)).filter((t): t is Schema => !!t) : entryTypes;
+      this.editor?.refresh(); // the toolbar offers these types
       this.loadSide();
       void this.revealEntry();
     } catch (e) {
@@ -282,26 +289,26 @@ export class DocumentView extends LitElement {
     },
     entryNumbers: true,
     convertToEntry: (c) => this.newEntry(c),
+    entryTypes: () => ({
+      remember: this.view?.meta.type ?? "",
+      types: this.convertTypes.map((t) => ({ id: t.type, name: t.displayName ?? t.type, icon: () => {
+        const el = document.createElement("corestone-type-icon") as HTMLElement & { kind: string; type: string; folder: string; schema: Schema };
+        Object.assign(el, { kind: "entry", type: t.type, folder: this.view?.meta.folder ?? "", schema: t });
+        return el;
+      } })),
+    }),
     entryAsText: (key) => this.entryAsText(this.real(key)),
   };
 
   /** A key's GUID once a save gave it one; otherwise the key (or GUID) itself. */
   private real(key: string): string { return this.savedKeys.get(key) ?? key; }
 
-  /** Makes a new entry of document text, held until the save: of the first entry type allowed
-   *  in the document's folder (the choice of type comes later), its text in the type's first
-   *  rich-text field. */
-  private async newEntry(c: { title: string; text: RichText; files: string[] }): Promise<string | null> {
+  /** Makes a new entry of document text, held until the save: of the chosen entry type, its
+   *  text in the type's first rich-text field, its fields' defaults set. */
+  private async newEntry(c: { type: string; title: string; text: RichText; files: string[] }): Promise<string | null> {
     const folder = this.view?.meta.folder ?? "";
-    let types: Schema[];
-    try {
-      types = (await api.types(folder)).types.filter((t) => t.kind === "entry");
-    } catch (e) {
-      store.toast(`The entry types could not be read: ${(e as Error).message ?? e}`, "error");
-      return null;
-    }
-    const schema = types[0];
-    if (!schema) { store.toast(`No entry type is allowed in ${folder || "/"}.`, "error"); return null; }
+    const schema = this.convertTypes.find((t) => t.type === c.type);
+    if (!schema) { store.toast(`Entries of type ${c.type} cannot be made in ${folder || "/"}.`, "error"); return null; }
     const fields: Record<string, unknown> = {};
     for (const f of schema.fields ?? []) if (f.default != null) fields[f.id] = f.default;
     const hasText = Array.isArray(c.text) ? c.text.length > 0 : !!c.text;

@@ -79,6 +79,8 @@ export interface Schema {
   cardinality?: string;
   /** Links: the name read from the target ("verified by"). */
   reverseName?: string;
+  /** Document types: the entry types "Convert selection to entry" makes. */
+  entryTypes?: string[];
   presentation?: Record<string, unknown>;
   sources?: string[];
 }

@@ -142,11 +142,15 @@ document additions; the toolbar and context menus look and work the same.
   (a click on a row ticks it) and inserted in the order ticked, or **Insert all** inserts every
   match of the search in the order shown. Entries already in the document cannot be picked. The
   insertion is one step: one undo takes it back.
-- **Convert selection to entry** (the same button's menu) makes an entry of selected text: whole
-  paragraphs, lists or tables of one section (no headings, no placed entries). The create dialog
-  asks for the type and folder (starting in the document's folder); the first paragraph is the
-  title, the rest goes into the type's first rich-text field. Pictures and other files the text
-  uses are copied to the entry. The entry takes the text's place.
+- **Convert selection to entry** (the same button's menu, one button per entry type: see
+  `entryTypes`, section 5) makes a new entry of selected text: whole paragraphs, lists or tables
+  of one section (no headings, no placed entries). It takes the text's place at once, without a
+  dialog, marked "not saved yet": the entry is held in the browser and created with the
+  document's next save, in the same commit (the server gives it its GUID). Undo leaves nothing
+  behind. With two blocks or more, the first paragraph is the title and the rest goes into the
+  type's first rich-text field (its description); a single block is the description, and its
+  start the title (to the end of the word that reaches 40 characters). Pictures the text uses
+  are saved with the entry. New entries go to the document's folder.
 - **Turn the entry into text** (the same menu item while a placed entry is selected, and in the
   entry's right-click menu) replaces the card with the entry's text: the title in bold, then its
   rich-text fields (each under its name when there are several). Its pictures become files of the
@@ -190,6 +194,7 @@ Set on the document type, in `types.json` of `documents/`:
 ```json
 { "id": "spec", "displayName": "Specification",
   "entryFolder": "requirements",
+  "entryTypes": ["requirement", "testcase"],
   "entryNumbers": true,
   "entryViews": [
     { "id": "text", "name": "As text", "types": ["requirement"], "layout": "text",
@@ -220,6 +225,11 @@ Set on the document type, in `types.json` of `documents/`:
 - **`entryFolder`** (optional) is where "New entry here" and the bulk actions put new entries,
   relative to the document's folder. Without it, they go to the nearest folder above the document
   whose configuration allows the type.
+- **`entryTypes`** (optional) are the entry types "Convert selection to entry" makes, one
+  button each in the Entries menu (the type's icon, its name on hover); the last one used is the
+  main button's default, remembered per document type in the browser. Without it, every entry
+  type allowed in the document's folder is offered. A name that is not an entry type there is a
+  configuration warning.
 - **`entryNumbers`** (default true) switches entry numbering on or off.
 
 ## 6. Reuse, overlays, duplicates and templates

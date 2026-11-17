@@ -2,6 +2,7 @@ import { Fragment, type Node, type ResolvedPos } from "prosemirror-model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type Command, type EditorState, type Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "prosemirror-view";
 import { fromStorage, newSectionId, type RichText } from "./model";
+import type { EntryTypeChoice } from "./toolbar";
 import { schema } from "./schema";
 
 // Documents (docs/design/Corestone documents.md): a tree of sections under the document's
@@ -19,7 +20,9 @@ export interface DocumentHost {
   /** Makes a new entry of text of the document, held until the document is saved: title and
    *  text (its description), files: the document's files the text uses. Its key ("new:…", in
    *  place of a GUID until the save gives it one), or null when it cannot be made. */
-  convertToEntry?(c: { title: string; text: RichText; files: string[] }): Promise<string | null>;
+  convertToEntry?(c: { type: string; title: string; text: RichText; files: string[] }): Promise<string | null>;
+  /** The entry types convert offers, and the name the last one used is remembered under. */
+  entryTypes?(): { remember: string; types: EntryTypeChoice[] };
   /** A placed entry's text, to put in its place (its files copied to the document, the names
    *  in the text changed to theirs), or why it cannot be had. */
   entryAsText?(guid: string): Promise<{ text: RichText } | { error: string }>;

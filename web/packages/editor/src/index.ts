@@ -16,6 +16,7 @@ export { documentFromStorage, documentText, documentTitle, documentToStorage, fi
 export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
 export { numbering, type DocumentHost, type OutlineItem, type Placed } from "./structure";
+export type { EntryTypeChoice } from "./toolbar";
 
 /** <cs-richtext>: set .value (and optionally .palette, readonly) and listen for "change" (detail: the value). */
 export class RichTextElement extends HTMLElement {
