@@ -354,6 +354,65 @@ test("the document type names the entry types converting makes: one button each,
   await expect(main).toHaveAttribute("aria-label", "Convert selection to Note");
 });
 
+test("Shift+click on a picture extends the selection over it; a last block with only a picture is converted too", async ({ page }) => {
+  const pf = `pf-${id}`;
+  await defineTypes(pf, "entries", [{ id: "note", displayName: "Note", fields: [{ id: "body", name: "Body", type: "richtext" }] }]);
+  await defineTypes(pf, "documents", [{ id: "spec", displayName: "Specification" }]);
+  const d = await post("/documents", { path: pf, type: "spec", title: `Pictured ${id}`, content: [{ text: `Caption ${id}` }, { text: [{ image: "dot.png", width: 40 }] }] });
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  expect((await fetch(`${api}/artifacts/${d.meta.guid}/files/dot.png`, { method: "PUT", body: png })).ok).toBe(true);
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror").first();
+  await ed.locator("p", { hasText: "Caption" }).click();
+  await page.keyboard.press("Home");
+  await ed.locator(".cs-img").click({ modifiers: ["Shift"] });
+  await page.getByRole("button", { name: "More: Entries" }).click();
+  const conv = page.locator(".pop.open").getByRole("button", { name: "Convert selection to Note" });
+  await expect(conv).not.toHaveAttribute("aria-disabled", "true");
+  await conv.click();
+  // both blocks went into the entry: no picture is left in the document text
+  await expect(ed.locator(".cs-placement")).toHaveCount(1);
+  await expect(ed.locator(".cs-placement .entry-card img[data-file='dot.png']")).toHaveCount(1);
+  await expect(ed.locator(":scope > p img[data-file='dot.png'], :scope > section p img[data-file='dot.png']")).toHaveCount(0);
+});
+
+test("a new entry missing required fields: the entry sidebar comes in with them marked; Save waits until they are filled", async ({ page }) => {
+  const rq = `rq-${id}`;
+  await defineTypes(rq, "entries", [{ id: "need", displayName: "Need", fields: [
+    { id: "priority", name: "Priority", type: "enum", required: true, options: [{ value: "low" }, { value: "high" }] },
+    { id: "body", name: "Body", type: "richtext" }] }]);
+  await defineTypes(rq, "documents", [{ id: "spec", displayName: "Specification" }]);
+  const d = await post("/documents", { path: rq, type: "spec", title: `Required ${id}`, content: [{ text: `Needs priority ${id}` }] });
+  await page.goto(`/artifact/${d.meta.guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror").first();
+  await ed.locator("p").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Home");
+  await page.getByRole("button", { name: "More: Entries" }).click();
+  await page.locator(".pop.open").getByRole("button", { name: "Convert selection to Need" }).click();
+  // the sidebar comes in (it was closed), the required field marked; the card says what is missing
+  const side = page.locator(".doc-side");
+  await expect(side.locator("[data-test=held-problems]")).toContainText("Priority");
+  await expect(side.locator("corestone-field.missing")).toHaveCount(1);
+  await expect(side.locator("corestone-field.missing")).toContainText("Priority");
+  const card = ed.locator(".cs-placement");
+  await expect(card.locator(".pill.problem")).toHaveText("Priority missing");
+  // Save waits: nothing sent, nothing created
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator(".doc-main .notice.error")).toContainText("not complete");
+  expect((await get<{ total: number }>(`/repository/search?q=${encodeURIComponent(`Needs priority ${id}`)}&kind=entry`)).total).toBe(0);
+  // filled in: the marks go, Save goes through
+  await side.locator("[data-field=priority] .enum-trigger").click();
+  await side.locator('[data-field=priority] .enum-option[data-value="high"]').click();
+  await expect(side.locator("corestone-field.missing")).toHaveCount(0);
+  await expect(side.locator("[data-test=held-problems]")).toHaveCount(0);
+  await expect(card.locator(".pill.problem")).toHaveCount(0);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const g = (await card.getAttribute("data-placement"))!;
+  expect((await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${g}`)).data.fields.priority).toBe("high");
+});
+
 test("outline: sections move with their grip, before a row or to the end", async ({ page }) => {
   const d = await newDoc(`Outline ${id}`, [
     { section: "bbbb0001", title: "Alpha", children: [] },

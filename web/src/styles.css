@@ -151,6 +151,10 @@ textarea { resize: vertical; min-height: 70px; }
 .field label { color: var(--muted); padding-top: 7px; font-size: 13px; }
 .field label .req { color: var(--danger); margin-left: 3px; }
 .field .value { min-width: 0; }
+/* in a document's narrow sidebars: the label above its value, the value full width */
+.doc-side .field { grid-template-columns: 1fr; gap: 2px; }
+.doc-side .field label { padding-top: 0; }
+.doc-side .field .value > input, .doc-side .field .value > select, .doc-side .field .value > textarea { width: 100%; box-sizing: border-box; }
 .field .help { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .field .inherited { font-size: 11.5px; color: var(--warn); margin-top: 2px; }
 .field .inherited.overridden, .field .inherited.undeclared { color: var(--muted); }
@@ -350,6 +354,12 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 /* a new entry, created when the document is saved */
 .doc-entry .entry-card.new { border-left-style: dashed; border-left-color: var(--warn); }
 .doc-entry .entry-card .pill.unsaved { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
+.doc-entry .entry-card .pill.problem { background: var(--danger-soft, #fde8e8); border-color: transparent; color: var(--danger); }
+/* a new entry in the entry sidebar: missing required fields as an alarm, flashing to draw attention */
+.held-entry corestone-field.missing { display: block; border-left: 3px solid var(--danger); padding-left: 8px; border-radius: 2px; }
+.held-entry corestone-field.missing label { color: var(--danger); font-weight: 600; }
+.held-entry.flash corestone-field.missing { animation: held-flash .4s ease-in-out 4 alternate; }
+@keyframes held-flash { from { background: transparent; } to { background: var(--danger-soft, #fde8e8); } }
 .outline { display: flex; flex-direction: column; font-size: 13px; padding-bottom: 14px; } /* the space below the last row: drop at the end */
 .outline-row { position: relative; display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px var(--ind, 4px); border-radius: 5px; cursor: pointer; }
 .outline-row:hover { background: var(--panel-2); }

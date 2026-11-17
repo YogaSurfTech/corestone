@@ -6,7 +6,7 @@ import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement,
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
-import type { CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
+import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, showValue, undeclaredField } from "./util";
 import { MAX_ATTACHMENT, freeFileName } from "./detail";
@@ -74,6 +74,11 @@ export class DocumentView extends LitElement {
   /** The entry types converting text makes: the document type's entryTypes that are allowed in
    *  its folder (in that order), or every entry type allowed there. */
   private convertTypes: Schema[] = [];
+  /** What the server said is wrong with each new entry (its check), by key. */
+  private problems = new Map<string, string[]>();
+  private checkTimer = 0;
+  /** The missing fields in the entry sidebar flash (to draw attention to them). */
+  @state() private flash = false;
   private schemas = new Map<string, Promise<Schema | null>>();
   private observer?: IntersectionObserver;
   private blobUrls = new WeakMap<File, string>();
@@ -319,7 +324,52 @@ export class DocumentView extends LitElement {
     }
     const key = "new:" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     this.held.set(key, { schema, folder, title: c.title, fields, files: c.files });
+    void this.check(key).then((ok) => { if (!ok) this.attend(key); });
     return key;
+  }
+
+  /** The required fields of a new entry that are still empty. */
+  private missing(h: Held): Field[] {
+    const empty = (v: unknown) => v == null || v === "" || (Array.isArray(v) && !v.length);
+    return (h.schema.fields ?? []).filter((f) => f.required && empty(h.fields[f.id]));
+  }
+
+  /** Asks the server whether a new entry could be created; true when it could. */
+  private async check(key: string): Promise<boolean> {
+    const h = this.held.get(key);
+    if (!h) return true;
+    let problems: string[];
+    try {
+      problems = (await api.check("entries", { path: h.folder, type: h.schema.type, title: h.title, fields: h.fields })).problems;
+    } catch {
+      problems = []; // unknown: the save checks again
+    }
+    if (this.held.get(key) !== h) return true;
+    if (problems.length) this.problems.set(key, problems); else this.problems.delete(key);
+    this.editor?.refresh(); // the card shows what is missing
+    this.requestUpdate();
+    return !problems.length && !this.missing(h).length;
+  }
+
+  /** Shows a new entry with problems in the entry sidebar (opened if needed), its missing fields flashing. */
+  private attend(key: string) {
+    this.current = key;
+    this.editor?.refresh();
+    if (!this.s.route.sidebars.includes("entry")) navigate({ sidebars: [...this.s.route.sidebars, "entry"] }, true);
+    this.flash = false;
+    requestAnimationFrame(() => { this.flash = true; window.setTimeout(() => (this.flash = false), 1600); });
+  }
+
+  /** A field of a new entry changed (in the sidebar): kept, shown, checked again after a pause. */
+  private editHeld(key: string, change: (h: Held) => void) {
+    const h = this.held.get(key);
+    if (!h) return;
+    change(h);
+    this.touch();
+    this.editor?.refresh();
+    this.requestUpdate();
+    window.clearTimeout(this.checkTimer);
+    this.checkTimer = window.setTimeout(() => void this.check(key), 400);
   }
 
   /** Copies files (pictures of a text) from one artifact to another; names: their new names. */
@@ -384,7 +434,9 @@ export class DocumentView extends LitElement {
         <div class="head">${p.number ? html`<span class="num">${p.number}</span>` : nothing}
           <corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder}></corestone-type-icon>
           <b class="title">${h.title || html`<span class="muted">Untitled</span>`}</b>
-          <span class="pill unsaved" title="This entry is created when the document is saved">not saved yet</span></div>
+          <span class="pill unsaved" title="This entry is created when the document is saved">not saved yet</span>
+          ${this.missing(h).length || this.problems.has(p.guid) ? html`<span class="pill problem" title=${(this.problems.get(p.guid) ?? []).join("\n")}>${this.missing(h).length
+            ? `${this.missing(h).map((f) => f.name ?? f.id).join(", ")} missing` : "cannot be created"}</span>` : nothing}</div>
         ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
           <cs-richtext readonly .value=${h.fields[f.id] as RichText} .files=${this.docFiles}></cs-richtext></div>`)}
       </div>`, el);
@@ -478,6 +530,15 @@ export class DocumentView extends LitElement {
     const used = new Set<string>();
     const content = mapKeys(this.content, (k) => { const g = this.savedKeys.get(k); if (!g) used.add(k); return g ?? k; });
     if (!deepEqual(content, d.content ?? [])) patch.content = content;
+    // every new entry must check out first: otherwise it is shown, and nothing is sent
+    for (const key of used) {
+      if (this.held.has(key) && !(await this.check(key))) {
+        this.attend(key);
+        this.error = "Not saved: a new entry is not complete; see the entry sidebar.";
+        this.busy = false;
+        return;
+      }
+    }
     const addEntries: NonNullable<SaveChanges["addEntries"]> = [];
     const entryFiles: { key: string; file: File }[] = [];
     try {
@@ -643,6 +704,26 @@ export class DocumentView extends LitElement {
     </div>`;
   }
 
+  /** A new entry in the entry sidebar: its title and fields, editable; what is missing marked. */
+  private heldPanel(key: string): TemplateResult {
+    const h = this.held.get(key)!;
+    const missing = new Set(this.missing(h).map((f) => f.id));
+    const problems = this.problems.get(key) ?? [];
+    return html`${this.sideHead("entry", "New entry")}
+      <div class="held-entry ${this.flash ? "flash" : ""}">
+        <div class="muted small"><corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder} .schema=${h.schema}></corestone-type-icon>
+          ${h.schema.displayName ?? h.schema.type} in ${h.folder || "/"} · created when the document is saved</div>
+        ${missing.size || problems.length ? html`<div class="notice error" role="alert" data-test="held-problems">${missing.size
+          ? `Fill in ${[...missing].map((id) => h.schema.fields?.find((f) => f.id === id)?.name ?? id).join(", ")}: the entry cannot be created without.`
+          : problems.join(" ")}</div>` : nothing}
+        <div class="field"><label for="held-title">Title</label><div class="value">
+          <input id="held-title" type="text" .value=${live(h.title)} @input=${(e: Event) => this.editHeld(key, (x) => { x.title = (e.target as HTMLInputElement).value; })} /></div></div>
+        ${(h.schema.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field class=${missing.has(f.id) ? "missing" : ""} .field=${f} .value=${h.fields[f.id]}
+          .files=${this.docFiles} .typeId=${h.schema.type} .folder=${h.folder}
+          @field-change=${(e: CustomEvent) => this.editHeld(key, (x) => { if (e.detail.value == null) delete x.fields[e.detail.id]; else x.fields[e.detail.id] = e.detail.value; })}></corestone-field>`)}
+      </div>`;
+  }
+
   private sidebar(id: string): TemplateResult {
     const v = this.view!;
     switch (id) {
@@ -658,7 +739,8 @@ export class DocumentView extends LitElement {
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; delete n[e.detail.id]; this.fields = n; this.touch(); }}></corestone-field>`)}
           <button class="icon-btn" style="margin-top:8px" data-tip="Open as artifact detail" @click=${() => navigate({ guid: this.guid, tab: "general" }, true)}>${appIcon("open")}<span class="vh">Open as artifact detail</span></button>`;
       case "entry": {
-        const e = this.current ? this.entries.get(this.current) : undefined;
+        if (this.current && this.held.has(this.current)) return this.heldPanel(this.current);
+        const e = this.current ? this.entries.get(this.real(this.current)) : undefined;
         const meta = e && e !== "loading" ? e.view?.meta : undefined;
         const fields = (e && e !== "loading" ? (e.view?.data as Record<string, unknown> | undefined)?.fields : undefined) as Record<string, unknown> | undefined;
         return html`${this.sideHead(id, "Current entry")}${meta ? html`<div><b>${meta.hid ?? ""}</b> ${meta.title}</div>

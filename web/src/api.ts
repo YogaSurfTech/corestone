@@ -145,6 +145,8 @@ export const api = {
   transition: (guid: string, workflow: string, to: string, etag?: string) =>
     request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
   /** Everything the detail form changed, published as one commit; attachments go as multipart. */
+  /** Whether an entry or document could be created from body (nothing is created). */
+  check: (collection: "entries" | "documents", body: unknown) => request<{ ok: boolean; problems: string[] }>("POST", `/${collection}/check`, body),
   /** Saves; entryFiles: files of new entries (by key). created: the GUID each new entry got. */
   save: (guid: string, changes: SaveChanges, files: File[], etag?: string, entryFiles: { key: string; file: File }[] = []) => {
     let body: unknown = changes;

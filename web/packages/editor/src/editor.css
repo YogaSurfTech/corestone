@@ -14,6 +14,8 @@
 .cs-tb .b:hover, .cs-tb .b:focus-visible { background: var(--cs-hover); outline: none; }
 .cs-tb .b[aria-pressed="true"] { background: var(--cs-pressed); }
 .cs-tb .b[aria-disabled="true"] { color: var(--cs-disabled); cursor: not-allowed; background: transparent; }
+/* icons with their own colors (e.g. entry type icons) are greyed too */
+.cs-tb .b[aria-disabled="true"] > :not(svg) { opacity: .4; filter: grayscale(1); }
 .cs-tb .c { height: 32px; width: 12px; border: 0; background: transparent; border-left: 1px solid var(--cs-border); color: var(--cs-muted); padding: 0;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 0 6px 6px 0; }
 .cs-tb .c:hover, .cs-tb .c[aria-expanded="true"] { background: var(--cs-pressed); }

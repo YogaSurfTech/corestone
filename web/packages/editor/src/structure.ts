@@ -443,17 +443,23 @@ export function placeEntries(guids: string[]): Command {
  *  for "Convert to entry"; or why it cannot be converted. */
 export function selectedText(state: EditorState): { from: number; to: number; nodes: Node[] } | string {
   const sel = state.selection;
-  if (sel instanceof NodeSelection || sel.empty) return "Select the text that becomes the entry.";
+  if (sel.empty) return "Nothing is selected: select the text that becomes the entry.";
+  if (sel instanceof NodeSelection) return `Only ${sel.node.type === schema.nodes.placement ? "a placed entry" : `a ${sel.node.type.name}`} is selected, not text: `
+    + "select the text that becomes the entry (Shift+click extends a text selection over pictures and diagrams).";
+  if (!(sel instanceof TextSelection)) return "A table cell or the whole document is selected: select the paragraphs that become the entry.";
   const { $from, $to } = sel;
   const a = blockAt($from), b = blockAt($to);
   if (!a || !b || a.blockDepth !== b.blockDepth || $from.before(a.blockDepth) > $to.before(b.blockDepth)
     || (a.listDepth > 0 && $from.before(a.listDepth) !== $to.before(b.listDepth)))
-    return "Select text within one section: the selection goes across a heading.";
+    return "The selection starts and ends in different places of the structure (across a heading, or from the text into a list or table): select whole paragraphs within one section.";
   const d = a.listDepth;
   const parent = $from.node(d);
   let i = $from.index(d), j = $to.index(d);
   // a selection that ends at the very start of a block leaves that block out
-  if (j > i && !state.doc.textBetween($to.before(b.blockDepth), $to.pos).length) j--;
+  // (a picture or diagram counts as content, not only text)
+  if (j > i && !state.doc.textBetween($to.before(b.blockDepth), $to.pos, "", "\ufffc").length) j--;
+  // and one that starts at the very end of a block (e.g. of a heading) leaves that block out
+  if (j > i && !state.doc.textBetween($from.pos, $from.after(a.blockDepth), "", "\ufffc").length) i++;
   const nodes: Node[] = [];
   for (let k = i; k <= j; k++) {
     const n = parent.child(k);

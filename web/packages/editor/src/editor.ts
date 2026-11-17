@@ -162,7 +162,21 @@ export class RichTextEditor {
           return true;
         },
         // the right mouse button on selected cells keeps them selected (to merge them)
-        mousedown: (_view, e) => e.button === 2 && !!(e.target as HTMLElement).closest(".selectedCell"),
+        mousedown: (view, e) => {
+          if (e.button === 2) return !!(e.target as HTMLElement).closest(".selectedCell");
+          // Shift+click on a picture, diagram or formula extends the text selection over it (the
+          // browser would select it alone)
+          const atom = e.shiftKey && e.button === 0 ? (e.target as HTMLElement).closest(".cs-img, .cs-formula") : null;
+          if (!atom || !area.contains(atom)) return false;
+          const at = view.posAtDOM(atom, 0);
+          const n = view.state.doc.nodeAt(at);
+          if (!n?.isInline) return false;
+          const anchor = view.state.selection.anchor;
+          e.preventDefault();
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, anchor <= at ? at + n.nodeSize : at)));
+          view.focus();
+          return true;
+        },
         // the table menu on the right mouse button; outside tables the browser's own menu
         contextmenu: (view, e) => {
           if (this.readonly) return false;

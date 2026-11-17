@@ -152,6 +152,9 @@ export class Toolbar {
       const r = b._tip?.dis?.();
       if (r) b.setAttribute("aria-disabled", "true");
       else b.removeAttribute("aria-disabled");
+      // the reason also as the button's own hover text (when the tooltip is not shown)
+      if (r) b.title = "Unavailable: " + r;
+      else b.removeAttribute("title");
     });
   }
 
@@ -294,8 +297,9 @@ export class Toolbar {
     // (s absent: while the toolbar is built, before the editor has a state)
     const mainItem = (s?: EditorState): Item => {
       const used = this.last.entries;
-      if (used === "unmark") return unmark;
-      if (used === "convert" && lastType()) return s && onEntry(s) ? unmark : convert(lastType()!);
+      // convert and turn into text are one action that follows the selection: a placed entry
+      // selected turns into text, otherwise the selection converts (to the last type)
+      if (used === "unmark" || used === "convert") return (s && onEntry(s)) || !lastType() ? unmark : convert(lastType()!);
       return ins;
     };
     const menu = document.createElement("div");
