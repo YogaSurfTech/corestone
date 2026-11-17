@@ -481,6 +481,52 @@ test("cross-references show the current number and title and follow renames", as
   expect(runs.some((r) => r.ref === `${guid}#aaaa0002` && r.xref)).toBe(true);
 });
 
+test("table of contents: inserted from the Insert menu, follows the headings, levels, several, removed", async ({ page }) => {
+  const d = await newDoc(`Contents ${id}`, [
+    { text: "intro" },
+    { section: "bbbb0001", title: "Timing", children: [{ section: "bbbb0002", title: "Start-up", children: [] }] },
+    { section: "bbbb0003", title: "Safety", children: [] },
+  ]);
+  const guid = d.meta.guid;
+  await page.goto(`/artifact/${guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  const insert = async () => {
+    await page.getByRole("button", { name: "More: Insert" }).click();
+    // (the Insert button shows the last one used, so after the first time there are two)
+    await page.getByRole("button", { name: "Table of contents" }).last().click();
+  };
+  await ed.locator("p", { hasText: "intro" }).click();
+  await insert();
+  const toc = ed.locator(".cs-toc");
+  await expect(toc.locator(".toc-row")).toHaveText(["1 Timing", "1.1 Start-up", "2 Safety"]);
+  // it follows a renamed heading
+  await ed.locator(".cs-heading", { hasText: "Safety" }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" rules");
+  await expect(toc.locator(".toc-row").last()).toHaveText("2 Safety rules");
+  // levels, on the right mouse button
+  await toc.click({ button: "right" });
+  await page.locator(".cs-placementmenu").getByRole("menuitem", { name: /^Levels/ }).hover();
+  await page.locator(".cs-placementmenu").getByRole("menuitemcheckbox", { name: "1 level", exact: true }).click();
+  await expect(toc.locator(".toc-row")).toHaveText(["1 Timing", "2 Safety rules"]);
+  // Ctrl+click on a row goes to its section
+  await toc.locator(".toc-row", { hasText: "Timing" }).click({ modifiers: ["Control"] });
+  await page.keyboard.type("!");
+  await expect(ed.locator(".cs-heading", { hasText: "Timing!" })).toHaveCount(1);
+  // a second one is allowed
+  await ed.locator("p", { hasText: "intro" }).click();
+  await insert();
+  await expect(toc).toHaveCount(2);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const tocs = ((await stored(guid)).content as { toc?: string; depth?: number }[]).filter((n) => n.toc);
+  expect(tocs.map((n) => [n.toc, n.depth]).sort()).toEqual([["sections", 1], ["sections", undefined]].sort());
+  // removed with its menu
+  await toc.first().click({ button: "right" });
+  await page.locator(".cs-placementmenu").getByRole("menuitem", { name: "Remove", exact: true }).click();
+  await expect(toc).toHaveCount(1);
+});
+
 test("sidebars: properties with schema fields, comments, relationships, versions; conflict on save", async ({ page }) => {
   const d = await newDoc(`Sidebars ${id}`);
   const other = await post("/entries", { path: folder, type: "req", title: `Related doc target ${id}`, fields: { priority: "low" } });
