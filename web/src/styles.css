@@ -347,6 +347,9 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .doc-entry .entry-card .rich .cs-area .ProseMirror { min-height: 0; padding: 2px 0; }
 .doc-entry .entry-card.missing, .doc-entry .entry-card.loading { color: var(--muted); }
 .doc-entry .entry-card.missing { border-left-color: var(--danger); }
+/* a new entry, created when the document is saved */
+.doc-entry .entry-card.new { border-left-style: dashed; border-left-color: var(--warn); }
+.doc-entry .entry-card .pill.unsaved { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
 .outline { display: flex; flex-direction: column; font-size: 13px; padding-bottom: 14px; } /* the space below the last row: drop at the end */
 .outline-row { position: relative; display: flex; gap: 6px; align-items: center; padding: 3px 4px 3px var(--ind, 4px); border-radius: 5px; cursor: pointer; }
 .outline-row:hover { background: var(--panel-2); }

@@ -16,9 +16,9 @@ export interface DocumentHost {
   /** Lets the user choose entries to place (in this order; none: cancelled); taken: the entries
    *  already in the document. */
   pickEntries(taken: string[]): Promise<string[]>;
-  /** Makes an entry of text of the document (asking the user for its type and the rest):
-   *  title, its first line; text, the rest; files, the document's files the text uses (to be
-   *  copied to the entry). The entry's GUID, or null when cancelled. */
+  /** Makes a new entry of text of the document, held until the document is saved: title and
+   *  text (its description), files: the document's files the text uses. Its key ("new:…", in
+   *  place of a GUID until the save gives it one), or null when it cannot be made. */
   convertToEntry?(c: { title: string; text: RichText; files: string[] }): Promise<string | null>;
   /** A placed entry's text, to put in its place (its files copied to the document, the names
    *  in the text changed to theirs), or why it cannot be had. */
@@ -468,6 +468,24 @@ export function replaceWithEntry(from: number, to: number, guid: string): Comman
       const tr = state.tr.replaceWith(from, to, schema.node("placement", { guid }));
       dispatch(tr.setSelection(NodeSelection.create(tr.doc, from)).scrollIntoView());
     }
+    return true;
+  };
+}
+
+/** Puts GUIDs in place of keys (new entries the save created): in placements and in
+ *  cross-references. Not an undoable step: the document only learns the entries' names. */
+export function renameEntries(names: Map<string, string>): Command {
+  return (state, dispatch) => {
+    const tr = state.tr;
+    state.doc.descendants((n, pos) => {
+      if (n.type === schema.nodes.placement && names.has(n.attrs.guid)) tr.setNodeMarkup(pos, undefined, { ...n.attrs, guid: names.get(n.attrs.guid) });
+      else if (n.type === schema.nodes.xref) {
+        const [key, sec] = String(n.attrs.ref).split("#");
+        if (names.has(key)) tr.setNodeMarkup(pos, undefined, { ...n.attrs, ref: names.get(key) + (sec ? "#" + sec : "") });
+      }
+    });
+    if (!tr.docChanged) return false;
+    dispatch?.(tr.setMeta("addToHistory", false));
     return true;
   };
 }

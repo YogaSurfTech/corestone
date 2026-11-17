@@ -10,7 +10,7 @@ import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toS
 import { DocumentUI } from "./docui";
 import {
   PlacementView, TocView, XrefView, backspaceStructure, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
-  splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
+  renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
 } from "./structure";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
 import { FileUI, ImageView, addFiles, imageImporter, insertImage, isPicture, type EntryFiles } from "./files";
@@ -325,6 +325,12 @@ export class RichTextEditor {
   refresh() {
     this.toolbar.update(this.view.state);
     if (this.opts.document) this.view.dispatch(this.view.state.tr.setMeta("cs-refresh", true));
+  }
+
+  /** In a document: puts the GUIDs the save gave new entries in place of their keys (in place:
+   *  the cursor and the undo history stay). */
+  renameEntries(names: Map<string, string>) {
+    if (this.opts.document) renameEntries(names)(this.view.state, this.view.dispatch);
   }
 
   /** In a document: its sections, in order. */

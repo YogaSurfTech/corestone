@@ -209,7 +209,11 @@ func combine(cur *loaded, parts []*changeset) (*changeset, error) {
 			what = append(what, "1 "+k)
 		} else if n[k] > 1 {
 			w := strings.SplitN(k, " ", 2)
-			what = append(what, fmt.Sprintf("%d %ss %s", n[k], w[0], w[1]))
+			plural := w[0] + "s"
+			if strings.HasSuffix(w[0], "y") {
+				plural = strings.TrimSuffix(w[0], "y") + "ies" // entry: entries
+			}
+			what = append(what, fmt.Sprintf("%d %s %s", n[k], plural, w[1]))
 		}
 	}
 	if cs.subject == "" {

@@ -3,7 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
-import { api, ApiError, server } from "./api";
+import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type State } from "./store";
 import type { CommentView, LogEntry, Relationships, Schema, Summary, View } from "./types";
@@ -23,6 +23,24 @@ const SIDEBARS = [["outline", "Outline"], ["props", "Properties"], ["entry", "En
 
 /** A placed entry as the document shows it: loaded when it comes near the visible part. */
 interface Loaded { view: View | null; schema: Schema | null; missing?: { hid?: string; title?: string } }
+/** A new entry made in the document, held until the document is saved (the save creates it). */
+interface Held { schema: Schema; folder: string; title: string; fields: Record<string, unknown>; files: string[] }
+/** Whether a placed entry is new (a key "new:…" instead of a GUID). */
+const isNew = (g: string) => g.startsWith("new:");
+
+/** Document content with the keys of new entries changed by f (in placements and references). */
+function mapKeys<T>(v: T, f: (key: string) => string): T {
+  if (Array.isArray(v)) return v.map((x) => mapKeys(x, f)) as T;
+  if (!v || typeof v !== "object") return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if ((k === "entry" || k === "ref") && typeof x === "string" && isNew(x)) {
+      const [key, sec] = x.split("#");
+      out[k] = f(key) + (sec ? "#" + sec : "");
+    } else out[k] = mapKeys(x, f);
+  }
+  return out as T;
+}
 
 @customElement("corestone-document")
 export class DocumentView extends LitElement {
@@ -50,6 +68,9 @@ export class DocumentView extends LitElement {
   private loadSeq = 0;
   /** Entries placed in the document, shown lazily and kept while the view lives. */
   private entries = new Map<string, Loaded | "loading">();
+  /** New entries by key; and the GUIDs saves gave them (the undo history may bring a key back). */
+  private held = new Map<string, Held>();
+  private savedKeys = new Map<string, string>();
   private schemas = new Map<string, Promise<Schema | null>>();
   private observer?: IntersectionObserver;
   private blobUrls = new WeakMap<File, string>();
@@ -89,7 +110,7 @@ export class DocumentView extends LitElement {
         if (!e.isIntersecting) continue;
         this.observer!.unobserve(e.target);
         const g = (e.target as HTMLElement).dataset.placement;
-        if (g) void this.loadEntry(g);
+        if (g && !this.held.has(g)) void this.loadEntry(this.real(g));
       }
     }, { rootMargin: "600px 0px" });
     this.unsub = store.subscribe((s) => {
@@ -245,23 +266,54 @@ export class DocumentView extends LitElement {
         multi: { verb: "Insert" }, onPickMany: (guids: string[]) => resolve(guids), onCancel: () => resolve([]) } });
     }),
     renderEntry: (el, p) => this.renderEntry(el, p),
-    openEntry: (guid, newTab) => {
+    openEntry: (key, newTab) => {
+      const guid = this.real(key);
+      if (isNew(guid)) { store.toast("This entry is created when the document is saved.", "info"); return; }
       if (newTab) window.open(`/artifact/${guid}`, "_blank", "noopener");
       else navigate({ guid });
     },
-    entryLabel: (guid) => {
+    entryLabel: (key) => {
+      const guid = this.real(key);
+      const h = this.held.get(guid);
+      if (h) return h.title || "New entry";
       const e = this.entries.get(guid);
       if (!e || e === "loading") return undefined;
       return e.view ? (e.view.meta.hid || e.view.meta.title || undefined) : e.missing?.hid;
     },
     entryNumbers: true,
-    convertToEntry: (c) => new Promise((resolve) => {
-      store.set({ dialog: { kind: "new", kinds: ["entry"], folder: this.view?.meta.folder, presetTitle: c.title, fill: c.text,
-        onCreated: async (v: View) => { await this.copyFiles(c.files, (n) => this.docFiles.get!(n), (n, f) => api.uploadFile(v.meta.guid, n, f)); resolve(v.meta.guid); },
-        onCancel: () => resolve(null) } });
-    }),
-    entryAsText: (guid) => this.entryAsText(guid),
+    convertToEntry: (c) => this.newEntry(c),
+    entryAsText: (key) => this.entryAsText(this.real(key)),
   };
+
+  /** A key's GUID once a save gave it one; otherwise the key (or GUID) itself. */
+  private real(key: string): string { return this.savedKeys.get(key) ?? key; }
+
+  /** Makes a new entry of document text, held until the save: of the first entry type allowed
+   *  in the document's folder (the choice of type comes later), its text in the type's first
+   *  rich-text field. */
+  private async newEntry(c: { title: string; text: RichText; files: string[] }): Promise<string | null> {
+    const folder = this.view?.meta.folder ?? "";
+    let types: Schema[];
+    try {
+      types = (await api.types(folder)).types.filter((t) => t.kind === "entry");
+    } catch (e) {
+      store.toast(`The entry types could not be read: ${(e as Error).message ?? e}`, "error");
+      return null;
+    }
+    const schema = types[0];
+    if (!schema) { store.toast(`No entry type is allowed in ${folder || "/"}.`, "error"); return null; }
+    const fields: Record<string, unknown> = {};
+    for (const f of schema.fields ?? []) if (f.default != null) fields[f.id] = f.default;
+    const hasText = Array.isArray(c.text) ? c.text.length > 0 : !!c.text;
+    if (hasText) {
+      const rich = (schema.fields ?? []).find((f) => f.type === "richtext");
+      if (!rich) { store.toast(`${schema.displayName ?? schema.type} has no rich-text field for the text; select a single line for its title.`, "error"); return null; }
+      fields[rich.id] = c.text;
+    }
+    const key = "new:" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    this.held.set(key, { schema, folder, title: c.title, fields, files: c.files });
+    return key;
+  }
 
   /** Copies files (pictures of a text) from one artifact to another; names: their new names. */
   private async copyFiles(names: string[], get: (n: string) => Promise<Blob>, put: (n: string, f: File) => Promise<unknown>): Promise<Map<string, string>> {
@@ -281,6 +333,8 @@ export class DocumentView extends LitElement {
   /** A placed entry as text of the document: its title (bold), then its rich-text fields (each
    *  under its name when there are several); its pictures become files of the document. */
   private async entryAsText(guid: string): Promise<{ text: RichText } | { error: string }> {
+    const h = this.held.get(guid);
+    if (h) return { text: this.asText(h.title, h.schema, h.fields) }; // (its pictures are the document's already)
     let v: View, schema: Schema | null;
     try {
       v = await api.get(guid);
@@ -288,14 +342,7 @@ export class DocumentView extends LitElement {
     } catch (e) {
       return { error: `The entry could not be read: ${(e as Error).message ?? e}` };
     }
-    const values = ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {};
-    const rich = (schema?.fields ?? []).filter((f) => f.type === "richtext" && values[f.id] != null && values[f.id] !== "");
-    const blocks: Block[] = [{ text: [{ text: v.meta.title || v.meta.hid || "Untitled", bold: true }] }];
-    for (const f of rich) {
-      if (rich.length > 1) blocks.push({ text: [{ text: f.name ?? f.id, italic: true }] });
-      const val = values[f.id] as RichText;
-      blocks.push(...(typeof val === "string" ? val.split("\n").map((t): Block => ({ text: t })) : val));
-    }
+    const blocks = this.asText(v.meta.title || v.meta.hid || "", schema, ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {});
     const names = fileNames(blocks);
     const renamed = await this.copyFiles(names, async (n) => {
       const res = await fetch(api.fileUrl(guid, n), { credentials: "same-origin" });
@@ -305,10 +352,38 @@ export class DocumentView extends LitElement {
     return { text: renameFiles(blocks, renamed) };
   }
 
+  /** An entry as document text: its title (bold), then its rich-text fields (each under its
+   *  name when there are several). */
+  private asText(title: string, schema: Schema | null, values: Record<string, unknown>): Block[] {
+    const rich = (schema?.fields ?? []).filter((f) => f.type === "richtext" && values[f.id] != null && values[f.id] !== "");
+    const blocks: Block[] = [{ text: [{ text: title || "Untitled", bold: true }] }];
+    for (const f of rich) {
+      if (rich.length > 1) blocks.push({ text: [{ text: f.name ?? f.id, italic: true }] });
+      const val = values[f.id] as RichText;
+      blocks.push(...(typeof val === "string" ? val.split("\n").map((t): Block => ({ text: t })) : val));
+    }
+    return blocks;
+  }
+
   /** A placed entry: the built-in card (type, number, HID, title, state and its rich-text fields). */
   private renderEntry(el: HTMLElement, p: Placed) {
-    const e = this.entries.get(p.guid);
     el.classList.add("doc-entry");
+    const guid = this.real(p.guid);
+    const h = this.held.get(guid);
+    if (h) {
+      // a new entry: as it will be, marked until the save creates it (its pictures are the document's)
+      const rich = (h.schema.fields ?? []).filter((f) => f.type === "richtext" && h.fields[f.id] != null && h.fields[f.id] !== "");
+      render(html`<div class="entry-card new ${this.current === p.guid ? "current" : ""}">
+        <div class="head">${p.number ? html`<span class="num">${p.number}</span>` : nothing}
+          <corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder}></corestone-type-icon>
+          <b class="title">${h.title || html`<span class="muted">Untitled</span>`}</b>
+          <span class="pill unsaved" title="This entry is created when the document is saved">not saved yet</span></div>
+        ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
+          <cs-richtext readonly .value=${h.fields[f.id] as RichText} .files=${this.docFiles}></cs-richtext></div>`)}
+      </div>`, el);
+      return;
+    }
+    const e = this.entries.get(guid);
     if (!e || e === "loading") {
       render(html`<div class="entry-card loading"><span class="num">${p.number}</span> Loading entry…</div>`, el);
       if (!e) this.observer?.observe(el);
@@ -392,7 +467,27 @@ export class DocumentView extends LitElement {
     const patch: Record<string, unknown> = {};
     const sent = { title: this.docTitle, content: this.content, fields: this.fields };
     if (this.docTitle.trim() !== (d.title ?? "")) patch.title = this.docTitle.trim();
-    if (!deepEqual(this.content, d.content ?? [])) patch.content = this.content;
+    // new entries: keys saved before are GUIDs now; those still in the document are created with it
+    const used = new Set<string>();
+    const content = mapKeys(this.content, (k) => { const g = this.savedKeys.get(k); if (!g) used.add(k); return g ?? k; });
+    if (!deepEqual(content, d.content ?? [])) patch.content = content;
+    const addEntries: NonNullable<SaveChanges["addEntries"]> = [];
+    const entryFiles: { key: string; file: File }[] = [];
+    try {
+      for (const key of used) {
+        const h = this.held.get(key);
+        if (!h) throw new Error(`the new entry ${key} is not known any more; remove it from the document`);
+        addEntries.push({ key, path: h.folder, type: h.schema.type, title: h.title, fields: h.fields });
+        for (const n of h.files) {
+          const blob = await this.docFiles.get!(n);
+          entryFiles.push({ key, file: blob instanceof File ? blob : new File([blob], n, { type: blob.type }) });
+        }
+      }
+    } catch (e) {
+      this.error = `Not saved: ${(e as Error).message ?? e}`;
+      this.busy = false;
+      return;
+    }
     if (!deepEqual(this.fields, d.fields ?? {})) {
       const f: Record<string, unknown> = {};
       const old = (d.fields as Record<string, unknown>) ?? {};
@@ -401,8 +496,13 @@ export class DocumentView extends LitElement {
       patch.fields = f;
     }
     try {
-      const saved = await api.save(this.guid, { patch, removeFiles: this.removedFiles }, this.pendingFiles, this.view.etag);
+      const saved = await api.save(this.guid, { patch, removeFiles: this.removedFiles, ...(addEntries.length ? { addEntries } : {}) },
+        this.pendingFiles, this.view.etag, entryFiles);
       this.view = saved;
+      // the new entries exist now: their GUIDs go into the document in place of their keys
+      const unchanged = this.content === sent.content;
+      for (const [key, guid] of Object.entries(saved.created ?? {})) { this.savedKeys.set(key, guid); this.held.delete(key); }
+      if (this.savedKeys.size) this.editor?.renameEntries(this.savedKeys);
       this.pendingFiles = [];
       this.removedFiles = [];
       // changes made elsewhere to other parts were merged in: show the stored version, except
@@ -410,7 +510,7 @@ export class DocumentView extends LitElement {
       const sd = saved.data as Record<string, unknown>;
       if (this.docTitle === sent.title) this.docTitle = String(sd.title ?? "");
       if (this.fields === sent.fields) this.fields = structuredClone((sd.fields as Record<string, unknown>) ?? {});
-      if (this.content === sent.content && !deepEqual(this.content, sd.content ?? [])) {
+      if (unchanged && !deepEqual(this.content, sd.content ?? [])) {
         this.content = structuredClone((sd.content as DocNode[]) ?? []);
         if (this.editor) this.editor.value = this.content;
       }

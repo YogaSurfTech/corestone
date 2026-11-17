@@ -208,52 +208,78 @@ test("several entries at once: chosen with checkboxes, or all matches of the sea
   await expect(cards.nth(1)).toHaveAttribute("data-placement", e[0].meta.guid);
 });
 
-test("selected text becomes an entry (first line the title), and an entry becomes text again", async ({ page }) => {
-  // a type with a rich-text field, in a folder below the document types' folder
-  const notes = `${folder}/notes`;
-  await defineTypes(notes, "entries", [{ id: "note", displayName: "Note", fields: [{ id: "body", name: "Body", type: "richtext" }] }]);
-  const d = await post("/documents", { path: notes, type: "spec", title: `Convert ${id}`, content: [
-    { text: "before" }, { text: `Made here ${id}` }, { text: [{ text: "Body ", bold: true }, { text: "line" }] }, { text: "after" }] });
+test("selected text becomes a new entry, created only with the save; an entry becomes text again", async ({ page }) => {
+  // a folder whose only entry type has a rich-text field (choosing the type comes later)
+  const conv = `conv-${id}`;
+  await defineTypes(conv, "entries", [{ id: "note", displayName: "Note", fields: [{ id: "body", name: "Body", type: "richtext" }] }]);
+  await defineTypes(conv, "documents", [{ id: "spec", displayName: "Specification" }]);
+  const notes = conv;
+  const long = `A single paragraph ${id} that is longer than forty characters`;
+  const d = await post("/documents", { path: conv, type: "spec", title: `Convert ${id}`, content: [
+    { text: "before" }, { text: `Made here ${id}` }, { text: [{ text: "Body ", bold: true }, { text: "line" }] }, { text: "after" }, { text: long }] });
   await page.goto(`/artifact/${d.meta.guid}`);
   const ed = page.locator(".doc-page cs-document .ProseMirror").first(); // (cards hold editors too)
   const menu = page.getByRole("button", { name: "More: Entries" });
+  const found = async (q: string) => (await get<{ total: number }>(`/repository/search?q=${encodeURIComponent(q)}&kind=entry`)).total;
   // nothing selected: the button says why
   await ed.locator("p", { hasText: "before" }).click();
   await menu.click();
   await expect(page.getByRole("button", { name: "Convert selection to entry" })).toHaveAttribute("aria-disabled", "true");
   await page.keyboard.press("Escape");
-  // select the two paragraphs (from the first's start into the second)
+  // two paragraphs: the first is the title, the second the text; no dialog, nothing on the server yet
   await ed.locator("p", { hasText: "Made here" }).click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+End");
   await menu.click();
   await page.getByRole("button", { name: "Convert selection to entry" }).click();
-  // the create dialog: the type, then title and text given
-  await page.locator(".type-card[data-type=note]").click();
-  await expect(page.locator("#new-title")).toHaveValue(`Made here ${id}`);
-  await expect(page.locator(".dialog cs-richtext .ProseMirror")).toHaveText("Body line");
-  await page.locator("[data-test=create]").click();
+  await expect(page.locator(".dialog")).toHaveCount(0);
   const card = ed.locator(".cs-placement");
   await expect(card).toContainText(`Made here ${id}`);
   await expect(card).toContainText("Body line");
-  await expect(ed.locator("p", { hasText: "Made here" })).toHaveCount(0);
-  await expect(ed.locator("> p")).toHaveText(["before", "after"]);
-  const guid = await card.getAttribute("data-placement");
+  await expect(card.locator(".pill.unsaved")).toHaveText("not saved yet");
+  await expect(ed.locator("> p")).toHaveText(["before", "after", long]);
+  expect(await found(`Made here ${id}`)).toBe(0);
+  // undo brings the text back, redo the card; still nothing on the server
+  await page.keyboard.press("Control+z");
+  await expect(card).toHaveCount(0);
+  await expect(ed.locator("> p")).toHaveText(["before", `Made here ${id}`, "Body line", "after", long]);
+  await page.keyboard.press("Control+y");
+  await expect(card).toHaveCount(1);
+  // a single paragraph: it is the text, its start the title (to the end of the word at 40 characters)
+  await ed.locator("p", { hasText: "single paragraph" }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await menu.click();
+  await page.locator(".pop.open").getByRole("button", { name: "Convert selection to entry" }).click();
+  await expect(card).toHaveCount(2);
+  const cut = 40 + long.slice(40).search(/\s|$/);
+  await expect(card.nth(1).locator(".title")).toHaveText(long.slice(0, cut));
+  await expect(card.nth(1)).toContainText(long);
+  // saved: created with the document, one commit; the GUIDs replace the keys
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  await expect(card.locator(".pill.unsaved")).toHaveCount(0);
+  expect(await found(`Made here ${id}`)).toBe(1);
+  const guid = (await card.first().getAttribute("data-placement"))!;
+  expect(guid).toMatch(/^[0-9a-f-]{36}$/);
   const entry = await get<{ meta: { title: string }; data: { fields: Record<string, unknown> } }>(`/entries/${guid}`);
   expect(entry.meta.title).toBe(`Made here ${id}`);
   expect(entry.data.fields.body).toEqual([{ text: [{ text: "Body ", bold: true }, { text: "line" }] }]);
+  const content = (await stored(d.meta.guid)).content;
+  expect(content[1]).toEqual({ entry: guid });
+  expect(JSON.stringify(content)).not.toContain("new:");
+  const hist = await get<{ history: { subject: string }[] }>(`/artifacts/${d.meta.guid}/history`);
+  expect(hist.history[0].subject).toContain("2 entries added");
   // the placed entry selected: the same button turns it into text (the entry stays)
-  await card.click();
+  await card.first().click();
   await menu.click();
-  // (the main button repeats the last one used: it says the same now)
   await expect(page.locator(".pop.open").getByRole("button", { name: "Turn the entry into text" })).toBeVisible();
   await page.locator(".pop.open").getByRole("button", { name: "Turn the entry into text" }).click();
-  await expect(card).toHaveCount(0);
-  await expect(ed.locator("> p")).toHaveText(["before", `Made here ${id}`, "Body line", "after"]);
+  await expect(card).toHaveCount(1);
+  await expect(ed.locator("> p").nth(1)).toHaveText(`Made here ${id}`);
   await expect(ed.locator("> p").nth(1).locator("strong, b")).toHaveText(`Made here ${id}`);
   expect((await get<{ meta: { title: string } }>(`/entries/${guid}`)).meta.title).toBe(`Made here ${id}`);
-
   // an entry's pictures become files of the document (saved with it)
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
   const pic = await post("/entries", { path: notes, type: "note", title: `Pictured ${id}`, fields: { body: [{ text: [{ image: "dot.png" }] }] } });
@@ -265,9 +291,10 @@ test("selected text becomes an entry (first line the title), and an entry become
   await page.locator("corestone-picker input[type=search]").fill(`Pictured ${id}`);
   await page.locator(".picker-results .row", { hasText: `Pictured ${id}` }).click();
   await page.locator("[data-test=pick-chosen]").click();
-  await card.click({ button: "right" });
+  const picCard = ed.locator(`.cs-placement[data-placement="${pic.meta.guid}"]`);
+  await picCard.click({ button: "right" });
   await page.locator(".cs-placementmenu button", { hasText: "Turn into text" }).click();
-  await expect(card).toHaveCount(0);
+  await expect(picCard).toHaveCount(0);
   await expect(ed.locator("img[data-file='dot.png']")).toBeVisible();
   await page.locator("[data-test=save]").click();
   await expect(page.locator("[data-test=save]")).toHaveText("Saved");

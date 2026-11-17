@@ -91,6 +91,8 @@ export interface SaveChanges {
   removeLinks?: { guid: string; etag?: string }[];
   addComments?: { type: string | null; text: string; parent?: string; author: string }[];
   removeFiles?: string[];
+  /** A document's new entries, created with its save; key: the name its content uses for one. */
+  addEntries?: { key: string; path: string; type: string; title: string; fields: Record<string, unknown> }[];
   /** The ETag of a conflict the user chose to overwrite. */
   overwrite?: string;
 }
@@ -143,15 +145,17 @@ export const api = {
   transition: (guid: string, workflow: string, to: string, etag?: string) =>
     request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
   /** Everything the detail form changed, published as one commit; attachments go as multipart. */
-  save: (guid: string, changes: SaveChanges, files: File[], etag?: string) => {
+  /** Saves; entryFiles: files of new entries (by key). created: the GUID each new entry got. */
+  save: (guid: string, changes: SaveChanges, files: File[], etag?: string, entryFiles: { key: string; file: File }[] = []) => {
     let body: unknown = changes;
-    if (files.length) {
+    if (files.length || entryFiles.length) {
       const form = new FormData();
       form.append("changes", JSON.stringify(changes));
       for (const f of files) form.append("file", f, f.name);
+      for (const e of entryFiles) form.append("entryfile:" + e.key, e.file, e.file.name);
       body = form;
     }
-    return request<View>("POST", `/artifacts/${guid}/save`, body, etag ? { "If-Match": `"${etag}"` } : {});
+    return request<View & { created?: Record<string, string> }>("POST", `/artifacts/${guid}/save`, body, etag ? { "If-Match": `"${etag}"` } : {});
   },
   /** A deleted artifact's last known name, if it was deleted. */
   deleted: (guid: string) => request<{ deleted: { guid: string; hid?: string; title: string }[] }>("GET", `/repository/deleted?guid=${encodeURIComponent(guid)}&limit=1`),

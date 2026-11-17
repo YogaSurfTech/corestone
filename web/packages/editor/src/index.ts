@@ -121,6 +121,8 @@ export class DocumentElement extends HTMLElement {
   moveSection(id: string, parentId: string | null, index: number) { return this.editor?.moveSection(id, parentId, index) ?? false; }
   /** Shows placed entries and cross-references again (e.g. once their names are known). */
   refresh() { this.editor?.refresh(); }
+  /** Puts the GUIDs a save gave new entries in place of their keys (the undo history stays). */
+  renameEntries(names: Map<string, string>) { this.editor?.renameEntries(names); }
   /** The toolbar, taken out of the editor for the host to place in its own bar. */
   toolbar(): HTMLElement | undefined { return this.editor?.detachToolbar(); }
 

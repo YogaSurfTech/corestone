@@ -46,18 +46,22 @@ export class DocumentUI {
     v.focus();
   }
 
-  /** Makes an entry of the selected text: its first line is the title, the rest its text (the
-   *  host asks for the type and the rest). The entry takes the text's place. */
+  /** Makes a new entry of the selected text, held until the document is saved: with two blocks
+   *  or more, the first paragraph is the title and the rest its text; a single block is the
+   *  text, and its start the title (to the first word end after 40 characters). The entry
+   *  takes the text's place. */
   async convert() {
     const h = this.host();
     if (!h?.convertToEntry) return;
     const sel = selectedText(this.view().state);
     if (typeof sel === "string") { this.notice(sel); return; }
     const [first, ...rest] = sel.nodes;
-    const titled = first.type === schema.nodes.paragraph;
+    const titled = sel.nodes.length > 1 && first.type === schema.nodes.paragraph && !!first.textContent.trim();
     const body = titled ? rest : sel.nodes;
     const text = body.length ? toStorage(schema.node("doc", null, body)) : "";
-    const guid = await h.convertToEntry({ title: titled ? first.textContent.replace(/\s+/g, " ").trim() : "", text, files: fileNames(text) });
+    const flat = (n: { textContent: string }) => n.textContent.replace(/\s+/g, " ").trim();
+    const title = titled ? flat(first) : shortTitle(sel.nodes.map(flat).join(" "));
+    const guid = await h.convertToEntry({ title, text, files: fileNames(text) });
     if (!guid) return;
     const v = this.view();
     // the text is replaced where it is, if it is still there unchanged; otherwise the entry is placed at the cursor
@@ -185,4 +189,12 @@ function el(tag: string, cls: string): HTMLElement {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   return e;
+}
+
+/** The start of a text as a title: up to the end of the word that reaches 40 characters. */
+export function shortTitle(text: string, min = 40): string {
+  const t = text.trim();
+  if (t.length <= min) return t;
+  const end = t.slice(min).search(/\s/);
+  return end < 0 ? t : t.slice(0, min + end);
 }
