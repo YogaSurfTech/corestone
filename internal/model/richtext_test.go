@@ -23,6 +23,7 @@ func TestValidateRichText(t *testing.T) {
 		`[{"text": ""}, {"text": "a\nb", "align": "right"}]`,
 		`[{"text": [{"text": "x", "bold": true, "color": "#1565c0", "font": "Georgia", "size": 14}, {"text": "y", "sup": true}]}]`,
 		`[{"list": "ol", "text": "one"}, {"list": "ol", "level": 2, "text": "one.one"}, {"list": "ul", "align": "center", "text": "b"}]`,
+		`[{"code": true, "text": "func main() {\n\trun()\n}", "lang": "go", "numbers": false}, {"code": true, "text": ""}, {"text": [{"text": "x := 1", "code": true}]}]`,
 		`[{"text": [{"text": "spec", "href": "https://example.org/a?b=1"}, {"text": "mail", "href": "mailto:a@b.org"}, {"text": "REQ-1", "ref": "6f1c2a1e-5b7d-4c1a-9d3e-2a4b5c6d7e8f", "bold": true}]}]`,
 	}
 	for _, s := range good {
@@ -44,6 +45,12 @@ func TestValidateRichText(t *testing.T) {
 		`[{"text": [{"text": "x", "color": "red"}]}]`:                "#rrggbb",
 		`[{"text": [{"text": "x", "size": 200}]}]`:                   "6 to 96",
 		`[{"text": [{"text": "x", "blink": true}]}]`:                 "unknown formatting",
+		`[{"code": true, "text": [{"text": "x", "bold": true}]}]`:    "without formatting",
+		`[{"code": false, "text": "x"}]`:                             "code is true or absent",
+		`[{"code": true, "list": "ul", "text": "x"}]`:                "code has no list",
+		`[{"lang": "go", "text": "x"}]`:                              "lang without code",
+		`[{"code": true, "lang": "Go Lang", "text": "x"}]`:           "short language name",
+		`[{"code": true, "numbers": 1, "text": "x"}]`:                "numbers is true or false",
 		`[{"text": [{"text": "x", "sub": true, "sup": true}]}]`:      "at once",
 		`[{"text": "bell\u0007"}]`:                                   "control",
 		`[{"text": [{"text": "x", "href": "javascript:alert(1)"}]}]`: "href is a web address",

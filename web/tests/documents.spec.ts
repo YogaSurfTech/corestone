@@ -499,8 +499,10 @@ test("table of contents: inserted from the Insert menu, follows the headings, le
   await insert();
   const toc = ed.locator(".cs-toc");
   await expect(toc.locator(".toc-row")).toHaveText(["1 Timing", "1.1 Start-up", "2 Safety"]);
-  // it follows a renamed heading
+  // it follows a renamed heading (the inserted block is still selected: the click must have
+  // arrived in the editor before the typing, or the typing would replace the block)
   await ed.locator(".cs-heading", { hasText: "Safety" }).click();
+  await expect(toc).not.toHaveClass(/ProseMirror-selectednode/);
   await page.keyboard.press("End");
   await page.keyboard.type(" rules");
   await expect(toc.locator(".toc-row").last()).toHaveText("2 Safety rules");
@@ -525,6 +527,34 @@ test("table of contents: inserted from the Insert menu, follows the headings, le
   await toc.first().click({ button: "right" });
   await page.locator(".cs-placementmenu").getByRole("menuitem", { name: "Remove", exact: true }).click();
   await expect(toc).toHaveCount(1);
+});
+
+test("code listings in a document: stored with the section, Tab indents instead of changing the level", async ({ page }) => {
+  const d = await newDoc(`Code ${id}`, [
+    { text: "intro" },
+    { section: "cccc0001", title: "Build", children: [{ text: "make build", code: true, lang: "bash" } as Node] },
+  ]);
+  const guid = d.meta.guid;
+  await page.goto(`/artifact/${guid}`);
+  const ed = page.locator(".doc-page cs-document .ProseMirror");
+  const code = ed.locator(".cs-code");
+  await expect(code.locator("code")).toHaveText("make build");
+  await expect(code.locator(".lang")).toHaveText("Bash");
+  await code.locator("code").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("make test");
+  // the intro paragraph becomes a listing with the Code button
+  await ed.locator("p", { hasText: "intro" }).click();
+  await page.keyboard.press("Control+Alt+c");
+  await expect(code).toHaveCount(2);
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  const c = (await stored(guid)).content as (Node & { code?: boolean; lang?: string })[];
+  expect(c[0]).toEqual({ text: "intro", code: true });
+  expect(c[1].children).toEqual([{ text: "make build\n  make test", code: true, lang: "bash" }]);
+  await expect(ed.locator(".cs-heading")).toHaveText(["Build"]);
 });
 
 test("sidebars: properties with schema fields, comments, relationships, versions; conflict on save", async ({ page }) => {

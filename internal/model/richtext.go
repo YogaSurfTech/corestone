@@ -14,6 +14,7 @@ import (
 //	{"text": "plain line"}
 //	{"align": "center", "text": [{"text": "Housing", "bold": true, "color": "#1565c0"}]}
 //	{"list": "ol", "level": 2, "text": "one.one"}
+//	{"code": true, "lang": "go", "text": "func main() {\n  run()\n}"}
 //	{"stripes": "rows", "widths": [120, null], "table": [[{"content": "Name", "header": true}, "Value"], [{"content": "both", "colspan": 2}]]}
 //
 // text is a string or a list of runs (text with its formatting); "\n"
@@ -28,6 +29,10 @@ import (
 // ({"formula": "E = mc^2", "png": "formula-….png", "display": true; display:
 // on a line of its own, centred). list makes the
 // paragraph a list item (ul bulleted, ol numbered) at level (1 when absent).
+// code (true) makes the paragraph a code listing: its text is a plain string,
+// its lines separated by "\n", shown in a fixed-width font; lang names its
+// language, numbers switches the line numbers on or off (absent: shown for
+// longer listings). A run with code (true) is code within a line.
 // A table has rows of cells; a cell is rich text itself (anything but a
 // table), or, when formatted, an object with its content, header (formatted
 // as a header cell) and colspan/rowspan; the cells a spanning cell covers are
@@ -44,6 +49,9 @@ const (
 )
 
 var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+// codeLang is the language of a code paragraph: a short lower-case name ("go", "c++", "objective-c").
+var codeLang = regexp.MustCompile(`^[a-z0-9][a-z0-9+#.-]{0,29}$`)
 
 // IsItemRef reports whether s is the target of a link to an item: its GUID,
 // or a section of a document, "<document GUID>#<section id>".
@@ -227,6 +235,34 @@ func validateBlock(at string, o *ojson.Object) (int, error) {
 			if l, ok := integer(v); !ok || l < 1 || l > maxListLevel {
 				return 0, Invalid("%s: level is 1 to %d", at, maxListLevel)
 			}
+		case "code":
+			if v != true {
+				return 0, Invalid("%s: code is true or absent", at)
+			}
+			if t, _ := o.Get("text"); t != nil {
+				if _, plain := t.(string); !plain {
+					return 0, Invalid("%s: code is plain text, without formatting", at)
+				}
+			}
+			for _, other := range []string{"align", "list"} {
+				if _, ok := o.Get(other); ok {
+					return 0, Invalid("%s: code has no %s", at, other)
+				}
+			}
+		case "lang":
+			if _, ok := o.Get("code"); !ok {
+				return 0, Invalid("%s: lang without code", at)
+			}
+			if s, _ := v.(string); !codeLang.MatchString(s) {
+				return 0, Invalid("%s: lang is a short language name", at)
+			}
+		case "numbers":
+			if _, ok := o.Get("code"); !ok {
+				return 0, Invalid("%s: numbers without code", at)
+			}
+			if _, ok := v.(bool); !ok {
+				return 0, Invalid("%s: numbers is true or false", at)
+			}
 		default:
 			return 0, Invalid("%s: unknown property %q", at, k)
 		}
@@ -282,7 +318,7 @@ func validateInline(at string, v any) (int, error) {
 			v, _ := o.Get(k)
 			switch k {
 			case "text":
-			case "bold", "italic", "underline", "strike", "sub", "sup":
+			case "bold", "italic", "underline", "strike", "sub", "sup", "code":
 				if v != true {
 					return 0, Invalid("%s: %s is true or absent", at, k)
 				}

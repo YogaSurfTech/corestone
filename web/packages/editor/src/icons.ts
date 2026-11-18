@@ -7,6 +7,8 @@ const ICONS: Record<string, string> = {
   italic: '<path d="M10 5h8M6 19h8M14 5l-4 14"/>',
   underline: '<path d="M7 4v7a5 5 0 0 0 10 0V4"/><path d="M5 20h14"/>',
   strike: '<path d="M4 12h16"/><path d="M16 7a4 3 0 0 0-8 0c0 4 8 3 8 7a4 3 0 0 1-8 1"/>',
+  code: '<path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 5-4 14"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
   sub: '<path d="m4 6 8 10M12 6l-8 10"/><path d="M15 15a2 2 0 1 1 4 0c0 1.5-4 2.5-4 5h4"/>',
   sup: '<path d="m4 8 8 10M12 8l-8 10"/><path d="M15 6a2 2 0 1 1 4 0c0 1.5-4 2.5-4 5h4"/>',
   fcolor: '<path d="m7 16 5-12 5 12M9 12h6"/>',

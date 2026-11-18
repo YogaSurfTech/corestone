@@ -2,7 +2,7 @@
 """Converts a Markdown file into a Corestone document (texts and pictures; no entries).
 
 The first level-1 heading is the document's title; the other headings become nested sections.
-Bold, italic and web links are kept; inline code and code blocks use Courier New; lists keep their
+Bold, italic and web links are kept; code within a line and code blocks become code (a block keeps its language); lists keep their
 kind and level; tables keep their first row as header cells; quotes become italic paragraphs.
 <img src="..."> pictures with a local path become images (their files listed under "images");
 badges, HTML wrappers and horizontal rules are dropped, as are links that are not web addresses.
@@ -25,7 +25,7 @@ def runs(s, base=None):
     for m in INLINE.finditer(s):
         if m.start() > pos: out.append({"text": s[pos:m.start()], **base})
         if m.group(2) or m.group(3): out += runs(m.group(2) or m.group(3), {**base, "bold": True})
-        elif m.group(4) is not None: out.append({"text": m.group(4), **base, "font": "Courier New"})
+        elif m.group(4) is not None: out.append({"text": m.group(4), **base, "code": True})
         elif m.group(5):
             href = m.group(6)
             extra = {"href": href} if re.match(r"^(https?:|mailto:|ftp:)", href) else {}
@@ -59,10 +59,12 @@ def convert(md, images):
         ln = lines[i]
         s = ln.strip()
         if s.startswith("```"):
-            flush(); i += 1; code = []
+            flush(); lang = s[3:].strip().lower(); i += 1; code = []
             while i < len(lines) and not lines[i].strip().startswith("```"): code.append(lines[i]); i += 1
             i += 1
-            cur().append({"text": [{"text": "\n".join(code) or " ", "font": "Courier New"}]})
+            block = {"text": "\n".join(code), "code": True}
+            if re.fullmatch(r"[a-z0-9][a-z0-9+#.-]{0,29}", lang): block["lang"] = lang
+            cur().append(block)
             continue
         m = re.match(r"^(#{1,6})\s+(.*?)\s*#*$", s)
         if m:

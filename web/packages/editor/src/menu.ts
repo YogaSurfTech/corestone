@@ -74,6 +74,38 @@ export function buildMenu(items: MenuItem[], state: EditorState, act: (it: MenuI
   return out;
 }
 
+/** Shows a menu of items at a point of the page, inside root (the editor's element); a click
+ *  outside or Escape closes it (Escape calls back, to give the focus to the text again).
+ *  Returns what closes it. */
+export function popupMenu(root: HTMLElement, label: string, cls: string, items: MenuItem[], state: EditorState, at: { x: number; y: number },
+  act: (it: MenuItem) => void, escaped: () => void): () => void {
+  const menu = el("div", "cs-menu " + cls);
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", label);
+  let outside: ((e: MouseEvent) => void) | undefined;
+  const close = () => {
+    menu.remove();
+    if (outside) document.removeEventListener("mousedown", outside, true);
+    outside = undefined;
+  };
+  menu.append(...buildMenu(items, state, (it) => { close(); act(it); }));
+  menu.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+    escaped();
+  });
+  root.append(menu);
+  const r = root.getBoundingClientRect();
+  menu.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - menu.offsetWidth))}px`;
+  menu.style.top = `${at.y - r.top}px`;
+  outside = (e) => { if (!menu.contains(e.target as globalThis.Node)) close(); };
+  document.addEventListener("mousedown", outside, true);
+  (menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
+  return close;
+}
+
 /** Closes the open submenus of a menu (not the menu itself). */
 function closeSubs(menu: HTMLElement) {
   menu.querySelectorAll<HTMLElement>(":scope > .has-sub > .sub").forEach((s) => { s.hidden = true; });

@@ -851,3 +851,121 @@ test("diagrams: drawn in draw.io, stored as a PNG with the diagram inside; edite
   await item.hover();
   await expect(page.locator(".cs-tip.on")).toContainText("draw.io is not installed");
 });
+
+test("code: paragraphs become one listing; Enter, Tab, leaving it; back to normal text", async ({ page }) => {
+  const area = page.locator(".cs-area .ProseMirror");
+  await area.click();
+  await page.keyboard.type("x = 1");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("y = 2");
+  await page.keyboard.press("Control+a");
+  // the Code button is in the text formatting group
+  await page.getByRole("button", { name: "More: Text format" }).click();
+  await page.getByRole("button", { name: "Code", exact: true }).click();
+  const code = area.locator(".cs-code");
+  await expect(code).toHaveCount(1);
+  await expect(code.locator("code")).toHaveText("x = 1\ny = 2");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: "x = 1\ny = 2", code: true }]);
+  // Enter starts a line and keeps the indent; Tab indents; an empty last line leaves the listing
+  await code.locator("code").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("z = 3");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("w = 4");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("after");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: "x = 1\ny = 2\n  z = 3\n  w = 4", code: true }, { text: "after" }]);
+  // formatting has no effect in a listing
+  await code.locator("code").click();
+  await page.keyboard.press("Control+b");
+  await page.keyboard.type("!");
+  // the same button turns it back into paragraphs
+  await page.keyboard.press("Control+Alt+c");
+  await expect(code).toHaveCount(0);
+  await page.locator("#save").click();
+  const back = await stored(page) as string;
+  expect(back.split("\n")).toHaveLength(5);
+  expect(back).not.toContain("bold");
+});
+
+test("code within a line: part of a paragraph selected", async ({ page }) => {
+  const area = page.locator(".cs-area .ProseMirror");
+  await area.click();
+  await page.keyboard.type("call run now");
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft");
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Control+Alt+c");
+  await expect(area.locator("code.cs-inline-code")).toHaveText("run");
+  await expect(area.locator(".cs-code")).toHaveCount(0);
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: [{ text: "call " }, { text: "run", code: true }, { text: " now" }] }]);
+  // again: off (the selection is still there; the focus goes back from the Save button)
+  await area.focus();
+  await page.keyboard.press("Control+Alt+c");
+  await page.locator("#save").click();
+  expect(await stored(page)).toBe("call run now");
+});
+
+test("code: line numbers from 11 lines or by choice, language, copy", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const short = "a\nb\nc";
+  const long = Array.from({ length: 11 }, (_, i) => `line ${i + 1}`).join("\n");
+  await page.locator("#json").fill(JSON.stringify([{ text: short, code: true }, { text: "between" }, { text: long, code: true, lang: "go" }]));
+  await page.locator("#load").click();
+  const code = page.locator(".cs-area .ProseMirror .cs-code");
+  // numbers: off for a short listing, on for a long one
+  await expect(code.nth(0)).not.toHaveClass(/numbered/);
+  await expect(code.nth(1)).toHaveClass(/numbered/);
+  const numbers = (c: import("@playwright/test").Locator) => c.locator(".ln").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.n));
+  expect(await numbers(code.nth(1))).toEqual(Array.from({ length: 11 }, (_, i) => String(i + 1)));
+  // the numbers are not text: the listing's text is unchanged, and typing at a line's start goes into the line
+  await expect(code.nth(1).locator("code")).toHaveText(long);
+  await page.locator(".cs-area .ProseMirror p", { hasText: "between" }).click();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Home");
+  await page.keyboard.type("# ");
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("line 12");
+  const longer = long.replace("line 2", "# line 2") + "\nline 12";
+  await expect(code.nth(1).locator("code")).toHaveText(longer);
+  expect(await numbers(code.nth(1))).toHaveLength(12);
+  // on paper nothing scrolls: a long line wraps inside the frame, its number stays with it
+  await page.keyboard.type(" " + "x".repeat(400));
+  await page.emulateMedia({ media: "print" });
+  expect(await code.nth(1).locator("pre").evaluate((p) => p.scrollWidth <= p.clientWidth + 1)).toBe(true);
+  await page.emulateMedia({ media: "screen" });
+  expect(await code.nth(1).locator("pre").evaluate((p) => p.scrollWidth > p.clientWidth)).toBe(true);
+  for (let i = 0; i < 401; i++) await page.keyboard.press("Backspace");
+  await expect(code.nth(1).locator(".lang")).toHaveText("Go");
+  // the small × above the first number hides them; the choice is stored
+  await code.nth(1).locator(".off").click();
+  await expect(code.nth(1)).not.toHaveClass(/numbered/);
+  // the menu on the right mouse button: numbers on for the short one, and its language
+  const menu = page.locator(".cs-codemenu");
+  await code.nth(0).locator("code").click({ button: "right" });
+  await menu.getByRole("menuitemcheckbox", { name: "Line numbers" }).click();
+  await expect(code.nth(0)).toHaveClass(/numbered/);
+  await code.nth(0).locator("code").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: /^Language/ }).hover();
+  await menu.getByRole("menuitemcheckbox", { name: "Python", exact: true }).click();
+  await expect(code.nth(0).locator(".lang")).toHaveText("Python");
+  await page.locator("#save").click();
+  expect(await stored(page)).toEqual([{ text: short, code: true, lang: "python", numbers: true }, { text: "between" }, { text: longer, code: true, lang: "go", numbers: false }]);
+  // Ctrl+Home reaches a listing at the very start of the text
+  await page.locator(".cs-area .ProseMirror p", { hasText: "between" }).click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.type("#");
+  await expect(code.nth(0).locator("code")).toHaveText("#" + short);
+  await page.keyboard.press("Backspace");
+  // the copy button copies the text, without the numbers
+  await code.nth(0).locator(".copy").click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(short);
+});
