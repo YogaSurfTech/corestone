@@ -499,8 +499,10 @@ test("table of contents: inserted from the Insert menu, follows the headings, le
   await insert();
   const toc = ed.locator(".cs-toc");
   await expect(toc.locator(".toc-row")).toHaveText(["1 Timing", "1.1 Start-up", "2 Safety"]);
-  // it follows a renamed heading
+  // it follows a renamed heading (the inserted block is still selected: the click must have
+  // arrived in the editor before the typing, or the typing would replace the block)
   await ed.locator(".cs-heading", { hasText: "Safety" }).click();
+  await expect(toc).not.toHaveClass(/ProseMirror-selectednode/);
   await page.keyboard.press("End");
   await page.keyboard.type(" rules");
   await expect(toc.locator(".toc-row").last()).toHaveText("2 Safety rules");

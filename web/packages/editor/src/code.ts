@@ -5,6 +5,7 @@ import { Decoration, DecorationSet, type EditorView, type NodeView } from "prose
 import { icon } from "./icons";
 import type { MenuItem } from "./menu";
 import { schema } from "./schema";
+import { synced } from "./structure";
 
 // Code: a listing (a block of plain text in a fixed-width font, with a frame, optional line
 // numbers and a copy button) and code within a line (a character format). One command makes
@@ -196,7 +197,7 @@ const leave: Command = (state, dispatch) => {
 /** The keys inside a listing: Enter starts a line (keeping the indent), on an empty last line it
  *  leaves the listing; Tab and Shift+Tab indent; Backspace in an empty listing makes it normal
  *  text; the down arrow on the last line of the last block leaves it. */
-export const codeKeys: Record<string, Command> = {
+export const codeKeys: Record<string, Command> = Object.fromEntries(Object.entries<Command>({
   "Enter": inCode((state, dispatch) => {
     const { $from, $to, empty } = state.selection;
     const text = $from.parent.textContent;
@@ -246,7 +247,8 @@ export const codeKeys: Record<string, Command> = {
     if (state.doc.resolve($to.after()).nodeAfter) return false; // something follows: the cursor goes there by itself
     return leave(state, dispatch);
   }),
-};
+// (each takes over the browser's cursor first: a key right after a click acts where the cursor now is)
+}).map(([key, cmd]) => [key, synced(cmd)]));
 
 /** The menu of the listing at pos: copy, line numbers, language, back to normal text. */
 export function codeMenu(pos: number, copy: () => void): MenuItem[] {
