@@ -1,12 +1,12 @@
 import { LitElement, html, nothing } from "lit";
-import { errorText, prefs } from "@corestone/ui";
+import { errorText, fmtTime, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
-import { fmtTime, kindIcon, kindLabel, relTime } from "./util";
+import { kindIcon, kindLabel } from "./util";
 import type { TableColumn, TableContext } from "./table";
 import "./table";
 import "./type-icon";

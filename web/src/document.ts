@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, render, type TemplateResult } from "lit";
-import { errorText } from "@corestone/ui";
+import { deepEqual, errorText, fmtTime, relTime } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
@@ -9,7 +9,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, showValue, undeclaredField } from "./util";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField } from "./util";
 import { MAX_ATTACHMENT, freeFileName } from "./detail";
 import "./type-icon";
 import { appIcon, type AppIcon } from "./icons";

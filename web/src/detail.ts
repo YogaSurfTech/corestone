@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
-import { drag, errorText, prefs } from "@corestone/ui";
+import { deepEqual, drag, errorText, fmtSize, fmtTime, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -7,7 +7,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type Route, type State, toastError } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtSize, fmtTime, hidLabel, label, showValue, undeclaredField } from "./util";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField } from "./util";
 import "./type-icon";
 import "./table";
 import type { TableColumn } from "./table";

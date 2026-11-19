@@ -4,7 +4,7 @@ import type { EditorView, NodeView } from "prosemirror-view";
 import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { safeFileName, schema } from "./schema";
-import { el } from "@corestone/ui";
+import { dataUrlToBlob, el } from "@corestone/ui";
 
 // Images and file links: files of the entry the text belongs to. The host
 // application keeps the files (the editor knows nothing of where); new ones
@@ -172,11 +172,8 @@ export function imageImporter(files: () => EntryFiles | undefined, notice: (msg:
  *  from its own server: data: addresses are decoded, blob: ones (images of this page)
  *  redrawn; images of other sites cannot be read (and are left out). */
 async function download(from: string): Promise<Blob> {
-  const data = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(from);
-  if (data) {
-    const body = data[2] ? Uint8Array.from(atob(data[3]), (c) => c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(data[3]));
-    return new Blob([body], { type: data[1] });
-  }
+  const data = dataUrlToBlob(from);
+  if (data) return data;
   if (from.startsWith("blob:")) {
     const img = new Image();
     img.src = from;

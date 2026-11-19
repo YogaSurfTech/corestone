@@ -6,3 +6,5 @@ export { button, el, type ButtonOptions } from "./lib/dom";
 export { prefs, type PrefsOptions } from "./lib/prefs";
 export { errorText } from "./lib/errors";
 export { drag, type DragOptions } from "./lib/drag";
+export { deepEqual, fmtSize, fmtTime, relTime } from "./lib/format";
+export { dataUrlToBlob } from "./lib/data-url";

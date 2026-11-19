@@ -4,7 +4,7 @@ import type { Node } from "prosemirror-model";
 import { isPicture, type EntryFiles } from "./files";
 import { icon } from "./icons";
 import { schema } from "./schema";
-import { button, el } from "@corestone/ui";
+import { button, dataUrlToBlob, el } from "@corestone/ui";
 
 // Diagrams: drawn in draw.io, kept as one PNG file of the entry with the
 // diagram's source inside it (draw.io's "xmlpng"). The host serves draw.io (the
@@ -46,10 +46,9 @@ const toDataUrl = (b: Blob) => new Promise<string>((ok, fail) => {
 });
 
 function fromDataUrl(uri: string): Blob {
-  const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(uri);
-  if (!m) throw new Error("not a picture");
-  const bytes = m[2] ? Uint8Array.from(atob(m[3]), (c) => c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(m[3]));
-  return new Blob([bytes], { type: m[1] });
+  const blob = dataUrlToBlob(uri);
+  if (!blob) throw new Error("not a picture");
+  return blob;
 }
 
 /** The diagram dialog: draw.io in a large panel, for a new diagram or the selected one. */
