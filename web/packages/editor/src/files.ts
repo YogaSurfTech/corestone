@@ -4,6 +4,7 @@ import type { EditorView, NodeView } from "prosemirror-view";
 import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { safeFileName, schema } from "./schema";
+import { el } from "@corestone/ui";
 
 // Images and file links: files of the entry the text belongs to. The host
 // application keeps the files (the editor knows nothing of where); new ones
@@ -420,9 +421,3 @@ export class FileUI {
 /** Whether the selection is an image. */
 export const imageSelected = (state: EditorState) =>
   state.selection instanceof NodeSelection && state.selection.node.type === schema.nodes.image;
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
-}

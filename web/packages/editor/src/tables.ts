@@ -9,6 +9,7 @@ import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { hexColor, schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
 import type { ColorChoices } from "./toolbar";
+import { button, el } from "@corestone/ui";
 
 // Tables: inserting one (a size grid), the context menu (rows, columns,
 // header format, merging) and the Properties dialog (size, stripes,
@@ -293,7 +294,7 @@ export class TableUI {
     const head = el("div", "head");
     const title = el("span", "title");
     title.textContent = "Table Properties";
-    const x = iconButton("close", "Close", "x");
+    const x = button({ cls: "x", label: "Close", html: icon("close", 20) });
     head.append(title, x);
 
     const num = (cls: string, name: string, value: number, max: number) => {
@@ -321,7 +322,7 @@ export class TableUI {
       g.setAttribute("role", "radiogroup");
       g.setAttribute("aria-label", name);
       const bs = opts.map(([v, label]) => {
-        const b = iconButton(`${cls[0]}-${v ?? "none"}`, label, "opt");
+        const b = button({ cls: "opt", label, html: icon(`${cls[0]}-${v ?? "none"}`, 20) });
         b.setAttribute("role", "radio");
         b.addEventListener("click", (e) => {
           e.preventDefault();
@@ -481,19 +482,4 @@ export function tableAt(state: EditorState): { node: Node; pos: number } | null 
     if ($from.node(d).type === schema.nodes.table) return { node: $from.node(d), pos: $from.before(d) };
   }
   return null;
-}
-
-function iconButton(name: string, label: string, cls: string): HTMLButtonElement {
-  const b = el("button", cls) as HTMLButtonElement;
-  b.type = "button";
-  b.title = label;
-  b.setAttribute("aria-label", label);
-  b.innerHTML = icon(name, 20);
-  return b;
-}
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
 }
