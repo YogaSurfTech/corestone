@@ -62,6 +62,8 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
       - run: npm run typecheck
+      - run: npm run check:layers
+      - run: npm run test:unit
       - run: npm run build
 
   e2e:
