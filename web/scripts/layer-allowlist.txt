@@ -1,0 +1,17 @@
+# Known violations of the layer rule (scripts/check-layers.mjs), one per file
+# and kind. This list only shrinks: fix the code, then remove the line.
+
+# Storage goes through one prefs module.
+packages/editor/src/toolbar.ts: uses localStorage
+src/api.ts: uses localStorage
+src/app.ts: uses localStorage
+src/detail.ts: uses localStorage
+src/detail.ts: uses sessionStorage
+src/dialogs.ts: uses localStorage
+src/overview.ts: uses localStorage
+src/store.ts: uses localStorage
+
+# Only api.ts talks to the server.
+packages/editor/src/files.ts: uses fetch
+src/detail.ts: uses fetch
+src/document.ts: uses fetch
