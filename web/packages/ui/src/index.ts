@@ -3,3 +3,4 @@
 // controls built on them. Nothing here knows about Corestone's data, the
 // server, or ProseMirror (see web/scripts/check-layers.mjs).
 export { button, el, type ButtonOptions } from "./lib/dom";
+export { prefs, type PrefsOptions } from "./lib/prefs";

@@ -1,4 +1,5 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -40,13 +41,14 @@ type Section = (typeof SECTIONS)[number];
 const OPEN_KEY = "corestone.detail.sections";
 
 function readOpenPrefs(): Record<string, boolean> {
-  try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "{}") ?? {}; } catch { return {}; }
+  return prefs.json<Record<string, boolean>>(OPEN_KEY, {}, { session: true });
 }
 
 /** The height the user dragged a resizable area to (per name), if any. */
 const heightKey = (name: string) => `corestone.height.${name}`;
 function savedHeight(name: string): string {
-  try { const h = Number(localStorage.getItem(heightKey(name))); return h > 0 ? `height:${h}px` : ""; } catch { return ""; }
+  const h = Number(prefs.text(heightKey(name)));
+  return h > 0 ? `height:${h}px` : "";
 }
 
 /** Drags the bottom edge of the area before the grip; double-click goes back to the default. */
@@ -64,7 +66,7 @@ function heightGrip(name: string) {
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", up);
       grip.removeEventListener("pointercancel", up);
-      try { localStorage.setItem(heightKey(name), String(h)); } catch { /* storage unavailable */ }
+      prefs.setText(heightKey(name), String(h));
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", up);
@@ -73,7 +75,7 @@ function heightGrip(name: string) {
   const reset = (e: Event) => {
     const area = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;
     area.style.height = area.style.maxHeight = "";
-    try { localStorage.removeItem(heightKey(name)); } catch { /* storage unavailable */ }
+    prefs.remove(heightKey(name));
   };
   return html`<div class="height-grip" data-test=${`${name}-resize`} title="Drag to resize, double-click to reset"
     @pointerdown=${start} @dblclick=${reset}></div>`;
@@ -768,7 +770,7 @@ export class Detail extends LitElement {
   private setOpen(s: Section, open: boolean, persist = true) {
     if (this.historic && this.sectionChange(s).length) { this.versionOpen = { ...this.versionOpen, [s]: open }; return; }
     this.openPrefs = { ...this.openPrefs, [s]: open };
-    if (persist) try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(this.openPrefs)); } catch { /* storage unavailable */ }
+    if (persist) prefs.setJson(OPEN_KEY, this.openPrefs, { session: true });
     if (s === "history" && open && !this.historyLoaded) void this.loadHistory();
   }
   /** Loads the history in batches: the first one, or (more) the next older one. */

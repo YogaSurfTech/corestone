@@ -1,4 +1,5 @@
 import { LitElement, html, nothing } from "lit";
+import { prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -26,8 +27,8 @@ export class App extends LitElement {
   @state() private dismissedConfig = ""; // the invalid-config set the user closed; a different set shows again
   private lastGuid: string | null = null;
   private statusTimer = 0;
-  @state() private split = Number(localStorage.getItem("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
-  @state() private navW = Number(localStorage.getItem("corestone.navWidth")) || DEFAULT_NAV_W;
+  @state() private split = Number(prefs.text("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
+  @state() private navW = Number(prefs.text("corestone.navWidth")) || DEFAULT_NAV_W;
 
   override createRenderRoot() { return this; }
   override connectedCallback() {
@@ -68,7 +69,7 @@ export class App extends LitElement {
 
   private setSplit(pct: number, persist = true) {
     this.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, pct));
-    if (persist) localStorage.setItem("corestone.split", String(Math.round(this.split)));
+    if (persist) prefs.setText("corestone.split", String(Math.round(this.split)));
   }
 
   // The divider between the overview and the selected artifact: drag, arrow
@@ -99,7 +100,7 @@ export class App extends LitElement {
 
   private setNavW(px: number, persist = true) {
     this.navW = Math.min(MAX_NAV_W, Math.max(MIN_NAV_W, px));
-    if (persist) localStorage.setItem("corestone.navWidth", String(Math.round(this.navW)));
+    if (persist) prefs.setText("corestone.navWidth", String(Math.round(this.navW)));
   }
 
   // The divider between the folder navigation and the main area.

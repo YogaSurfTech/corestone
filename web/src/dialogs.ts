@@ -1,4 +1,5 @@
 import { LitElement, html, nothing } from "lit";
+import { prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api, ApiError } from "./api";
@@ -23,7 +24,7 @@ const sizeKey = (name: string) => name === "picker" ? "corestone.pickerSize" : `
 /** The size the user last dragged a dialog to, if any. */
 function savedSize(name: string): { w: number; h: number } | null {
   try {
-    const v = JSON.parse(localStorage.getItem(sizeKey(name)) ?? "null");
+    const v = prefs.json<{ w: number; h: number } | null>(sizeKey(name), null);
     return v && v.w > 0 && v.h > 0 ? v : null;
   } catch { return null; }
 }
@@ -79,7 +80,7 @@ export class Dialogs extends LitElement {
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", up);
       grip.removeEventListener("pointercancel", up);
-      try { localStorage.setItem(sizeKey(grip.dataset.size ?? "picker"), JSON.stringify(size)); } catch { /* storage unavailable */ }
+      prefs.setJson(sizeKey(grip.dataset.size ?? "picker"), size);
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", up);
@@ -91,7 +92,7 @@ export class Dialogs extends LitElement {
     const grip = e.currentTarget as HTMLElement;
     const box = grip.parentElement!;
     box.style.width = box.style.height = "";
-    try { localStorage.removeItem(sizeKey(grip.dataset.size ?? "picker")); } catch { /* storage unavailable */ }
+    prefs.remove(sizeKey(grip.dataset.size ?? "picker"));
   };
 
   override updated() {
@@ -398,7 +399,7 @@ const PICKER_SORT_KEY = "corestone.pickerSort";
 
 function pickerSort(): SortLevel[] {
   try {
-    const v = JSON.parse(localStorage.getItem(PICKER_SORT_KEY) ?? "[]");
+    const v = prefs.json<unknown>(PICKER_SORT_KEY, []);
     return Array.isArray(v) ? v.filter((l) => typeof l?.col === "string" && (l.dir === "asc" || l.dir === "desc")).slice(0, 3) : [];
   } catch { return []; }
 }
@@ -503,7 +504,7 @@ export class Picker extends LitElement {
       <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         .selected=${this.multi ? (r: Summary) => this.chosen.has(r.guid) : undefined}
-        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
+        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; prefs.setJson(PICKER_SORT_KEY, e.detail); }}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @row-click=${(e: CustomEvent<Summary>) => {
           if (this.multi) { this.toggle(e.detail); return; }

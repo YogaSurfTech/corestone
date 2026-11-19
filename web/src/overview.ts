@@ -1,4 +1,5 @@
 import { LitElement, html, nothing } from "lit";
+import { prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -22,7 +23,7 @@ interface TableLayout { widths: Record<string, number>; sort: SortLevel[] }
 
 function loadLayout(): TableLayout {
   try {
-    const l = JSON.parse(localStorage.getItem("corestone.table") ?? "{}");
+    const l = prefs.json<Record<string, unknown>>("corestone.table", {});
     const stored: unknown[] = Array.isArray(l.sort) ? l.sort : l.sort ? [l.sort] : [];
     const sort: SortLevel[] = [];
     for (const value of stored) {
@@ -31,7 +32,7 @@ function loadLayout(): TableLayout {
       sort.push({ col: value.col, dir: value.dir });
       if (sort.length === 3) break;
     }
-    return { widths: l.widths && typeof l.widths === "object" ? l.widths : {}, sort };
+    return { widths: l.widths && typeof l.widths === "object" ? l.widths as Record<string, number> : {}, sort };
   } catch { return { widths: {}, sort: [] }; }
 }
 
@@ -243,7 +244,7 @@ export class Overview extends LitElement {
 
   private saveLayout(layout: TableLayout) {
     this.layout = layout;
-    localStorage.setItem("corestone.table", JSON.stringify(layout));
+    prefs.setJson("corestone.table", layout);
   }
 
   private context(): string {

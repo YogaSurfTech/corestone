@@ -2,6 +2,7 @@ import type {
   Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
   Workflow, WorkflowEval,
 } from "./types";
+import { prefs } from "@corestone/ui";
 
 export class ApiError extends Error {
   /** body is the parsed error response, e.g. the conflicts of a refused save. */
@@ -27,12 +28,7 @@ export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn; }
 
 /** Names the configured user so the server records them as commit author. */
 function userHeader(): Record<string, string> {
-  let user = "";
-  try {
-    user = localStorage.getItem("corestone.user") || "";
-  } catch {
-    /* storage unavailable */
-  }
+  const user = prefs.text("corestone.user") || "";
   return user ? { "X-Corestone-User": encodeURIComponent(user) } : {};
 }
 
