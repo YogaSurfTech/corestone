@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
 import type { EnumOption } from "./types";
@@ -13,7 +14,7 @@ export function enumLabel(option: EnumOption, folder: string) {
 }
 
 @customElement("corestone-enum")
-export class EnumControl extends LitElement {
+export class EnumControl extends LightElement {
   @property({ attribute: false }) options: EnumOption[] = [];
   @property({ attribute: false }) suggestions: string[] = [];
   @property({ attribute: false }) value: unknown;
@@ -25,7 +26,6 @@ export class EnumControl extends LitElement {
   @state() private open = false;
   @state() private query = "";
 
-  override createRenderRoot() { return this; }
   private pointerActive = false;
   private pointerDown = () => { this.pointerActive = true; };
   private pointerUp = () => { this.pointerActive = false; };

@@ -1,5 +1,5 @@
-import { LitElement, html, nothing, type TemplateResult } from "lit";
-import { deepEqual, drag, errorText, fmtSize, fmtTime, prefs } from "@corestone/ui";
+import { html, nothing, type TemplateResult } from "lit";
+import { LightElement, deepEqual, drag, errorText, fmtSize, fmtTime, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -74,9 +74,8 @@ function heightGrip(name: string) {
     @pointerdown=${start} @dblclick=${reset}></div>`;
 }
 
-
 @customElement("corestone-detail")
-export class Detail extends LitElement {
+export class Detail extends LightElement {
   @property() guid = "";
   /** A historic version to show: the content blob and the commit it is viewed at ("" = current). */
   @property() version = "";
@@ -128,7 +127,6 @@ export class Detail extends LitElement {
   private softInFlight = false;
   private softPending = false;
 
-  override createRenderRoot() { return this; }
   /** Asked by the router before leaving this artifact with unsaved changes. */
   private leaveGuard: LeaveGuard = {
     dirty: () => this.dirty,
@@ -1204,7 +1202,6 @@ export class Detail extends LitElement {
     } catch (e) { toastError(e); }
     finally { this.busy = false; }
   };
-
 
   /** The commits that touched the artifact, newest first; each opens the artifact as it was then. */
   private historySection() {

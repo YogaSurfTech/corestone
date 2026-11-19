@@ -1,4 +1,5 @@
-import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -21,7 +22,7 @@ export function countTitle(f: FolderInfo): string {
 }
 
 @customElement("corestone-sidebar")
-export class Sidebar extends LitElement {
+export class Sidebar extends LightElement {
   private unsub?: () => void;
   private s!: State;
   @state() private root: Node = { info: { name: "Repository", path: "", artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
@@ -35,7 +36,6 @@ export class Sidebar extends LitElement {
   @state() private filter = "";
   private rootSeq = 0;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => {

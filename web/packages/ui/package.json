@@ -7,5 +7,8 @@
   "description": "Building blocks for the Corestone web client and its editor: small helpers (src/lib) and the controls built on them. Knows nothing about Corestone's data or the server.",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "lit": "^3.3.0"
   }
 }

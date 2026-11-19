@@ -1,5 +1,5 @@
-import { LitElement, html, nothing } from "lit";
-import { drag, prefs } from "@corestone/ui";
+import { html, nothing } from "lit";
+import { LightElement, drag, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -20,7 +20,7 @@ const DEFAULT_SPLIT = 38, MIN_SPLIT = 12, MAX_SPLIT = 85;
 const DEFAULT_NAV_W = 288, MIN_NAV_W = 180, MAX_NAV_W = 640; // sidebar width, px
 
 @customElement("corestone-app")
-export class App extends LitElement {
+export class App extends LightElement {
   private unsub?: () => void;
   private s!: State;
   @state() private selectedKind: string | null = null;
@@ -30,7 +30,6 @@ export class App extends LitElement {
   @state() private split = Number(prefs.text("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
   @state() private navW = Number(prefs.text("corestone.navWidth")) || DEFAULT_NAV_W;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => {

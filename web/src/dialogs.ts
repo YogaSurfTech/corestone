@@ -1,5 +1,5 @@
-import { LitElement, html, nothing } from "lit";
-import { drag, errorText, prefs } from "@corestone/ui";
+import { html, nothing } from "lit";
+import { LightElement, drag, errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api } from "./api";
@@ -34,10 +34,9 @@ const sizeStyle = (name: string) => { const sz = savedSize(name); return sz ? `w
 // form → create), the artifact picker, and confirmations.
 
 @customElement("corestone-dialogs")
-export class Dialogs extends LitElement {
+export class Dialogs extends LightElement {
   private unsub?: () => void;
   private s!: State;
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => { this.s = s; this.requestUpdate(); });
@@ -153,7 +152,7 @@ export class Dialogs extends LitElement {
 }
 
 @customElement("corestone-new-dialog")
-export class NewDialog extends LitElement {
+export class NewDialog extends LightElement {
   dialog!: Dialog;
   @state() private types: Schema[] = [];
   @state() private loading = true;
@@ -175,8 +174,6 @@ export class NewDialog extends LitElement {
   private listed = false; // the chosen schema came from the visible types, not typed by hand
   private scopeTimer = 0;
   private scopeSeq = 0;
-
-  override createRenderRoot() { return this; }
 
   override connectedCallback() {
     super.connectedCallback();
@@ -417,7 +414,7 @@ function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: ()
 }
 
 @customElement("corestone-picker")
-export class Picker extends LitElement {
+export class Picker extends LightElement {
   dialog!: Dialog;
   @state() private q = "";
   @state() private filter: TableFilter = {};
@@ -427,7 +424,6 @@ export class Picker extends LitElement {
   private sort = pickerSort();
   private columns: TableColumn[] = [];
   private timer = 0;
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.columns = pickerColumns(this.dialog.taken as { guids: Set<string>; note: string } | undefined, this.multi ? () => this.chosen : undefined);

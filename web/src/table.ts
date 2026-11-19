@@ -1,5 +1,5 @@
-import { LitElement, html, nothing, type PropertyValues } from "lit";
-import { drag, errorText } from "@corestone/ui";
+import { html, nothing, type PropertyValues } from "lit";
+import { LightElement, drag, errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { api } from "./api";
@@ -52,7 +52,7 @@ const MIN_W = 48, MAX_W = 1200;
  * widths-change (detail: Record<column id, px>).
  */
 @customElement("corestone-table")
-export class Table extends LitElement {
+export class Table extends LightElement {
   @property({ attribute: false }) columns: TableColumn<Row>[] = [];
   @property({ attribute: false }) filter: TableFilter = {};
   @property({ attribute: false }) sort: SortLevel[] = [];
@@ -99,8 +99,6 @@ export class Table extends LitElement {
   private filler = false;
   private unsub?: () => void;
   private observer?: ResizeObserver;
-
-  override createRenderRoot() { return this; }
 
   private get local() { return this.items !== undefined; }
 

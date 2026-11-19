@@ -1,4 +1,5 @@
-import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { api } from "./api";
 import type { FolderInfo } from "./types";
@@ -25,7 +26,7 @@ function nearMiss(a: string, b: string): boolean {
 }
 
 @customElement("corestone-folder-field")
-export class FolderField extends LitElement {
+export class FolderField extends LightElement {
   @property() value = "";
   @property() inputId = "";
   @property() test = "folder";
@@ -38,7 +39,6 @@ export class FolderField extends LitElement {
   private timer = 0;
   private seq = 0;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() { super.connectedCallback(); this.resolve(); }
   override disconnectedCallback() { window.clearTimeout(this.timer); super.disconnectedCallback(); }
 

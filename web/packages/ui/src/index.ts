@@ -8,3 +8,4 @@ export { errorText } from "./lib/errors";
 export { drag, type DragOptions } from "./lib/drag";
 export { deepEqual, fmtSize, fmtTime, relTime } from "./lib/format";
 export { dataUrlToBlob } from "./lib/data-url";
+export { LightElement } from "./lib/light-element";

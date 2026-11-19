@@ -1,5 +1,5 @@
-import { LitElement, html, nothing } from "lit";
-import { errorText, fmtTime, prefs, relTime } from "@corestone/ui";
+import { html, nothing } from "lit";
+import { LightElement, errorText, fmtTime, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -39,7 +39,7 @@ function loadLayout(): TableLayout {
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
 @customElement("corestone-overview")
-export class Overview extends LitElement {
+export class Overview extends LightElement {
   private unsub?: () => void;
   private s!: State;
   @state() private total = -1; // -1 until the table has loaded
@@ -55,7 +55,6 @@ export class Overview extends LitElement {
   private loads = 0;
   private lastTick = -1;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => {

@@ -1,5 +1,5 @@
-import { LitElement, html, nothing, render, type TemplateResult } from "lit";
-import { deepEqual, errorText, fmtTime, relTime } from "@corestone/ui";
+import { html, nothing, render, type TemplateResult } from "lit";
+import { LightElement, deepEqual, errorText, fmtTime, relTime } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
@@ -44,7 +44,7 @@ function mapKeys<T>(v: T, f: (key: string) => string): T {
 }
 
 @customElement("corestone-document")
-export class DocumentView extends LitElement {
+export class DocumentView extends LightElement {
   @property() guid = "";
   private unsub?: () => void;
   private s!: State;
@@ -85,8 +85,6 @@ export class DocumentView extends LitElement {
   private blobUrls = new WeakMap<File, string>();
   @state() private dragId: string | null = null;
   @state() private dropAt: number | "end" | null = null;
-
-  override createRenderRoot() { return this; }
 
   /** Asked by the router before leaving this document with unsaved changes. */
   private leaveGuard: LeaveGuard = {
