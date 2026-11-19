@@ -1,8 +1,9 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement, drag, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { store, type State } from "./store";
+import { store, type State, toastError } from "./store";
 import { announceName, announceView } from "./ws";
 import { folderCrumbs } from "./util";
 import "./sidebar";
@@ -19,17 +20,16 @@ const DEFAULT_SPLIT = 38, MIN_SPLIT = 12, MAX_SPLIT = 85;
 const DEFAULT_NAV_W = 288, MIN_NAV_W = 180, MAX_NAV_W = 640; // sidebar width, px
 
 @customElement("corestone-app")
-export class App extends LitElement {
+export class App extends LightElement {
   private unsub?: () => void;
   private s!: State;
   @state() private selectedKind: string | null = null;
   @state() private dismissedConfig = ""; // the invalid-config set the user closed; a different set shows again
   private lastGuid: string | null = null;
   private statusTimer = 0;
-  @state() private split = Number(localStorage.getItem("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
-  @state() private navW = Number(localStorage.getItem("corestone.navWidth")) || DEFAULT_NAV_W;
+  @state() private split = Number(prefs.text("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
+  @state() private navW = Number(prefs.text("corestone.navWidth")) || DEFAULT_NAV_W;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => {
@@ -68,7 +68,7 @@ export class App extends LitElement {
 
   private setSplit(pct: number, persist = true) {
     this.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, pct));
-    if (persist) localStorage.setItem("corestone.split", String(Math.round(this.split)));
+    if (persist) prefs.setText("corestone.split", String(Math.round(this.split)));
   }
 
   // The divider between the overview and the selected artifact: drag, arrow
@@ -76,17 +76,11 @@ export class App extends LitElement {
   private dragSplit = (e: PointerEvent) => {
     const bar = e.currentTarget as HTMLElement;
     const box = bar.parentElement!.getBoundingClientRect();
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add("dragging");
-    const move = (m: PointerEvent) => this.setSplit((100 * (m.clientY - box.top)) / box.height, false);
-    const up = () => {
-      bar.classList.remove("dragging");
-      bar.removeEventListener("pointermove", move);
-      this.setSplit(this.split);
-    };
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up, { once: true });
-    bar.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setSplit((100 * (m.clientY - box.top)) / box.height, false),
+      end: () => this.setSplit(this.split),
+    });
     e.preventDefault();
   };
 
@@ -99,24 +93,18 @@ export class App extends LitElement {
 
   private setNavW(px: number, persist = true) {
     this.navW = Math.min(MAX_NAV_W, Math.max(MIN_NAV_W, px));
-    if (persist) localStorage.setItem("corestone.navWidth", String(Math.round(this.navW)));
+    if (persist) prefs.setText("corestone.navWidth", String(Math.round(this.navW)));
   }
 
   // The divider between the folder navigation and the main area.
   private dragNav = (e: PointerEvent) => {
     const bar = e.currentTarget as HTMLElement;
     const left = bar.parentElement!.getBoundingClientRect().left;
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add("dragging");
-    const move = (m: PointerEvent) => this.setNavW(m.clientX - left, false);
-    const up = () => {
-      bar.classList.remove("dragging");
-      bar.removeEventListener("pointermove", move);
-      this.setNavW(this.navW);
-    };
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up, { once: true });
-    bar.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setNavW(m.clientX - left, false),
+      end: () => this.setNavW(this.navW),
+    });
     e.preventDefault();
   };
 
@@ -164,7 +152,7 @@ export class App extends LitElement {
         <span class="spacer"></span>
         ${p?.maintenance && p.total ? html`<div class="progress" title=${p.phase ?? ""}><div style=${`width:${Math.round((100 * p.progress) / Math.max(1, p.total))}%`}></div></div>` : nothing}
         <span class="status" title=${status ? `head ${status.head.slice(0, 8)} · projection ${p?.processedHash.slice(0, 8) ?? ""}` : ""}><span class="dot ${health}"></span>${healthText}<span class="dot ${connected ? "ok" : "bad"}" data-test="session" title=${connected ? "session connected" : "session disconnected"}></span></span>
-        <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch((e) => store.toast(e.message, "error"))}>Reindex</button>
+        <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch(toastError)}>Reindex</button>
         <button class="btn sm" data-test="user" title=${this.s.account ? "Your account" : "Your name and theme"} @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>

@@ -1,4 +1,5 @@
-import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
@@ -33,7 +34,7 @@ export interface OverlayState { from: string; state: "inherited" | "overridden";
 export const OVERLAY_HELP = "An overlay inherits every field from its base. Values set in the overlay take precedence; everything else comes from the base.";
 
 @customElement("corestone-field")
-export class FieldEditor extends LitElement {
+export class FieldEditor extends LightElement {
   @property({ attribute: false }) field!: Field;
   @property({ attribute: false }) value: FieldValue = undefined;
   @property({ attribute: false }) overlay: OverlayState | null = null;
@@ -64,8 +65,6 @@ export class FieldEditor extends LitElement {
       else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
     },
   };
-
-  override createRenderRoot() { return this; }
 
   private emit(v: FieldValue) {
     this.value = v;

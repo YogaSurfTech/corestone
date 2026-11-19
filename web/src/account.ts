@@ -1,4 +1,5 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement, errorText } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api, type Account } from "./api";
 import { store, type State, type Theme } from "./store";
@@ -9,17 +10,13 @@ import { store, type State, type Theme } from "./store";
 const formValues = (form: HTMLFormElement) =>
   Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, String(v)])) as Record<string, string>;
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
 /** Signing in, or creating the first account (which becomes admin) on a new server. */
 @customElement("corestone-signin")
-export class SignIn extends LitElement {
+export class SignIn extends LightElement {
   /** No account exists yet: create the first one instead of signing in. */
   setup = false;
   @state() private error = "";
   @state() private busy = false;
-
-  override createRenderRoot() { return this; }
 
   private submit = async (e: Event) => {
     e.preventDefault();
@@ -32,7 +29,7 @@ export class SignIn extends LitElement {
       else await api.login(v.email.trim(), v.password);
       location.reload();
     } catch (err) {
-      this.error = message(err);
+      this.error = errorText(err);
       this.busy = false;
     }
   };
@@ -56,7 +53,7 @@ export class SignIn extends LitElement {
 
 /** The own account (name, email, password, theme, sign out); admins also manage all accounts. */
 @customElement("corestone-account-dialog")
-export class AccountDialog extends LitElement {
+export class AccountDialog extends LightElement {
   @state() private s!: State;
   @state() private manage = false;
   @state() private accounts: Account[] = [];
@@ -66,7 +63,6 @@ export class AccountDialog extends LitElement {
   @state() private error = "";
   private unsub?: () => void;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() { super.connectedCallback(); this.unsub = store.subscribe((s) => (this.s = s)); }
   override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
 
@@ -78,7 +74,7 @@ export class AccountDialog extends LitElement {
       store.toast(done, "success");
       return true;
     } catch (e) {
-      this.error = message(e);
+      this.error = errorText(e);
       return false;
     }
   }
@@ -111,7 +107,7 @@ export class AccountDialog extends LitElement {
       const r = await api.accounts();
       this.accounts = r.accounts;
       this.unknownAdmins = r.unknownAdmins;
-    } catch (e) { this.error = message(e); }
+    } catch (e) { this.error = errorText(e); }
   }
 
   private toggleManage = () => {

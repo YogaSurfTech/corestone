@@ -6,6 +6,7 @@ import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { MAX_FORMULA } from "./model";
 import { schema } from "./schema";
+import { button, el } from "@corestone/ui";
 
 // Formulas: LaTeX in the text, shown as a picture of it, a PNG file of the entry
 // (one per formula). MathJax makes the picture; it is loaded only to write a
@@ -259,7 +260,7 @@ export class FormulaUI {
     const head = el("div", "head");
     const title = el("span", "title");
     title.textContent = "Formula";
-    const x = button("x", "Close", icon("close", 18));
+    const x = button({ cls: "x", label: "Close", html: icon("close", 18) });
     x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
     head.append(title, x);
 
@@ -274,7 +275,7 @@ export class FormulaUI {
     kinds.setAttribute("role", "radiogroup");
     kinds.setAttribute("aria-label", "Placement");
     const kindButtons = ([["inline", "In the text", false], ["display", "On a line of its own", true]] as const).map(([i, label, d]) => {
-      const b = button("opt", label, icon(`f-${i}`, 20));
+      const b = button({ cls: "opt", label, html: icon(`f-${i}`, 20) });
       b.setAttribute("role", "radio");
       b.addEventListener("click", (e) => { e.preventDefault(); display = d; mark(); preview(); });
       return b;
@@ -287,7 +288,7 @@ export class FormulaUI {
     shown.setAttribute("aria-live", "polite");
     const msg = el("div", "msg");
     msg.setAttribute("role", "alert");
-    const ok = button("lb apply", "", "Apply");
+    const ok = button({ cls: "lb apply", html: "Apply" });
     ok.removeAttribute("title");
     ok.removeAttribute("aria-label");
     // greyed out (but still hoverable, for its tooltip: why it cannot be applied)
@@ -409,18 +410,4 @@ export class FormulaUI {
   }
 
   destroy() { this.close(); URL.revokeObjectURL(this.previewUrl); }
-}
-
-function button(cls: string, label: string, html: string): HTMLButtonElement {
-  const b = el("button", cls) as HTMLButtonElement;
-  b.type = "button";
-  if (label) { b.title = label; b.setAttribute("aria-label", label); }
-  b.innerHTML = html;
-  return b;
-}
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
 }

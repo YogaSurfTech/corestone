@@ -11,6 +11,7 @@
     "./editor.css": "./src/editor.css"
   },
   "dependencies": {
+    "@corestone/ui": "*",
     "mathjax-full": "^3.2.2",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-history": "^1.4.1",

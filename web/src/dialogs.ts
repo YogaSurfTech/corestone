@@ -1,7 +1,8 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement, drag, errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import { api, ApiError } from "./api";
+import { api } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
 import type { RichText } from "@corestone/editor";
@@ -23,7 +24,7 @@ const sizeKey = (name: string) => name === "picker" ? "corestone.pickerSize" : `
 /** The size the user last dragged a dialog to, if any. */
 function savedSize(name: string): { w: number; h: number } | null {
   try {
-    const v = JSON.parse(localStorage.getItem(sizeKey(name)) ?? "null");
+    const v = prefs.json<{ w: number; h: number } | null>(sizeKey(name), null);
     return v && v.w > 0 && v.h > 0 ? v : null;
   } catch { return null; }
 }
@@ -33,10 +34,9 @@ const sizeStyle = (name: string) => { const sz = savedSize(name); return sz ? `w
 // form → create), the artifact picker, and confirmations.
 
 @customElement("corestone-dialogs")
-export class Dialogs extends LitElement {
+export class Dialogs extends LightElement {
   private unsub?: () => void;
   private s!: State;
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => { this.s = s; this.requestUpdate(); });
@@ -66,24 +66,17 @@ export class Dialogs extends LitElement {
     const r = box.getBoundingClientRect();
     const x0 = e.clientX, y0 = e.clientY;
     let size = { w: r.width, h: r.height };
-    grip.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => {
-      size = {
-        w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
-        h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
-      };
-      box.style.width = size.w + "px";
-      box.style.height = size.h + "px";
-    };
-    const up = () => {
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      grip.removeEventListener("pointercancel", up);
-      try { localStorage.setItem(sizeKey(grip.dataset.size ?? "picker"), JSON.stringify(size)); } catch { /* storage unavailable */ }
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
-    grip.addEventListener("pointercancel", up);
+    drag(e, {
+      move: (m) => {
+        size = {
+          w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
+          h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
+        };
+        box.style.width = size.w + "px";
+        box.style.height = size.h + "px";
+      },
+      end: () => prefs.setJson(sizeKey(grip.dataset.size ?? "picker"), size),
+    });
   };
 
   /** Double-clicking the grip goes back to the default size. */
@@ -91,7 +84,7 @@ export class Dialogs extends LitElement {
     const grip = e.currentTarget as HTMLElement;
     const box = grip.parentElement!;
     box.style.width = box.style.height = "";
-    try { localStorage.removeItem(sizeKey(grip.dataset.size ?? "picker")); } catch { /* storage unavailable */ }
+    prefs.remove(sizeKey(grip.dataset.size ?? "picker"));
   };
 
   override updated() {
@@ -159,7 +152,7 @@ export class Dialogs extends LitElement {
 }
 
 @customElement("corestone-new-dialog")
-export class NewDialog extends LitElement {
+export class NewDialog extends LightElement {
   dialog!: Dialog;
   @state() private types: Schema[] = [];
   @state() private loading = true;
@@ -182,8 +175,6 @@ export class NewDialog extends LitElement {
   private scopeTimer = 0;
   private scopeSeq = 0;
 
-  override createRenderRoot() { return this; }
-
   override connectedCallback() {
     super.connectedCallback();
     this.path = (this.dialog.folder as string) ?? store.state.route.folder;
@@ -197,7 +188,7 @@ export class NewDialog extends LitElement {
         const found = this.types.find((t) => t.type === preset);
         this.choose(found ?? { type: preset, kind: (this.dialog.kinds as Kind[])?.[0] ?? "entry" }, !!found);
       }
-    }).catch((e) => { this.error = String(e.message); this.loading = false; });
+    }).catch((e) => { this.error = errorText(e); this.loading = false; });
     if (this.dialog.subject) {
       this.target = String(this.dialog.subject);
       this.targetLabel = String(this.dialog.subjectLabel ?? this.target.slice(0, 8));
@@ -313,7 +304,7 @@ export class NewDialog extends LitElement {
       store.refresh();
       navigate({ guid: view.meta.guid, folder: view.meta.folder, tab: "" });
     } catch (e) {
-      this.error = e instanceof ApiError ? e.message : String((e as Error).message ?? e);
+      this.error = errorText(e);
     } finally {
       this.busy = false;
     }
@@ -398,7 +389,7 @@ const PICKER_SORT_KEY = "corestone.pickerSort";
 
 function pickerSort(): SortLevel[] {
   try {
-    const v = JSON.parse(localStorage.getItem(PICKER_SORT_KEY) ?? "[]");
+    const v = prefs.json<unknown>(PICKER_SORT_KEY, []);
     return Array.isArray(v) ? v.filter((l) => typeof l?.col === "string" && (l.dir === "asc" || l.dir === "desc")).slice(0, 3) : [];
   } catch { return []; }
 }
@@ -423,7 +414,7 @@ function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: ()
 }
 
 @customElement("corestone-picker")
-export class Picker extends LitElement {
+export class Picker extends LightElement {
   dialog!: Dialog;
   @state() private q = "";
   @state() private filter: TableFilter = {};
@@ -433,7 +424,6 @@ export class Picker extends LitElement {
   private sort = pickerSort();
   private columns: TableColumn[] = [];
   private timer = 0;
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.columns = pickerColumns(this.dialog.taken as { guids: Set<string>; note: string } | undefined, this.multi ? () => this.chosen : undefined);
@@ -503,7 +493,7 @@ export class Picker extends LitElement {
       <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         .selected=${this.multi ? (r: Summary) => this.chosen.has(r.guid) : undefined}
-        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; try { localStorage.setItem(PICKER_SORT_KEY, JSON.stringify(e.detail)); } catch { /* storage unavailable */ } }}
+        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; prefs.setJson(PICKER_SORT_KEY, e.detail); }}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @row-click=${(e: CustomEvent<Summary>) => {
           if (this.multi) { this.toggle(e.detail); return; }

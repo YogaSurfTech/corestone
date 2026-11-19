@@ -1,14 +1,15 @@
-import { LitElement, html, nothing, render, type TemplateResult } from "lit";
+import { html, nothing, render, type TemplateResult } from "lit";
+import { LightElement, deepEqual, errorText, fmtTime, relTime } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { store, type State } from "./store";
+import { store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, deepEqual, fmtTime, hidLabel, label, relTime, showValue, undeclaredField } from "./util";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField } from "./util";
 import { MAX_ATTACHMENT, freeFileName } from "./detail";
 import "./type-icon";
 import { appIcon, type AppIcon } from "./icons";
@@ -43,7 +44,7 @@ function mapKeys<T>(v: T, f: (key: string) => string): T {
 }
 
 @customElement("corestone-document")
-export class DocumentView extends LitElement {
+export class DocumentView extends LightElement {
   @property() guid = "";
   private unsub?: () => void;
   private s!: State;
@@ -84,8 +85,6 @@ export class DocumentView extends LitElement {
   private blobUrls = new WeakMap<File, string>();
   @state() private dragId: string | null = null;
   @state() private dropAt: number | "end" | null = null;
-
-  override createRenderRoot() { return this; }
 
   /** Asked by the router before leaving this document with unsaved changes. */
   private leaveGuard: LeaveGuard = {
@@ -211,7 +210,7 @@ export class DocumentView extends LitElement {
       this.loadSide();
       void this.revealEntry();
     } catch (e) {
-      this.error = e instanceof ApiError ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 
@@ -381,7 +380,7 @@ export class DocumentView extends LitElement {
         const r = await put(n, new File([blob], n, { type: blob.type }));
         if (typeof r === "string" && r !== n) renamed.set(n, r);
       } catch (e) {
-        store.toast(`The file ${n} could not be copied: ${(e as Error).message ?? e}`, "error");
+        store.toast(`The file ${n} could not be copied: ${errorText(e)}`, "error");
       }
     }
     return renamed;
@@ -397,7 +396,7 @@ export class DocumentView extends LitElement {
       v = await api.get(guid);
       schema = await this.schemaOf(v);
     } catch (e) {
-      return { error: `The entry could not be read: ${(e as Error).message ?? e}` };
+      return { error: `The entry could not be read: ${errorText(e)}` };
     }
     const blocks = this.asText(v.meta.title || v.meta.hid || "", schema, ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {});
     const names = fileNames(blocks);
@@ -552,7 +551,7 @@ export class DocumentView extends LitElement {
         }
       }
     } catch (e) {
-      this.error = `Not saved: ${(e as Error).message ?? e}`;
+      this.error = `Not saved: ${errorText(e)}`;
       this.busy = false;
       return;
     }
@@ -586,7 +585,7 @@ export class DocumentView extends LitElement {
       if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
       store.refresh();
     } catch (e) {
-      this.error = e instanceof ApiError && e.status === 412 ? "Someone else modified this document. Reload to see their version." : e instanceof ApiError ? e.message : String(e);
+      this.error = e instanceof ApiError && e.status === 412 ? "Someone else modified this document. Reload to see their version." : errorText(e);
     } finally {
       this.busy = false;
     }
@@ -754,7 +753,7 @@ export class DocumentView extends LitElement {
       case "comments":
         return html`${this.sideHead(id, "Comments")}${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
           ${!this.commentType ? html`<div class="muted small">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
-          <button class="icon-btn" data-tip="Post the comment" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { store.toast((e as Error).message, "error"); } }}>${appIcon("send")}<span class="vh">Post</span></button></div>`}`;
+          <button class="icon-btn" data-tip="Post the comment" @click=${async () => { if (!this.commentText.trim()) return; try { await api.create("comments", { subject: this.guid, type: this.commentType, text: this.commentText, author: this.s.user }); this.commentText = ""; this.loadSide(); } catch (e) { toastError(e); } }}>${appIcon("send")}<span class="vh">Post</span></button></div>`}`;
       case "versions":
         return html`${this.sideHead(id, "Versions")}${this.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
     }

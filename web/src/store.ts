@@ -1,4 +1,5 @@
 import type { RepoStatus, View } from "./types";
+import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
 // Central application store (design guide §7.14): every persistent UI state
@@ -72,9 +73,9 @@ class Store {
     status: null,
     connected: false,
     session: "",
-    user: localStorage.getItem("corestone.user") || "",
+    user: prefs.text("corestone.user") || "",
     account: null,
-    theme: applyTheme(localStorage.getItem("corestone.theme") as Theme | null),
+    theme: applyTheme(prefs.text("corestone.theme") as Theme | null),
     selection: null,
     selectionError: null,
     loading: false,
@@ -83,7 +84,7 @@ class Store {
     dialog: null,
     picker: null,
     refreshTick: 0,
-    navCollapsed: (localStorage.getItem("corestone.nav") ?? (narrowScreen() ? "collapsed" : "open")) === "collapsed",
+    navCollapsed: (prefs.text("corestone.nav") ?? (narrowScreen() ? "collapsed" : "open")) === "collapsed",
   };
   private listeners = new Set<Listener>();
   private toastSeq = 0;
@@ -125,7 +126,7 @@ class Store {
   }
 
   setUser(name: string) {
-    localStorage.setItem("corestone.user", name);
+    prefs.setText("corestone.user", name);
     this.set({ user: name });
   }
 
@@ -135,13 +136,13 @@ class Store {
   }
 
   setTheme(theme: Theme) {
-    if (theme === "auto") localStorage.removeItem("corestone.theme"); else localStorage.setItem("corestone.theme", theme);
+    if (theme === "auto") prefs.remove("corestone.theme"); else prefs.setText("corestone.theme", theme);
     this.set({ theme: applyTheme(theme) });
   }
 
   toggleNav() {
     const c = !this.state.navCollapsed;
-    localStorage.setItem("corestone.nav", c ? "collapsed" : "open");
+    prefs.setText("corestone.nav", c ? "collapsed" : "open");
     this.set({ navCollapsed: c });
   }
 
@@ -163,3 +164,6 @@ function narrowScreen(): boolean {
 }
 
 export const store = new Store();
+
+/** Shows something that was thrown as an error toast. */
+export const toastError = (e: unknown) => store.toast(errorText(e), "error");

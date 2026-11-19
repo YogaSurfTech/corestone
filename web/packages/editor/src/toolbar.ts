@@ -1,4 +1,5 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
+import { prefs } from "@corestone/ui";
 import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
@@ -113,10 +114,8 @@ function tint(c: string): string {
 
 const LAST_KEY = "cs-editor-last";
 const HISTORY_KEY = "cs-editor-colors";
-const load = <T>(key: string, fallback: T): T => {
-  try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; }
-};
-const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+const load = prefs.json;
+const store = prefs.setJson;
 
 
 export class Toolbar {

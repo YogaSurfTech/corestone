@@ -1,4 +1,5 @@
-import { LitElement, html, type PropertyValues } from "lit";
+import { html, type PropertyValues } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
 import { api } from "./api";
@@ -30,7 +31,7 @@ export function iconUrl(name: string, folder: string): string {
  * kind's letter when the type has none or the icon cannot be loaded.
  */
 @customElement("corestone-type-icon")
-export class TypeIcon extends LitElement {
+export class TypeIcon extends LightElement {
   @property() kind: Kind = "entry";
   @property() type = "";
   @property() folder = "";
@@ -38,8 +39,6 @@ export class TypeIcon extends LitElement {
   @property({ attribute: false }) schema: Schema | null | undefined = undefined;
   @state() private resolved: Schema | null = null;
   @state() private broken = false;
-
-  override createRenderRoot() { return this; }
 
   override willUpdate(changed: PropertyValues<this>) {
     if (!changed.has("schema") && !changed.has("type") && !changed.has("folder")) return;

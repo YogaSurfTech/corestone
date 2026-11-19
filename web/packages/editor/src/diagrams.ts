@@ -4,6 +4,7 @@ import type { Node } from "prosemirror-model";
 import { isPicture, type EntryFiles } from "./files";
 import { icon } from "./icons";
 import { schema } from "./schema";
+import { button, dataUrlToBlob, el } from "@corestone/ui";
 
 // Diagrams: drawn in draw.io, kept as one PNG file of the entry with the
 // diagram's source inside it (draw.io's "xmlpng"). The host serves draw.io (the
@@ -45,10 +46,9 @@ const toDataUrl = (b: Blob) => new Promise<string>((ok, fail) => {
 });
 
 function fromDataUrl(uri: string): Blob {
-  const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(uri);
-  if (!m) throw new Error("not a picture");
-  const bytes = m[2] ? Uint8Array.from(atob(m[3]), (c) => c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(m[3]));
-  return new Blob([bytes], { type: m[1] });
+  const blob = dataUrlToBlob(uri);
+  if (!blob) throw new Error("not a picture");
+  return blob;
 }
 
 /** The diagram dialog: draw.io in a large panel, for a new diagram or the selected one. */
@@ -97,10 +97,10 @@ export class DiagramUI {
     ask.hidden = true;
     const askText = el("span", "");
     askText.textContent = "Discard the changes?";
-    const discard = button("lb danger", "Discard");
-    const keep = button("lb", "Keep editing");
+    const discard = button({ cls: "lb danger", text: "Discard" });
+    const keep = button({ cls: "lb", text: "Keep editing" });
     ask.append(askText, discard, keep);
-    const x = button("x", "");
+    const x = button({ cls: "x" });
     x.title = "Close";
     x.setAttribute("aria-label", "Close");
     x.innerHTML = icon("close", 18);
@@ -214,17 +214,4 @@ function isDark(at: HTMLElement): boolean {
   if (scheme === "dark") return true;
   if (scheme === "light") return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function button(cls: string, text: string): HTMLButtonElement {
-  const b = el("button", cls) as HTMLButtonElement;
-  b.type = "button";
-  b.textContent = text;
-  return b;
-}
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
 }

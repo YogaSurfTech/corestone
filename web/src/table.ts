@@ -1,4 +1,5 @@
-import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
+import { LightElement, drag, errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { api } from "./api";
@@ -51,7 +52,7 @@ const MIN_W = 48, MAX_W = 1200;
  * widths-change (detail: Record<column id, px>).
  */
 @customElement("corestone-table")
-export class Table extends LitElement {
+export class Table extends LightElement {
   @property({ attribute: false }) columns: TableColumn<Row>[] = [];
   @property({ attribute: false }) filter: TableFilter = {};
   @property({ attribute: false }) sort: SortLevel[] = [];
@@ -98,8 +99,6 @@ export class Table extends LitElement {
   private filler = false;
   private unsub?: () => void;
   private observer?: ResizeObserver;
-
-  override createRenderRoot() { return this; }
 
   private get local() { return this.items !== undefined; }
 
@@ -195,7 +194,7 @@ export class Table extends LitElement {
       if (generation === this.generation) this.updateRange();
     } catch (e) {
       if (generation !== this.generation || abort.signal.aborted) return;
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
       this.ids = [];
     } finally {
       if (generation === this.generation) this.loading = false;
@@ -237,7 +236,7 @@ export class Table extends LitElement {
     } catch (e) {
       if (generation !== this.generation || signal?.aborted) return;
       this.requested.delete(b);
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
     }
   }
 
@@ -293,18 +292,12 @@ export class Table extends LitElement {
     const col = th.dataset.col!;
     const widths = this.frozenWidths();
     const startX = e.clientX, start = th.getBoundingClientRect().width;
-    handle.setPointerCapture(e.pointerId);
-    handle.classList.add("dragging");
     this.setWidth(widths, col, start);
-    const move = (m: PointerEvent) => this.setWidth(widths, col, start + m.clientX - startX);
-    const up = () => {
-      handle.classList.remove("dragging");
-      handle.removeEventListener("pointermove", move);
-      this.commitWidths();
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up, { once: true });
-    handle.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setWidth(widths, col, start + m.clientX - startX),
+      end: () => this.commitWidths(),
+    });
     e.preventDefault();
     e.stopPropagation();
   };

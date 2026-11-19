@@ -1,11 +1,12 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement, errorText, fmtTime, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { store, type State } from "./store";
+import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
-import { fmtTime, kindIcon, kindLabel, relTime } from "./util";
+import { kindIcon, kindLabel } from "./util";
 import type { TableColumn, TableContext } from "./table";
 import "./table";
 import "./type-icon";
@@ -22,7 +23,7 @@ interface TableLayout { widths: Record<string, number>; sort: SortLevel[] }
 
 function loadLayout(): TableLayout {
   try {
-    const l = JSON.parse(localStorage.getItem("corestone.table") ?? "{}");
+    const l = prefs.json<Record<string, unknown>>("corestone.table", {});
     const stored: unknown[] = Array.isArray(l.sort) ? l.sort : l.sort ? [l.sort] : [];
     const sort: SortLevel[] = [];
     for (const value of stored) {
@@ -31,14 +32,14 @@ function loadLayout(): TableLayout {
       sort.push({ col: value.col, dir: value.dir });
       if (sort.length === 3) break;
     }
-    return { widths: l.widths && typeof l.widths === "object" ? l.widths : {}, sort };
+    return { widths: l.widths && typeof l.widths === "object" ? l.widths as Record<string, number> : {}, sort };
   } catch { return { widths: {}, sort: [] }; }
 }
 
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
 @customElement("corestone-overview")
-export class Overview extends LitElement {
+export class Overview extends LightElement {
   private unsub?: () => void;
   private s!: State;
   @state() private total = -1; // -1 until the table has loaded
@@ -54,7 +55,6 @@ export class Overview extends LitElement {
   private loads = 0;
   private lastTick = -1;
 
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => {
@@ -109,7 +109,7 @@ export class Overview extends LitElement {
       this.below = deep ? deep.total : -1;
     } catch (e) {
       if (load !== this.loads) return;
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
     }
   }
 
@@ -243,7 +243,7 @@ export class Overview extends LitElement {
 
   private saveLayout(layout: TableLayout) {
     this.layout = layout;
-    localStorage.setItem("corestone.table", JSON.stringify(layout));
+    prefs.setJson("corestone.table", layout);
   }
 
   private context(): string {
@@ -299,7 +299,7 @@ export class Overview extends LitElement {
         store.toast(`Moved ${res.moved} file${res.moved === 1 ? "" : "s"} to ${to.trim() || "/"}`, "success");
         store.refresh();
         navigate({ folder: to.trim().replace(/^\/+|\/+$/g, ""), guid: null });
-      }).catch((e) => store.toast(e.message, "error"));
+      }).catch(toastError);
     });
   };
 

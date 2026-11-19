@@ -1,4 +1,5 @@
 import type { Command, EditorState } from "prosemirror-state";
+import { el } from "@corestone/ui";
 
 // Context menus (tables, images): items with submenus, check marks and items shown only
 // where they apply; arrow keys move through them, → opens a submenu, ← / Escape closes it.
@@ -110,10 +111,4 @@ export function popupMenu(root: HTMLElement, label: string, cls: string, items: 
 function closeSubs(menu: HTMLElement) {
   menu.querySelectorAll<HTMLElement>(":scope > .has-sub > .sub").forEach((s) => { s.hidden = true; });
   menu.querySelectorAll(":scope > .has-sub > [aria-expanded]").forEach((b) => b.setAttribute("aria-expanded", "false"));
-}
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
 }

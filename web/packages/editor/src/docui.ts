@@ -5,6 +5,7 @@ import { buildMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { fileNames, toStorage } from "./model";
 import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, setTocDepth, structureKey, xrefText, type DocumentHost } from "./structure";
+import { el } from "@corestone/ui";
 
 // The document's own panels: the menus of a placed entry and of a table of contents, and the
 // cross-reference picker.
@@ -210,11 +211,6 @@ export class DocumentUI {
   destroy() { this.close(); }
 }
 
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  return e;
-}
 
 /** The start of a text as a title: up to the end of the word that reaches 40 characters. */
 export function shortTitle(text: string, min = 40): string {

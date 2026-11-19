@@ -2,6 +2,7 @@ import type { EditorView } from "prosemirror-view";
 import { linkAt, removeLink, setLink, type LinkTarget } from "./commands";
 import type { EntryFiles } from "./files";
 import { safeHref } from "./schema";
+import { button, el } from "@corestone/ui";
 
 // Links: the popover that sets one (Ctrl+K or the toolbar), the bubble that
 // shows the link at the cursor (open, edit, remove), and opening links.
@@ -52,12 +53,12 @@ export class LinkUI {
     this.input = el("input", "addr") as HTMLInputElement;
     this.input.placeholder = "https://…";
     this.input.setAttribute("aria-label", "Address");
-    const apply = button("Apply", "apply", () => this.apply());
-    this.pickBtn = button("Item…", "pick", () => this.pick());
+    const apply = button({ cls: "lb apply", text: "Apply", run: () => this.apply() });
+    this.pickBtn = button({ cls: "lb pick", text: "Item…", run: () => this.pick() });
     this.pickBtn.title = "Link to an item";
-    this.fileBtn = button("File…", "file", () => this.file());
+    this.fileBtn = button({ cls: "lb file", text: "File…", run: () => this.file() });
     this.fileBtn.title = "Link to a file of this entry";
-    this.removeBtn = button("Remove", "unlink", () => this.unlink());
+    this.removeBtn = button({ cls: "lb unlink", text: "Remove", run: () => this.unlink() });
     this.msg = el("div", "msg");
     const row = el("div", "row");
     row.append(this.input, apply, this.pickBtn, this.fileBtn, this.removeBtn);
@@ -173,8 +174,8 @@ export class LinkUI {
       }
       target.addEventListener("click", (e) => { e.preventDefault(); openLink(at, e.ctrlKey || e.metaKey, this.items(), this.files()); });
       this.bubble.append(target,
-        button("Edit", "edit", () => this.edit()),
-        button("Remove", "unlink", () => { removeLink(this.view().state, this.view().dispatch); }));
+        button({ cls: "lb edit", text: "Edit", run: () => this.edit() }),
+        button({ cls: "lb unlink", text: "Remove", run: () => { removeLink(this.view().state, this.view().dispatch); } }));
     }
     this.bubble.hidden = false;
     this.place(this.bubble, at.from);
@@ -193,18 +194,4 @@ export class LinkUI {
   }
 
   destroy() { this.close(false); }
-}
-
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag);
-  e.className = cls;
-  return e;
-}
-
-function button(text: string, cls: string, run: () => void): HTMLButtonElement {
-  const b = el("button", "lb " + cls) as HTMLButtonElement;
-  b.type = "button";
-  b.textContent = text;
-  b.addEventListener("click", (e) => { e.preventDefault(); run(); });
-  return b;
 }

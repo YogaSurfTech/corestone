@@ -1,12 +1,12 @@
-import { LitElement, html, nothing } from "lit";
+import { html, nothing } from "lit";
+import { LightElement } from "@corestone/ui";
 import { customElement } from "lit/decorators.js";
 import { store, type State } from "./store";
 
 @customElement("corestone-toasts")
-export class Toasts extends LitElement {
+export class Toasts extends LightElement {
   private unsub?: () => void;
   private s!: State;
-  override createRenderRoot() { return this; }
   override connectedCallback() {
     super.connectedCallback();
     this.unsub = store.subscribe((s) => { this.s = s; this.requestUpdate(); });
