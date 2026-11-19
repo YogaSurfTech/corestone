@@ -3,7 +3,7 @@ import { prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { store, type State } from "./store";
+import { store, type State, toastError } from "./store";
 import { announceName, announceView } from "./ws";
 import { folderCrumbs } from "./util";
 import "./sidebar";
@@ -165,7 +165,7 @@ export class App extends LitElement {
         <span class="spacer"></span>
         ${p?.maintenance && p.total ? html`<div class="progress" title=${p.phase ?? ""}><div style=${`width:${Math.round((100 * p.progress) / Math.max(1, p.total))}%`}></div></div>` : nothing}
         <span class="status" title=${status ? `head ${status.head.slice(0, 8)} · projection ${p?.processedHash.slice(0, 8) ?? ""}` : ""}><span class="dot ${health}"></span>${healthText}<span class="dot ${connected ? "ok" : "bad"}" data-test="session" title=${connected ? "session connected" : "session disconnected"}></span></span>
-        <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch((e) => store.toast(e.message, "error"))}>Reindex</button>
+        <button class="btn sm" title="Rebuild projection from Git" @click=${() => api.reindex().then(() => store.toast("Reindex started", "info")).catch(toastError)}>Reindex</button>
         <button class="btn sm" data-test="user" title=${this.s.account ? "Your account" : "Your name and theme"} @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>

@@ -1,5 +1,5 @@
 import type { RepoStatus, View } from "./types";
-import { prefs } from "@corestone/ui";
+import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
 // Central application store (design guide §7.14): every persistent UI state
@@ -164,3 +164,6 @@ function narrowScreen(): boolean {
 }
 
 export const store = new Store();
+
+/** Shows something that was thrown as an error toast. */
+export const toastError = (e: unknown) => store.toast(errorText(e), "error");

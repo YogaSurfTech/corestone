@@ -1,10 +1,10 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
-import { prefs } from "@corestone/ui";
+import { errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { store, type Route, type State } from "./store";
+import { store, type Route, type State, toastError } from "./store";
 import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, deepEqual, fmtSize, fmtTime, hidLabel, label, showValue, undeclaredField } from "./util";
@@ -292,7 +292,7 @@ export class Detail extends LitElement {
       if (!soft && this.sectionOrder().includes(tab as Section)) void this.reveal(tab as Section);
     } catch (e) {
       if (stale()) return;
-      this.error = e instanceof ApiError ? e.message : String(e);
+      this.error = errorText(e);
       if (!soft) this.view = null;
     } finally {
       if (!stale()) this.loading = false;
@@ -487,7 +487,7 @@ export class Detail extends LitElement {
         store.set({ dialog: { kind: "confirm", title: "Deleted meanwhile", noConfirm: true,
           text: `${label(this.view.meta)} was deleted by someone else while you were editing. Your changes cannot be saved; they stay in the form until you leave.` } });
       } else {
-        this.error = e instanceof ApiError ? e.message : String(e);
+        this.error = errorText(e);
       }
     } finally {
       this.busy = false;
@@ -552,7 +552,7 @@ export class Detail extends LitElement {
           store.toast("Deleted", "success");
           store.refresh();
           navigate({ guid: null });
-        } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+        } catch (e) { toastError(e); }
       } } });
   }
 
@@ -579,7 +579,7 @@ export class Detail extends LitElement {
       this.replyTo = null;
       this.reload(true);
       store.refresh();
-    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    } catch (e) { toastError(e); }
   }
 
   /** A new link waits for Save. */
@@ -630,7 +630,7 @@ export class Detail extends LitElement {
     store.prompt("Move artifact", { text: "Target folder; leave empty for the repository root.", value: this.view?.meta.folder ?? "", confirmLabel: "Move", folder: true }).then((folder) => {
       if (folder === null) return;
       api.move(this.guid, folder).then((v) => { this.view = v; store.toast(`Moved to ${folder || "/"}`, "success"); store.refresh(); navigate({ folder }); this.reload(true); })
-        .catch((e) => store.toast(e instanceof ApiError ? e.message : String(e), "error"));
+        .catch((e) => toastError(e));
     });
   }
 
@@ -777,7 +777,7 @@ export class Detail extends LitElement {
   private async loadHistory(more = false) {
     const guid = this.guid;
     const before = more ? this.history[this.history.length - 1]?.sha ?? "" : "";
-    const h = await api.history(guid, before).catch((e) => { store.toast(e instanceof ApiError ? e.message : String(e), "error"); return null; });
+    const h = await api.history(guid, before).catch((e) => { toastError(e); return null; });
     if (guid !== this.guid || !h) return;
     this.history = more ? [...this.history, ...h.history] : h.history;
     this.historyMore = h.more;
@@ -1132,7 +1132,7 @@ export class Detail extends LitElement {
       this.underlay = null;
       this.reload(true);
       store.refresh();
-    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    } catch (e) { toastError(e); }
     finally { this.busy = false; }
   };
 
@@ -1142,7 +1142,7 @@ export class Detail extends LitElement {
       this.underlay = null;
       this.baseChange = { to, next, keep: true };
       void this.reveal("overlay");
-    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    } catch (e) { toastError(e); }
   }
 
   /** Effective values before and after the base change. Values set in this entry stay; on
@@ -1208,7 +1208,7 @@ export class Detail extends LitElement {
       this.baseChange = null;
       this.reload(true);
       store.refresh();
-    } catch (e) { store.toast(e instanceof ApiError ? e.message : String(e), "error"); }
+    } catch (e) { toastError(e); }
     finally { this.busy = false; }
   };
 

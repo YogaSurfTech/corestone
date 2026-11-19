@@ -1,9 +1,9 @@
 import { LitElement, html, nothing } from "lit";
-import { prefs } from "@corestone/ui";
+import { errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { store, type State } from "./store";
+import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
 import { fmtTime, kindIcon, kindLabel, relTime } from "./util";
@@ -110,7 +110,7 @@ export class Overview extends LitElement {
       this.below = deep ? deep.total : -1;
     } catch (e) {
       if (load !== this.loads) return;
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
     }
   }
 
@@ -300,7 +300,7 @@ export class Overview extends LitElement {
         store.toast(`Moved ${res.moved} file${res.moved === 1 ? "" : "s"} to ${to.trim() || "/"}`, "success");
         store.refresh();
         navigate({ folder: to.trim().replace(/^\/+|\/+$/g, ""), guid: null });
-      }).catch((e) => store.toast(e.message, "error"));
+      }).catch(toastError);
     });
   };
 

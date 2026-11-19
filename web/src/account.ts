@@ -1,4 +1,5 @@
 import { LitElement, html, nothing } from "lit";
+import { errorText } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api, type Account } from "./api";
 import { store, type State, type Theme } from "./store";
@@ -8,8 +9,6 @@ import { store, type State, type Theme } from "./store";
 
 const formValues = (form: HTMLFormElement) =>
   Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, String(v)])) as Record<string, string>;
-
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Signing in, or creating the first account (which becomes admin) on a new server. */
 @customElement("corestone-signin")
@@ -32,7 +31,7 @@ export class SignIn extends LitElement {
       else await api.login(v.email.trim(), v.password);
       location.reload();
     } catch (err) {
-      this.error = message(err);
+      this.error = errorText(err);
       this.busy = false;
     }
   };
@@ -78,7 +77,7 @@ export class AccountDialog extends LitElement {
       store.toast(done, "success");
       return true;
     } catch (e) {
-      this.error = message(e);
+      this.error = errorText(e);
       return false;
     }
   }
@@ -111,7 +110,7 @@ export class AccountDialog extends LitElement {
       const r = await api.accounts();
       this.accounts = r.accounts;
       this.unknownAdmins = r.unknownAdmins;
-    } catch (e) { this.error = message(e); }
+    } catch (e) { this.error = errorText(e); }
   }
 
   private toggleManage = () => {

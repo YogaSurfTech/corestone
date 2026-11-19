@@ -1,8 +1,8 @@
 import { LitElement, html, nothing } from "lit";
-import { prefs } from "@corestone/ui";
+import { errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import { api, ApiError } from "./api";
+import { api } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
 import type { RichText } from "@corestone/editor";
@@ -198,7 +198,7 @@ export class NewDialog extends LitElement {
         const found = this.types.find((t) => t.type === preset);
         this.choose(found ?? { type: preset, kind: (this.dialog.kinds as Kind[])?.[0] ?? "entry" }, !!found);
       }
-    }).catch((e) => { this.error = String(e.message); this.loading = false; });
+    }).catch((e) => { this.error = errorText(e); this.loading = false; });
     if (this.dialog.subject) {
       this.target = String(this.dialog.subject);
       this.targetLabel = String(this.dialog.subjectLabel ?? this.target.slice(0, 8));
@@ -314,7 +314,7 @@ export class NewDialog extends LitElement {
       store.refresh();
       navigate({ guid: view.meta.guid, folder: view.meta.folder, tab: "" });
     } catch (e) {
-      this.error = e instanceof ApiError ? e.message : String((e as Error).message ?? e);
+      this.error = errorText(e);
     } finally {
       this.busy = false;
     }

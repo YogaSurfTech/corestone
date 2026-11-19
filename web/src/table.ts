@@ -1,4 +1,5 @@
 import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { api } from "./api";
@@ -195,7 +196,7 @@ export class Table extends LitElement {
       if (generation === this.generation) this.updateRange();
     } catch (e) {
       if (generation !== this.generation || abort.signal.aborted) return;
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
       this.ids = [];
     } finally {
       if (generation === this.generation) this.loading = false;
@@ -237,7 +238,7 @@ export class Table extends LitElement {
     } catch (e) {
       if (generation !== this.generation || signal?.aborted) return;
       this.requested.delete(b);
-      this.error = String((e as Error).message ?? e);
+      this.error = errorText(e);
     }
   }
 

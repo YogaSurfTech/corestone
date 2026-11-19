@@ -4,3 +4,4 @@
 // server, or ProseMirror (see web/scripts/check-layers.mjs).
 export { button, el, type ButtonOptions } from "./lib/dom";
 export { prefs, type PrefsOptions } from "./lib/prefs";
+export { errorText } from "./lib/errors";
