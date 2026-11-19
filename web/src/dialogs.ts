@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from "lit";
-import { errorText, prefs } from "@corestone/ui";
+import { drag, errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api } from "./api";
@@ -67,24 +67,17 @@ export class Dialogs extends LitElement {
     const r = box.getBoundingClientRect();
     const x0 = e.clientX, y0 = e.clientY;
     let size = { w: r.width, h: r.height };
-    grip.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => {
-      size = {
-        w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
-        h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
-      };
-      box.style.width = size.w + "px";
-      box.style.height = size.h + "px";
-    };
-    const up = () => {
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      grip.removeEventListener("pointercancel", up);
-      prefs.setJson(sizeKey(grip.dataset.size ?? "picker"), size);
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
-    grip.addEventListener("pointercancel", up);
+    drag(e, {
+      move: (m) => {
+        size = {
+          w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
+          h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
+        };
+        box.style.width = size.w + "px";
+        box.style.height = size.h + "px";
+      },
+      end: () => prefs.setJson(sizeKey(grip.dataset.size ?? "picker"), size),
+    });
   };
 
   /** Double-clicking the grip goes back to the default size. */

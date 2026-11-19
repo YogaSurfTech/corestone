@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type PropertyValues } from "lit";
-import { errorText } from "@corestone/ui";
+import { drag, errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { api } from "./api";
@@ -294,18 +294,12 @@ export class Table extends LitElement {
     const col = th.dataset.col!;
     const widths = this.frozenWidths();
     const startX = e.clientX, start = th.getBoundingClientRect().width;
-    handle.setPointerCapture(e.pointerId);
-    handle.classList.add("dragging");
     this.setWidth(widths, col, start);
-    const move = (m: PointerEvent) => this.setWidth(widths, col, start + m.clientX - startX);
-    const up = () => {
-      handle.classList.remove("dragging");
-      handle.removeEventListener("pointermove", move);
-      this.commitWidths();
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up, { once: true });
-    handle.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setWidth(widths, col, start + m.clientX - startX),
+      end: () => this.commitWidths(),
+    });
     e.preventDefault();
     e.stopPropagation();
   };

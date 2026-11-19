@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from "lit";
-import { prefs } from "@corestone/ui";
+import { drag, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -77,17 +77,11 @@ export class App extends LitElement {
   private dragSplit = (e: PointerEvent) => {
     const bar = e.currentTarget as HTMLElement;
     const box = bar.parentElement!.getBoundingClientRect();
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add("dragging");
-    const move = (m: PointerEvent) => this.setSplit((100 * (m.clientY - box.top)) / box.height, false);
-    const up = () => {
-      bar.classList.remove("dragging");
-      bar.removeEventListener("pointermove", move);
-      this.setSplit(this.split);
-    };
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up, { once: true });
-    bar.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setSplit((100 * (m.clientY - box.top)) / box.height, false),
+      end: () => this.setSplit(this.split),
+    });
     e.preventDefault();
   };
 
@@ -107,17 +101,11 @@ export class App extends LitElement {
   private dragNav = (e: PointerEvent) => {
     const bar = e.currentTarget as HTMLElement;
     const left = bar.parentElement!.getBoundingClientRect().left;
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add("dragging");
-    const move = (m: PointerEvent) => this.setNavW(m.clientX - left, false);
-    const up = () => {
-      bar.classList.remove("dragging");
-      bar.removeEventListener("pointermove", move);
-      this.setNavW(this.navW);
-    };
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up, { once: true });
-    bar.addEventListener("pointercancel", up, { once: true });
+    drag(e, {
+      cls: "dragging",
+      move: (m) => this.setNavW(m.clientX - left, false),
+      end: () => this.setNavW(this.navW),
+    });
     e.preventDefault();
   };
 

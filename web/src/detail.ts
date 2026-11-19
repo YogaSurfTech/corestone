@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit";
-import { errorText, prefs } from "@corestone/ui";
+import { drag, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -60,17 +60,10 @@ function heightGrip(name: string) {
     const area = grip.previousElementSibling as HTMLElement;
     const h0 = area.getBoundingClientRect().height, y0 = e.clientY;
     let h = h0;
-    grip.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => { h = Math.round(Math.max(60, h0 + m.clientY - y0)); area.style.height = `${h}px`; area.style.maxHeight = "none"; };
-    const up = () => {
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      grip.removeEventListener("pointercancel", up);
-      prefs.setText(heightKey(name), String(h));
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
-    grip.addEventListener("pointercancel", up);
+    drag(e, {
+      move: (m) => { h = Math.round(Math.max(60, h0 + m.clientY - y0)); area.style.height = `${h}px`; area.style.maxHeight = "none"; },
+      end: () => prefs.setText(heightKey(name), String(h)),
+    });
   };
   const reset = (e: Event) => {
     const area = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;

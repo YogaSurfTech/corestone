@@ -5,3 +5,4 @@
 export { button, el, type ButtonOptions } from "./lib/dom";
 export { prefs, type PrefsOptions } from "./lib/prefs";
 export { errorText } from "./lib/errors";
+export { drag, type DragOptions } from "./lib/drag";
