@@ -175,6 +175,9 @@ func ParseTypesFile(data []byte, kind Kind) (*TypesFile, error) {
 				return nil, Invalid("type %q: %q is not set per type", id, k)
 			}
 		}
+		if _, ok := m["workflows"]; ok {
+			return nil, Invalid("type %q: a type has no list of workflows; give it a field of type \"workflow\" instead", id)
+		}
 		var refs []FieldRef
 		if f, ok := m["fields"]; ok {
 			if err := json.Unmarshal(f, &refs); err != nil {
@@ -605,11 +608,6 @@ func (idx *ConfigIndex) compose(typ string, kind Kind, ch []scoped) (*Schema, []
 			problems = append(problems, fmt.Sprintf("field %q of type %q uses workflow %q, which is not defined", id, typ, f.Workflow))
 		}
 		eff.Fields = append(eff.Fields, f)
-	}
-	for _, w := range eff.Workflows {
-		if workflowDef(ch, typ, w) == nil {
-			problems = append(problems, fmt.Sprintf("type %q uses workflow %q, which is not defined", typ, w))
-		}
 	}
 	return eff, problems
 }

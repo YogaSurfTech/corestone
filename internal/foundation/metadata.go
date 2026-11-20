@@ -183,17 +183,7 @@ func (t *txn) validateTyped(a *model.Artifact, folder string, prev *ojson.Object
 	if err := t.validateFields(eff, a.Fields, prev, a.Fields); err != nil {
 		return err
 	}
-	for _, wid := range eff.AllWorkflows() {
-		if _, has := a.Workflows[wid]; has {
-			continue
-		}
-		def := t.cfg.Workflow(a.Type, wid, folder)
-		if def == nil {
-			return model.Invalid("schema %q assigns workflow %q which is not defined", a.Type, wid)
-		}
-		a.SetWorkflowState(wid, def.Initial)
-	}
-	return nil
+	return t.initWorkflows(a, eff, folder)
 }
 
 // CreateComment attaches a comment to any artifact. Request properties:
@@ -279,17 +269,19 @@ func (t *txn) createComment(req *ojson.Object) (*changeset, error) {
 	return cs, nil
 }
 
-// Transition moves one of an artifact's workflows to a new state (by
-// target state id or by transition id).
-func (f *Foundation) Transition(ctx context.Context, guid, workflow, to, ifMatch string) (*View, error) {
-	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.transition(guid, workflow, to, ifMatch) })
+// Transition runs a transition on one of an artifact's workflow fields:
+// field is the field's id, transition the id of a transition its workflow
+// allows from the current state. The new state is the transition's; the
+// field also records the transition and the state before it.
+func (f *Foundation) Transition(ctx context.Context, guid, field, transition, ifMatch string) (*View, error) {
+	res, err := f.write(ctx, false, func(t *txn) (*changeset, error) { return t.transition(guid, field, transition, ifMatch) })
 	if err != nil {
 		return nil, err
 	}
 	return res.(*View), nil
 }
 
-func (t *txn) transition(guid, workflow, to, ifMatch string) (*changeset, error) {
+func (t *txn) transition(guid, field, transition, ifMatch string) (*changeset, error) {
 	cur, err := t.load(guid)
 	if err != nil {
 		return nil, err
@@ -302,40 +294,37 @@ func (t *txn) transition(guid, workflow, to, ifMatch string) (*changeset, error)
 	if eff == nil {
 		return nil, model.Invalid("type %q is not defined in %s, so it has no workflows", cur.Type, folderName(folder))
 	}
-	assigned := false
-	for _, w := range eff.AllWorkflows() {
-		if w == workflow {
-			assigned = true
-		}
+	fd := eff.Field(field)
+	if fd == nil || fd.Type != model.FieldWorkflow {
+		return nil, model.Invalid("type %q has no workflow field %q", cur.Type, field)
 	}
-	if !assigned {
-		return nil, model.Invalid("workflow %q is not assigned to type %q", workflow, cur.Type)
-	}
-	def := t.cfg.Workflow(cur.Type, workflow, folder)
+	def := t.cfg.Workflow(cur.Type, fd.Workflow, folder)
 	if def == nil {
-		return nil, model.Invalid("workflow %q is not defined at %s", workflow, folderName(folder))
+		return nil, model.Invalid("workflow %q is not defined at %s", fd.Workflow, folderName(folder))
 	}
-	from, ok := cur.Workflows[workflow]
-	if !ok || from == "" {
-		from = def.Initial
+	from := def.Initial
+	if v, ok := cur.WorkflowValue(field); ok {
+		from = v.State
 	}
-	tr, ok := def.Find(from, to)
+	tr, ok := def.Find(from, transition)
 	if !ok {
-		return nil, model.Invalid("no transition from %q to %q in workflow %q", from, to, workflow)
+		return nil, model.Invalid("field %q: workflow %q has no transition %q from state %q", field, fd.Workflow, transition, from)
 	}
 	doc := cur.Doc.Clone()
 	a, _ := model.ArtifactFromDoc(doc, cur.Kind)
-	a.SetWorkflowState(workflow, tr.To)
+	a.SetWorkflowValue(field, model.WorkflowValue{State: tr.To, Transition: tr.ID, Previous: from})
 	content := encode(doc, cur.Style)
 	view := &View{Meta: summarize(a, cur.Loc.Folder, cur.Loc.FilePath, gitx.BlobSHA(content)), Data: doc, ETag: gitx.BlobSHA(content)}
-	if from == tr.To {
-		return &changeset{result: view}, nil
+	name := tr.Name
+	if name == "" {
+		name = tr.ID
 	}
-	cs := &changeset{subject: fmt.Sprintf("Workflow %s: %s transitioned from %s to %s", workflow, label(cur.Artifact), from, tr.To)}
+	cs := &changeset{subject: fmt.Sprintf("%s: %s (%s: %s to %s)", name, label(cur.Artifact), field, from, tr.To)}
 	cs.trailer("Corestone-Op", "transition")
 	cs.trailer("Corestone-Guid", guid)
-	cs.trailer("Corestone-Workflow", workflow)
-	cs.note = fmt.Sprintf("%s %s -> %s", workflow, from, tr.To)
+	cs.trailer("Corestone-Field", field)
+	cs.trailer("Corestone-Transition", tr.ID)
+	cs.note = fmt.Sprintf("%s: %s (%s -> %s)", field, name, from, tr.To)
 	cs.ops = []gitx.Op{{Path: cur.Loc.FilePath, Content: content}}
 	cs.event = Event{Op: "transition", GUID: guid, Kind: string(cur.Kind)}
 	cs.result = view

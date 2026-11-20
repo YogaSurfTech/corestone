@@ -3,6 +3,7 @@ package foundation
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,18 +53,26 @@ func seed(t *testing.T, f *Foundation) {
 	t.Helper()
 	put := func(rel, body string) { putConfig(t, f, "", rel, body) }
 	put("entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],
-		"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"},{"from":"review","to":"open"}]}`)
+		"transitions":[{"id":"submit","name":"Send to review","from":"open","to":"review"},{"id":"approve","from":"review","to":"done"},
+			{"id":"wave","from":"review","to":"done"},{"id":"reject","from":"review","to":"open"}]}`)
 	put("entries/enums/priority-enum.json", `{"options":[{"value":"low"},{"value":"medium"},{"value":"high"}]}`)
 	put("entries/fields.json", `{"fields":[{"id":"priority","name":"Priority","type":"enum","enum":"priority"},
-		{"id":"rationale","type":"multiline"},{"id":"effort","type":"integer"},{"id":"owner","type":"reference"},{"id":"spec","type":"hyperlink"}]}`)
+		{"id":"rationale","type":"multiline"},{"id":"effort","type":"integer"},{"id":"owner","type":"reference"},{"id":"spec","type":"hyperlink"},
+		{"id":"status","name":"Status","type":"workflow","workflow":"dev"}]}`)
 	put("entries/types.json", `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		 "fields":[{"id":"priority","required":true},"rationale","effort","owner","spec"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},
+		 "fields":[{"id":"priority","required":true},"rationale","effort","owner","spec","status"]},
 		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
 	put("documents/types.json", `{"types":[{"id":"spec","hid":{"prefix":"SPEC"}}]}`)
 	put("links/fields.json", `{"fields":[{"id":"coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}`)
 	put("links/types.json", linkTypes)
 	put("comments/types.json", `{"types":[{"id":"comment"}]}`)
+}
+
+// stateOf is the state of the artifact's workflow field "status".
+func stateOf(v *View) string {
+	s, _ := model.FieldsObject(v.Data).Get("status")
+	return model.WorkflowStateOf(s)
 }
 
 // putConfig stores a configuration file and fails the test on errors.
@@ -91,7 +100,7 @@ func TestLifecycle(t *testing.T) {
 	seed(t, f)
 
 	r1 := create(t, f, model.KindEntry, `{"path":"specs/boot","type":"requirement","title":"Boot fast","fields":{"priority":"high","rationale":"latency sells","effort":3}}`)
-	if r1.Meta.HID != "REQ-1" || r1.Meta.Workflows["dev"] != "open" || r1.ETag == "" {
+	if r1.Meta.HID != "REQ-1" || stateOf(r1) != "open" || r1.ETag == "" {
 		t.Fatalf("created %+v", r1.Meta)
 	}
 	r2 := create(t, f, model.KindEntry, `{"path":"specs/boot","type":"requirement","title":"Show progress","fields":{"priority":"low"}}`)
@@ -126,7 +135,7 @@ func TestLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upd.Meta.Title != "Boot in under 2 s" || upd.Data.Object("fields").String("rationale") != "" || upd.Data.Object("fields").Len() != 2 {
+	if upd.Meta.Title != "Boot in under 2 s" || upd.Data.Object("fields").String("rationale") != "" || upd.Data.Object("fields").Len() != 3 { // priority, effort, status
 		t.Fatalf("update result %s", ojson.MustEncode(upd.Data, ojson.Style{}))
 	}
 	if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, r1.ETag, obj(t, `{"title":"stale"}`)); !errors.Is(err, model.ErrPrecondition) {
@@ -135,8 +144,14 @@ func TestLifecycle(t *testing.T) {
 	if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, "", obj(t, `{"hid":"REQ-2"}`)); !errors.Is(err, model.ErrConflict) {
 		t.Fatalf("duplicate hid on update: %v", err)
 	}
-	if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, "", obj(t, `{"workflows":{"dev":"done"}}`)); !errors.Is(err, model.ErrValidation) {
-		t.Fatal("workflow bypass accepted")
+	// a workflow field is written by transitions only
+	for _, bypass := range []string{`{"workflows":{"dev":"done"}}`, `{"fields":{"status":{"state":"done"}}}`, `{"fields":{"status":"done"}}`, `{"fields":{"status":null}}`} {
+		if _, err := f.UpdateArtifact(ctx, r1.Meta.GUID, "", obj(t, bypass)); !errors.Is(err, model.ErrValidation) {
+			t.Fatalf("workflow bypass accepted: %s (%v)", bypass, err)
+		}
+	}
+	if _, err := f.CreateArtifact(ctx, model.KindEntry, obj(t, `{"path":"specs/boot","type":"requirement","title":"Born done","fields":{"priority":"low","status":{"state":"done"}}}`)); !errors.Is(err, model.ErrValidation) {
+		t.Fatalf("an artifact created in a chosen state: %v", err)
 	}
 	// no-op update creates no commit
 	before, _ := f.Repo.Head(ctx)
@@ -309,18 +324,33 @@ func TestLifecycle(t *testing.T) {
 
 	// workflow evaluation and transitions
 	ws, _ := f.Workflows(ctx, r1.Meta.GUID)
-	if len(ws) != 1 || ws[0].State != "open" || len(ws[0].Available) != 1 || ws[0].Available[0].ID != "submit" {
+	if len(ws) != 1 || ws[0].ID != "status" || ws[0].Name != "Status" || ws[0].State != "open" || len(ws[0].Available) != 1 || ws[0].Available[0].ID != "submit" {
 		t.Fatalf("workflows %+v", ws)
 	}
-	if _, err := f.Transition(ctx, r1.Meta.GUID, "dev", "done", ""); !errors.Is(err, model.ErrValidation) {
-		t.Fatal("illegal transition accepted")
+	for _, illegal := range []string{"approve", "review", "nope"} { // not from this state; a state is no transition; unknown
+		if _, err := f.Transition(ctx, r1.Meta.GUID, "status", illegal, ""); !errors.Is(err, model.ErrValidation) {
+			t.Fatalf("illegal transition %q accepted", illegal)
+		}
 	}
-	tr, err := f.Transition(ctx, r1.Meta.GUID, "dev", "submit", "")
-	if err != nil || tr.Meta.Workflows["dev"] != "review" {
-		t.Fatalf("transition by id: %v %+v", err, tr.Meta)
+	tr, err := f.Transition(ctx, r1.Meta.GUID, "status", "submit", "")
+	if err != nil || stateOf(tr) != "review" {
+		t.Fatalf("transition: %v %+v", err, tr.Meta)
 	}
-	if _, err := f.Transition(ctx, r1.Meta.GUID, "publish", "x", ""); !errors.Is(err, model.ErrValidation) {
-		t.Fatal("unassigned workflow accepted")
+	// the field records the transition and the state before it; the commit names the transition
+	if s, _ := json.Marshal(model.FieldsObject(tr.Data).Object("status")); string(s) != `{"state":"review","transition":"submit","previous":"open"}` {
+		t.Fatalf("stored workflow value %s", s)
+	}
+	if log, _ := f.History(ctx, r1.Meta.GUID, 0); log[0].Subject != "Send to review: REQ-1000 (status: open to review)" {
+		t.Fatalf("transition subject %q", log[0].Subject)
+	}
+	ws, _ = f.Workflows(ctx, r1.Meta.GUID)
+	if ws[0].State != "review" || ws[0].Transition != "submit" || ws[0].Previous != "open" || len(ws[0].Available) != 3 {
+		t.Fatalf("workflows after the transition %+v", ws)
+	}
+	for _, f2 := range []string{"dev", "publish", "priority"} { // a workflow's id, nothing, another field
+		if _, err := f.Transition(ctx, r1.Meta.GUID, f2, "submit", ""); !errors.Is(err, model.ErrValidation) {
+			t.Fatalf("transition on %q accepted", f2)
+		}
 	}
 
 	// attachments
@@ -350,7 +380,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatalf("moved %+v", mv.Meta)
 	}
 	v, err := f.Get(ctx, r1.Meta.GUID)
-	if err != nil || v.Meta.Folder != "archive/2026" || len(v.Attachments) != 1 || v.Meta.Workflows["dev"] != "review" {
+	if err != nil || v.Meta.Folder != "archive/2026" || len(v.Attachments) != 1 || stateOf(v) != "review" {
 		t.Fatalf("after move %+v %v", v, err)
 	}
 	comments, _ = f.Comments(ctx, r1.Meta.GUID)
@@ -477,8 +507,8 @@ func TestFormatFidelityAndDirectPush(t *testing.T) {
 	}
 	stored, _, _ := f.Repo.ReadPath(ctx, mustHead(t, f), upd.Meta.Path)
 	want := strings.Replace(raw, "Hand made", "Hand made (edited)", 1)
-	// the update also initializes the workflow state (appended property)
-	want = strings.TrimSuffix(want, "\r\n}") + ",\r\n\t\"workflows\": {\r\n\t\t\"dev\": \"open\"\r\n\t}\r\n}"
+	// the update also gives the workflow field its initial state (appended to the fields)
+	want = strings.Replace(want, "\"priority\": \"low\"\r\n\t}", "\"priority\": \"low\",\r\n\t\t\"status\": {\r\n\t\t\t\"state\": \"open\"\r\n\t\t}\r\n\t}", 1)
 	if !bytes.Equal(stored, []byte(want)) {
 		t.Fatalf("format not preserved:\n%q\n%q", stored, want)
 	}
@@ -584,7 +614,7 @@ func dump(t *testing.T, p *projection.DB) string {
 	t.Helper()
 	var b strings.Builder
 	for _, q := range []string{
-		`SELECT concat_ws('|', guid, kind, type, title, hid, folder, file_path, blob_sha, base, source, target, subject, parent, states::text, fields::text, md5(search_text), valid, created_commit, modified_commit) FROM artifacts ORDER BY guid`,
+		`SELECT concat_ws('|', guid, kind, type, title, hid, folder, file_path, blob_sha, base, source, target, subject, parent, fields::text, md5(search_text), valid, created_commit, modified_commit) FROM artifacts ORDER BY guid`,
 		`SELECT concat_ws('|', guid, field, value) FROM artifact_fields ORDER BY 1`,
 		`SELECT concat_ws('|', guid, name, path, blob_sha) FROM artifact_files ORDER BY 1`,
 		`SELECT concat_ws('|', path, scope, category, name, blob_sha, valid) FROM config_files ORDER BY 1`,
@@ -613,12 +643,12 @@ func TestConfigFiles(t *testing.T) {
 
 	// A reference to something not written yet is accepted with a warning,
 	// and the warning clears once the definition exists.
-	res := putConfig(t, f, "tasks", "entries/types.json", `{"inheritance":"off","types":[{"id":"task","workflows":["task"],"fields":["size"]}]}`)
+	res := putConfig(t, f, "tasks", "entries/types.json", `{"inheritance":"off","types":[{"id":"task","fields":["size","status"]}]}`)
 	if len(res.Warnings) != 2 || res.Path != "tasks/.corestone/config/entries/types.json" || res.ETag == "" {
 		t.Fatalf("write %+v", res)
 	}
-	putConfig(t, f, "tasks", "entries/workflows/task-workflow.json", `{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)
-	if res := putConfig(t, f, "tasks", "entries/fields.json", `{"fields":[{"id":"size","type":"integer"}]}`); len(res.Warnings) != 0 {
+	putConfig(t, f, "tasks", "entries/workflows/task-workflow.json", `{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`)
+	if res := putConfig(t, f, "tasks", "entries/fields.json", `{"fields":[{"id":"size","type":"integer"},{"id":"status","type":"workflow","workflow":"task"}]}`); len(res.Warnings) != 0 {
 		t.Fatalf("warnings after completing the configuration: %+v", res.Warnings)
 	}
 	types, err := f.Types(ctx, "tasks/sprint")
@@ -662,7 +692,7 @@ func TestConfigFiles(t *testing.T) {
 		t.Fatalf("stale write: %v", err)
 	}
 	warnings, err := f.DeleteConfig(ctx, "tasks", "entries/fields.json", etag)
-	if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0].Message, `"size"`) {
+	if err != nil || len(warnings) != 2 || !strings.Contains(warnings[0].Message, `"size"`) || !strings.Contains(warnings[1].Message, `"status"`) {
 		t.Fatalf("delete leaves a dangling field: %+v %v", warnings, err)
 	}
 	if _, err := f.DeleteConfig(ctx, "tasks", "entries/fields.json", ""); !errors.Is(err, model.ErrNotFound) {
@@ -713,8 +743,8 @@ func TestEnforcement(t *testing.T) {
 	// A field removed from the configuration stays on existing artifacts:
 	// kept unchanged on save, not changeable, removable.
 	putConfig(t, f, "", "entries/types.json", `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		 "fields":[{"id":"priority","required":true},"rationale","owner","spec"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},
+		 "fields":[{"id":"priority","required":true},"rationale","owner","spec","status"]},
 		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
 	if _, err := f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R renamed"}`)); err != nil {
 		t.Fatalf("save with a field no longer defined: %v", err)
@@ -728,8 +758,8 @@ func TestEnforcement(t *testing.T) {
 
 	// A field made required later is enforced on the next save.
 	putConfig(t, f, "", "entries/types.json", `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		 "fields":[{"id":"priority","required":true},{"id":"rationale","required":true},"owner","spec"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},
+		 "fields":[{"id":"priority","required":true},{"id":"rationale","required":true},"owner","spec","status"]},
 		{"id":"testcase","hid":{"prefix":"TC","digits":3}}]}`)
 	_, err = f.UpdateArtifact(ctx, r.Meta.GUID, "", obj(t, `{"title":"R again"}`))
 	invalid("save without a field made required later", err)

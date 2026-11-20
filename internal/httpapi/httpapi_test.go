@@ -88,10 +88,10 @@ func meta(r resp, key string) string {
 }
 
 func (a *api) seed() {
-	a.ok("PUT", "/api/config?path=entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"}]}`, 200)
-	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"id":"approve","from":"review","to":"done"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"},{"id":"status","type":"workflow","workflow":"dev"}]}`, 200)
 	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],"fields":[{"id":"priority","required":true},"rationale"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"testcase","hid":{"prefix":"TC"}}]}`, 200)
 	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec"}]}`, 200)
 	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"}]}`, 200)
@@ -204,12 +204,18 @@ func TestRESTLifecycle(t *testing.T) {
 	if !strings.Contains(string(ws.raw), `"state":"open"`) {
 		t.Fatalf("workflows %s", ws.raw)
 	}
-	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"done"}`, 400)
-	tr := a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"review"}`, 200)
-	if !strings.Contains(string(tr.raw), `"dev":"review"`) {
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"approve"}`, 400) // not from this state
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"review"}`, 400)  // a state is no transition
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"review"}`, 400)          // the old form
+	tr := a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"submit"}`, 200)
+	if !strings.Contains(string(tr.raw), `"status":{"state":"review","transition":"submit","previous":"open"}`) {
 		t.Fatalf("transition %s", tr.raw)
 	}
-	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"done"}`, 412, "If-Match", etag)
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"approve"}`, 412, "If-Match", etag)
+	// a workflow field is searched by its state
+	if found := a.ok("GET", "/api/repository/search?field.status=review", "", 200); !strings.Contains(string(found.raw), g1) {
+		t.Fatalf("search by state %s", found.raw)
+	}
 
 	// overlay analysis
 	ov := a.ok("POST", "/api/entries", `{"path":"specs/boot","type":"requirement","title":"Variant","base":"`+g1+`","fields":{"priority":"low"}}`, 201)
@@ -235,7 +241,7 @@ func TestRESTLifecycle(t *testing.T) {
 	if s.body["total"].(float64) != 2 {
 		t.Fatalf("search %s", s.raw)
 	}
-	s = a.ok("GET", "/api/repository/search?state.dev=review", "", 200)
+	s = a.ok("GET", "/api/repository/search?field.status=review", "", 200)
 	if s.body["total"].(float64) != 1 {
 		t.Fatalf("state search %s", s.raw)
 	}
@@ -579,8 +585,13 @@ func TestTableQueryAndDetails(t *testing.T) {
 			t.Fatalf("related %s missing: %s", g, d.raw)
 		}
 	}
+	// the State column brings the workflow fields along
+	st := a.ok("POST", "/api/artifacts/details", `{"ids":["`+reqs[1]+`"],"columns":["$state"]}`, 200)
+	if f := st.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 1 || f["status"].(map[string]any)["state"] != "open" {
+		t.Fatalf("details for the State column: %s", st.raw)
+	}
 	all := a.ok("POST", "/api/artifacts/details", `{"ids":["`+reqs[1]+`"]}`, 200)
-	if f := all.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 2 {
+	if f := all.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 3 { // priority, rationale, status
 		t.Fatalf("details without columns: %s", all.raw)
 	}
 	many := `"` + strings.Repeat(reqs[0]+`","`, 500) + reqs[0] + `"`
@@ -595,11 +606,11 @@ func TestSaveEndpoint(t *testing.T) {
 	tc := meta(a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201), "guid")
 
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"}}`, 412, "If-Match", `"stale"`)
-	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"},"transitions":[{"workflow":"dev","to":"done"}]}`, 400, "If-Match", etag)
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"},"transitions":[{"field":"status","transition":"approve"}]}`, 400, "If-Match", etag)
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	_ = mw.WriteField("changes", `{"patch":{"title":"Saved"},"transitions":[{"workflow":"dev","to":"submit"}],
+	_ = mw.WriteField("changes", `{"patch":{"title":"Saved"},"transitions":[{"field":"status","transition":"submit"}],
 		"addLinks":[{"type":"verifies","source":"`+tc+`","target":"`+g+`"}],"addComments":[{"author":"ann","text":"hi"}]}`)
 	fw, _ := mw.CreateFormFile("file", "notes.txt")
 	_, _ = fw.Write([]byte("hello"))

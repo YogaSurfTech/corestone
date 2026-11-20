@@ -112,11 +112,11 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 	case "$type", "$role":
 		return textKeys("COALESCE(" + confPath("a", "'label'") + " #>> '{}', a.type)"), nil, nil
 	case "$state":
-		// One rank per workflow the type declares, in declaration order;
+		// One rank per workflow field of the type, in the fields' order;
 		// arrays compare element by element. Direction is folded into the
 		// ranks so empty and unlisted states stay last.
-		return []sortKey{{expr: `ARRAY(SELECT CASE WHEN COALESCE(a.states ->> w.id, '') = '' THEN ` + strconv.Itoa(rankEmpty) +
-			` ELSE COALESCE((` + confPath("a", "'states'", "w.id", "a.states ->> w.id") + ` #>> '{}')::int * $dir, ` + strconv.Itoa(rankUnlisted) + `) END
+		return []sortKey{{expr: `ARRAY(SELECT CASE WHEN COALESCE(a.fields -> w.id ->> 'state', '') = '' THEN ` + strconv.Itoa(rankEmpty) +
+			` ELSE COALESCE((` + confPath("a", "'fields'", "w.id", "a.fields -> w.id ->> 'state'") + ` #>> '{}')::int * $dir, ` + strconv.Itoa(rankUnlisted) + `) END
 			FROM jsonb_array_elements_text(COALESCE(` + confPath("a", "'workflows'") + `, '[]')) WITH ORDINALITY w (id, n)
 			ORDER BY w.n) || ` + strconv.Itoa(rankEmpty), fixed: true}}, nil, nil
 	case "$folder":
@@ -148,7 +148,8 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 		return nil, nil, fmt.Errorf("%w: column %q cannot be sorted", model.ErrValidation, col)
 	}
 	id := arg(col) + "::text"
-	j := "(a.fields -> " + id + ")"
+	// a workflow field sorts by its state (its value is an object holding it)
+	j := "COALESCE(a.fields -> " + id + " -> 'state', a.fields -> " + id + ")"
 	// Enum and workflow fields rank by configuration; a multi-valued
 	// field ranks by its highest value. Other fields are all unlisted.
 	r := "(" + confPath("a", "'fields'", id, "v") + " #>> '{}')::int"
@@ -162,12 +163,12 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 }
 
 // typeConfig is the configuration of one (folder, type) pair a sort
-// needs: display name, declared workflows in order, state ranks per
-// workflow and value ranks of enum and workflow fields.
+// needs: display name, the ids of its workflow fields in order, and the
+// value ranks of enum and workflow fields (a workflow's states in the
+// order of its definition).
 type typeConfig struct {
 	Label     string                    `json:"label,omitempty"`
 	Workflows []string                  `json:"workflows"`
-	States    map[string]map[string]int `json:"states"`
 	Fields    map[string]map[string]int `json:"fields"`
 }
 
@@ -186,15 +187,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 	if schema == nil {
 		return nil
 	}
-	tc := &typeConfig{Label: schema.DisplayName, Workflows: schema.Workflows, States: map[string]map[string]int{}, Fields: map[string]map[string]int{}}
-	if tc.Workflows == nil {
-		tc.Workflows = []string{}
-	}
-	for _, id := range schema.Workflows {
-		if wf := cfg.Workflow(typ, id, folder); wf != nil {
-			tc.States[id] = ranks(wf.States)
-		}
-	}
+	tc := &typeConfig{Label: schema.DisplayName, Workflows: []string{}, Fields: map[string]map[string]int{}}
 	for _, f := range schema.Fields {
 		switch f.Type {
 		case model.FieldEnum:
@@ -206,6 +199,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 			}
 			tc.Fields[f.ID] = m
 		case model.FieldWorkflow:
+			tc.Workflows = append(tc.Workflows, f.ID)
 			if wf := cfg.Workflow(typ, f.Workflow, folder); wf != nil {
 				tc.Fields[f.ID] = ranks(wf.States)
 			}

@@ -7,7 +7,7 @@ import (
 )
 
 func TestWorkflowPresentation(t *testing.T) {
-	data := []byte(`{"id":"dev","initial":"open","states":[{"id":"open","presentation":{"icon":"task","color":"rebeccapurple","backgroundColor":"#abc"}},"done"],"transitions":[{"from":"open","to":"done"}]}`)
+	data := []byte(`{"id":"dev","initial":"open","states":[{"id":"open","presentation":{"icon":"task","color":"rebeccapurple","backgroundColor":"#abc"}},"done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`)
 	workflow, err := ParseWorkflow(data)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestParseConfigFiles(t *testing.T) {
 			t.Errorf("accepted %s", bad)
 		}
 	}
-	w, err := ParseWorkflowFile([]byte(`{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`), "task-dev")
+	w, err := ParseWorkflowFile([]byte(`{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`), "task-dev")
 	if err != nil || w.ID != "" || w.Initial != "open" {
 		t.Fatalf("workflow without id: %+v %v", w, err)
 	}
@@ -189,24 +189,24 @@ func TestParseConfigFiles(t *testing.T) {
 // types are cut off from the root while links and comments still inherit.
 var trackerConfig = map[string]string{
 	"|entries/types.json": `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
-		 "fields":[{"id":"priority","required":true},"rationale"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},
+		 "fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"component","fields":["priority"]}]}`,
 	"|entries/fields.json":                 `{"fields":[{"id":"priority","name":"Priority","type":"enum","enum":"priority"}]}`,
-	"|entries/requirement-fields.json":     `{"fields":[{"id":"rationale","type":"multiline"},{"id":"verified","type":"boolean"}]}`,
+	"|entries/requirement-fields.json":     `{"fields":[{"id":"rationale","type":"multiline"},{"id":"verified","type":"boolean"},{"id":"status","type":"workflow","workflow":"dev"}]}`,
 	"|entries/enums/priority-enum.json":    `{"options":[{"value":"low"},{"value":"high"}]}`,
-	"|entries/workflows/dev-workflow.json": `{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`,
+	"|entries/workflows/dev-workflow.json": `{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`,
 	"|links/types.json":                    `{"types":[{"id":"related","sourceTypes":["*"],"targetTypes":["*"]}]}`,
 	"|comments/types.json":                 `{"types":[{"id":"comment"}]}`,
 	"tasks|entries/types.json": `{"inheritance":"off","types":[
-		{"id":"task","displayName":"Task","hid":{"prefix":"TSK"},"workflows":["task"],
-		 "fields":[{"id":"priority","required":true},"effort","tags"]}]}`,
+		{"id":"task","displayName":"Task","hid":{"prefix":"TSK"},
+		 "fields":[{"id":"priority","required":true},"effort","tags","status"]}]}`,
 	"tasks|entries/fields.json": `{"fields":[{"id":"priority","name":"Priority","type":"enum","enum":"priority"},
-		{"id":"effort","type":"integer"},{"id":"tags","type":"enum","enum":"tags","multiple":true}]}`,
+		{"id":"effort","type":"integer"},{"id":"tags","type":"enum","enum":"tags","multiple":true},{"id":"status","name":"Status","type":"workflow","workflow":"task"}]}`,
 	"tasks|entries/enums/priority-enum.json":      `{"options":[{"value":"low"},{"value":"medium"}]}`,
 	"tasks|entries/enums/task-priority-enum.json": `{"options":[{"value":"low"},{"value":"medium"},{"value":"urgent"}]}`,
 	"tasks|entries/enums/tags-enum.json":          `{"extendable":true,"options":[{"value":"ux"}]}`,
-	"tasks|entries/workflows/task-workflow.json":  `{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`,
+	"tasks|entries/workflows/task-workflow.json":  `{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`,
 }
 
 func TestConfigResolution(t *testing.T) {
@@ -228,7 +228,7 @@ func TestConfigResolution(t *testing.T) {
 	}
 
 	req := idx.Effective("requirement", "specs/boot")
-	if req.Kind != KindEntry || req.HID.Prefix != "REQ" || fieldIDs(req) != "priority,rationale,verified" {
+	if req.Kind != KindEntry || req.HID.Prefix != "REQ" || fieldIDs(req) != "priority,rationale,status,verified" {
 		t.Fatalf("requirement %+v fields %s", req, fieldIDs(req))
 	}
 	if f := req.Field("priority"); !f.Required || options(f) != "low,high" {
@@ -239,7 +239,7 @@ func TestConfigResolution(t *testing.T) {
 	}
 
 	task := idx.Effective("task", "tasks/sprint-1")
-	if fieldIDs(task) != "priority,effort,tags" || task.Sources[0] != "tasks" {
+	if fieldIDs(task) != "priority,effort,tags,status" || task.Sources[0] != "tasks" {
 		t.Fatalf("task %s sources %v", fieldIDs(task), task.Sources)
 	}
 	// The type-specific enumeration wins over the shared one in the same folder.
@@ -313,7 +313,7 @@ func TestConfigDeclaredIdentity(t *testing.T) {
 
 func TestConfigProblems(t *testing.T) {
 	idx, fileProblems := NewConfigIndex(files(map[string]string{
-		"|entries/types.json":             `{"types":[{"id":"task","workflows":["missing"],"fields":["nope","priority","flow"]},{"id":"related"}]}`,
+		"|entries/types.json":             `{"types":[{"id":"task","fields":["nope","priority","flow"]},{"id":"related"}]}`,
 		"|entries/fields.json":            `{"fields":[{"id":"priority","type":"enum","enum":"absent"},{"id":"flow","type":"workflow","workflow":"gone"}]}`,
 		"|entries/ghost-fields.json":      `{"fields":[{"id":"x","type":"text"}]}`,
 		"|links/types.json":               `{"types":[{"id":"related"}]}`,
@@ -337,7 +337,6 @@ func TestConfigProblems(t *testing.T) {
 		`entries/types.json: type "task" uses field "nope", which is not defined`,
 		`entries/types.json: field "priority" of type "task" uses enumeration "absent", which is not defined`,
 		`entries/types.json: field "flow" of type "task" uses workflow "gone", which is not defined`,
-		`entries/types.json: type "task" uses workflow "missing", which is not defined`,
 		`entries/ghost-fields.json: fields for type "ghost", which is not defined here`,
 		`type "related" is defined for several kinds (entries, links)`,
 	} {

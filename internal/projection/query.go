@@ -24,8 +24,7 @@ type Query struct {
 	Folder  string
 	Subtree bool
 	HID     string
-	Fields  map[string]string // field id -> exact value
-	States  map[string]string // workflow id -> state
+	Fields  map[string]string // field id -> exact value; a workflow field by its state
 	Valid   *bool
 	Sort    string // "modified" (default), "title", "hid", "path", "created"
 	Limit   int
@@ -39,22 +38,19 @@ const (
 
 const summaryCols = `a.guid, a.kind, a.type, a.title, COALESCE(a.hid,''), a.folder, a.file_path, COALESCE(a.base,''),
 	COALESCE(a.source,''), COALESCE(a.target,''), COALESCE(a.subject,''), COALESCE(a.parent,''), CASE WHEN a.kind = 'link' THEN a.created_author ELSE a.author END, a.excerpt, a.created,
-	a.states, a.fields, a.blob_sha, a.created_at, a.modified_at,
+	a.fields, a.blob_sha, a.created_at, a.modified_at,
 	(SELECT count(*) FROM artifacts l WHERE l.kind = 'link' AND (l.source = a.guid OR l.target = a.guid)),
 	(SELECT count(*) FROM artifacts c WHERE c.kind = 'comment' AND c.subject = a.guid)`
 
 func scanSummary(rows interface{ Scan(...any) error }) (*model.Summary, error) {
 	var s model.Summary
-	var kind, states, fields string
+	var kind, fields string
 	var createdAt, modifiedAt sql.NullTime
 	if err := rows.Scan(&s.GUID, &kind, &s.Type, &s.Title, &s.HID, &s.Folder, &s.Path, &s.Base, &s.Source, &s.Target,
-		&s.Subject, &s.Parent, &s.Author, &s.Excerpt, &s.Created, &states, &fields, &s.ETag, &createdAt, &modifiedAt, &s.Links, &s.Comments); err != nil {
+		&s.Subject, &s.Parent, &s.Author, &s.Excerpt, &s.Created, &fields, &s.ETag, &createdAt, &modifiedAt, &s.Links, &s.Comments); err != nil {
 		return nil, err
 	}
 	s.Kind = model.Kind(kind)
-	if states != "" && states != "{}" {
-		_ = json.Unmarshal([]byte(states), &s.Workflows)
-	}
 	if fields != "" && fields != "{}" {
 		_ = json.Unmarshal([]byte(fields), &s.Fields)
 	}
@@ -113,9 +109,6 @@ func (q *Query) normalize() {
 	for k, v := range q.Fields {
 		q.Fields[k] = clean(v)
 	}
-	for k, v := range q.States {
-		q.States[k] = clean(v)
-	}
 }
 
 // conditions renders the filter of q as SQL conditions on artifacts a,
@@ -155,9 +148,6 @@ func (q *Query) conditions(arg func(any) string) []string {
 	}
 	for f, v := range q.Fields {
 		where = append(where, "EXISTS (SELECT 1 FROM artifact_fields f WHERE f.guid = a.guid AND f.field = "+arg(clean(f))+" AND f.value = "+arg(v)+")")
-	}
-	for w, st := range q.States {
-		where = append(where, "a.states->>"+arg(clean(w))+" = "+arg(st))
 	}
 	if q.Valid != nil {
 		where = append(where, "a.valid = "+arg(*q.Valid))

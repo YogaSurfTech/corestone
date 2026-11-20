@@ -83,8 +83,18 @@ func (f *Field) ValidateDefinition() error {
 	if !IsFieldType(f.Type) {
 		return Invalid("field %q has unknown type %q", f.ID, f.Type)
 	}
-	if f.Type == FieldWorkflow && f.Workflow == "" {
-		return Invalid("workflow field %q needs a workflow id", f.ID)
+	if f.Type == FieldWorkflow {
+		if f.Workflow == "" {
+			return Invalid("workflow field %q needs a workflow id", f.ID)
+		}
+		if err := ValidateTypeID(f.Workflow); err != nil {
+			return fmt.Errorf("field %q workflow: %w", f.ID, err)
+		}
+		if f.Multiple || f.Default != nil {
+			return Invalid("workflow field %q: a workflow field has one state, starting with the workflow's initial state", f.ID)
+		}
+	} else if f.Workflow != "" {
+		return Invalid("field %q: only workflow fields name a workflow", f.ID)
 	}
 	if f.Enum != "" {
 		if f.Type != FieldEnum {
@@ -224,8 +234,8 @@ func (f *Field) validateSingle(v any) error {
 			}
 		}
 	case FieldWorkflow:
-		if _, ok := v.(string); !ok {
-			return bad("a workflow state")
+		if _, ok := ParseWorkflowValue(v); !ok {
+			return bad("a workflow state (written by the server)")
 		}
 	case FieldJSON:
 		// anything goes

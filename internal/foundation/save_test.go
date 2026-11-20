@@ -27,7 +27,7 @@ func TestSave(t *testing.T) {
 	head := mustHead(t, f)
 	v, err := f.Save(ctx, r1.Meta.GUID, cur.ETag, &SaveRequest{
 		Patch:       obj(t, `{"title":"R1 saved"}`),
-		Transitions: []SaveTransition{{"dev", "submit"}},
+		Transitions: []SaveTransition{{"status", "submit"}},
 		RemoveLinks: []string{l1.Meta.GUID},
 		AddLinks:    []*ojson.Object{obj(t, `{"type":"related","source":"`+r1.Meta.GUID+`","target":"`+r2.Meta.GUID+`"}`)},
 		AddComments: []*ojson.Object{obj(t, `{"author":"ann","text":"looks good"}`)},
@@ -40,10 +40,10 @@ func TestSave(t *testing.T) {
 	if log[0].Parents[0] != head {
 		t.Fatalf("save made more than one commit: %+v", log[0])
 	}
-	if want := "Entry REQ-1 modified; dev open -> review, 1 link added, 1 link removed, 1 comment added, 1 attachment stored"; log[0].Subject != want {
+	if want := "Entry REQ-1 modified; status: Send to review (open -> review), 1 link added, 1 link removed, 1 comment added, 1 attachment stored"; log[0].Subject != want {
 		t.Fatalf("subject %q, want %q", log[0].Subject, want)
 	}
-	if v.Data.String("title") != "R1 saved" || v.Data.Object("workflows").String("dev") != "review" {
+	if v.Data.String("title") != "R1 saved" || stateOf(v) != "review" {
 		t.Fatalf("saved view: %s", ojson.MustEncode(v.Data, ojson.DefaultStyle))
 	}
 	if _, err := f.DB.Locate(ctx, l1.Meta.GUID); !errors.Is(err, model.ErrNotFound) {
@@ -74,7 +74,7 @@ func TestSave(t *testing.T) {
 	_, err = f.Save(ctx, r1.Meta.GUID, cur.ETag, &SaveRequest{
 		Patch:       obj(t, `{"title":"never"}`),
 		AddComments: []*ojson.Object{obj(t, `{"author":"ann","text":"never"}`)},
-		Transitions: []SaveTransition{{"dev", "nowhere"}},
+		Transitions: []SaveTransition{{"status", "nowhere"}},
 	})
 	if !errors.Is(err, model.ErrValidation) || mustHead(t, f) != head {
 		t.Fatalf("failed save: %v, head moved %v", err, mustHead(t, f) != head)
@@ -197,13 +197,13 @@ func TestSaveMerge(t *testing.T) {
 		return err
 	}())
 
-	// Transitions overlap per workflow.
+	// Transitions overlap per workflow field.
 	cur, _ := f.Get(ctx, r.Meta.GUID)
-	if _, err := f.Transition(ctx, r.Meta.GUID, "dev", "submit", ""); err != nil {
+	if _, err := f.Transition(ctx, r.Meta.GUID, "status", "submit", ""); err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.Save(ctx, r.Meta.GUID, cur.ETag, &SaveRequest{Transitions: []SaveTransition{{"dev", "submit"}}})
-	if c := conflictOf(err); c.Conflicts[0].Key != "workflows.dev" || c.Conflicts[0].Theirs != "review" {
+	_, err = f.Save(ctx, r.Meta.GUID, cur.ETag, &SaveRequest{Transitions: []SaveTransition{{"status", "submit"}}})
+	if c := conflictOf(err); c.Conflicts[0].Key != "fields.status" || model.WorkflowStateOf(c.Conflicts[0].Theirs) != "review" || c.Conflicts[0].Mine != "submit" {
 		t.Fatalf("transition conflict %+v", c.Conflicts)
 	}
 

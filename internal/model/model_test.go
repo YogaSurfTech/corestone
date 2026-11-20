@@ -53,14 +53,17 @@ func TestCleanFolder(t *testing.T) {
 
 func TestSchemaComposition(t *testing.T) {
 	base := map[string]string{
-		"|entries/types.json": `{"types":[{"id":"req","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],
+		"|entries/types.json": `{"types":[{"id":"req","displayName":"Requirement","hid":{"prefix":"REQ"},
 		  "presentation":{"icon":"a","color":"red"},"x-custom":1}]}`,
 		"|entries/req-fields.json": `{"fields":[{"id":"prio","name":"Priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},
-		  {"id":"owner","type":"text"}]}`,
+		  {"id":"owner","type":"text"},{"id":"status","type":"workflow","workflow":"dev"}]}`,
+		"|entries/workflows/dev-workflow.json":     `{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`,
+		"|entries/workflows/publish-workflow.json": `{"states":["draft","out"],"transitions":[{"id":"publish","from":"draft","to":"out"}]}`,
 	}
 	team := map[string]string{
-		"entries/types.json":      `{"types":[{"id":"req","workflows":["publish"],"presentation":{"icon":"b"}}]}`,
-		"entries/req-fields.json": `{"fields":[{"id":"prio","name":"Prio","type":"enum","options":[{"value":"p1"}]},{"id":"cost","type":"currency","currency":"EUR"}]}`,
+		"entries/types.json": `{"types":[{"id":"req","presentation":{"icon":"b"}}]}`,
+		"entries/req-fields.json": `{"fields":[{"id":"prio","name":"Prio","type":"enum","options":[{"value":"p1"}]},{"id":"cost","type":"currency","currency":"EUR"},
+		  {"id":"release","type":"workflow","workflow":"publish"}]}`,
 	}
 	with := func(scope string, m map[string]string) {
 		for k, v := range m {
@@ -74,14 +77,14 @@ func TestSchemaComposition(t *testing.T) {
 	if eff == nil || eff.DisplayName != "Requirement" || eff.HID.Prefix != "REQ" {
 		t.Fatalf("effective %+v", eff)
 	}
-	if ids := fieldIDs(eff); ids != "prio,owner,cost" {
+	if ids := fieldIDs(eff); ids != "prio,owner,status,cost,release" {
 		t.Fatalf("field order/merge: %s", ids)
 	}
 	if eff.Field("prio").Name != "Prio" || len(eff.Field("prio").Options) != 1 {
 		t.Fatal("nearest field definition must replace completely")
 	}
-	if strings.Join(eff.Workflows, ",") != "dev,publish" {
-		t.Fatalf("workflows %v", eff.Workflows)
+	if wf := eff.WorkflowFields(); len(wf) != 2 || wf[0].ID != "status" || wf[0].Workflow != "dev" || wf[1].ID != "release" || wf[1].Workflow != "publish" {
+		t.Fatalf("workflow fields %+v", wf)
 	}
 	if eff.Presentation["icon"] != "b" || eff.Presentation["color"] != "red" {
 		t.Fatal("presentation merge")
@@ -93,7 +96,7 @@ func TestSchemaComposition(t *testing.T) {
 		t.Fatalf("sources %v", eff.Sources)
 	}
 	// Root scope sees only the root definition.
-	if r := idx.Effective("req", ""); fieldIDs(r) != "prio,owner" {
+	if r := idx.Effective("req", ""); fieldIDs(r) != "prio,owner,status" {
 		t.Fatal("root leaks subtree definitions")
 	}
 	// A kind's inheritance switch severs everything above.
@@ -103,7 +106,7 @@ func TestSchemaComposition(t *testing.T) {
 	})
 	with("iso/deep", team)
 	e2 := mustIndex(t, base).Effective("req", "iso/deep/x")
-	if fieldIDs(e2) != "only,prio,cost" || e2.HID != nil || len(e2.Sources) != 2 {
+	if fieldIDs(e2) != "only,prio,cost,release" || e2.HID != nil || len(e2.Sources) != 2 {
 		t.Fatalf("severed: %s hid=%v sources=%v", fieldIDs(e2), e2.HID, e2.Sources)
 	}
 	if idx.Effective("nope", "") != nil {
@@ -221,23 +224,35 @@ func TestFieldValidation(t *testing.T) {
 
 func TestWorkflow(t *testing.T) {
 	w, err := ParseWorkflow([]byte(`{"id":"dev","initial":"open","states":["open",{"id":"review","name":"In review"},"done"],
-	  "transitions":[{"id":"submit","from":"open","to":"review"},{"from":["review"],"to":"done"},{"id":"reset","from":"*","to":"open"}]}`))
+	  "transitions":[{"id":"submit","from":"open","to":"review"},{"id":"approve","from":["review"],"to":"done"},{"id":"wave","from":"review","to":"done"},{"id":"reset","from":"*","to":"open"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(w.Available("open")) != 2 || len(w.Available("done")) != 1 {
 		t.Fatalf("available %v", w.Available("open"))
 	}
-	if _, ok := w.Find("open", "review"); !ok {
-		t.Fatal("find by state")
+	if _, ok := w.Find("open", "review"); ok {
+		t.Fatal("a transition is named by its id, not by the state it leads to")
 	}
-	if _, ok := w.Find("open", "submit"); !ok {
+	if tr, ok := w.Find("open", "submit"); !ok || tr.To != "review" {
 		t.Fatal("find by id")
 	}
-	if _, ok := w.Find("open", "done"); ok {
+	if _, ok := w.Find("open", "approve"); ok {
 		t.Fatal("illegal transition allowed")
 	}
-	for _, bad := range []string{`{"id":"x","states":[]}`, `{"id":"x","initial":"z","states":["a"]}`, `{"id":"x","states":["a"],"transitions":[{"from":"a","to":"q"}]}`, `{"id":"x","states":["a","a"]}`} {
+	// two transitions may lead from the same state to the same state
+	a, okA := w.Find("review", "approve")
+	b, okB := w.Find("review", "wave")
+	if !okA || !okB || a.To != "done" || b.To != "done" {
+		t.Fatalf("two ways to done: %+v %+v", a, b)
+	}
+	if !w.HasState("review") || w.IsFinal("done") {
+		t.Fatal("states")
+	}
+	for _, bad := range []string{`{"id":"x","states":[]}`, `{"id":"x","initial":"z","states":["a"]}`, `{"id":"x","states":["a"],"transitions":[{"id":"t","from":"a","to":"q"}]}`, `{"id":"x","states":["a","a"]}`,
+		`{"id":"x","states":["a","b"],"transitions":[{"from":"a","to":"b"}]}`,                                         // a transition needs an id
+		`{"id":"x","states":["a","b"],"transitions":[{"id":"t","from":"a","to":"b"},{"id":"t","from":"b","to":"a"}]}`, // unique in the workflow
+		`{"id":"x","states":["a","b"],"transitions":[{"id":"no good","from":"a","to":"b"}]}`} {
 		if _, err := ParseWorkflow([]byte(bad)); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
@@ -311,11 +326,21 @@ func TestArtifactAndOverlay(t *testing.T) {
 	if _, err := ParseArtifact([]byte(`{"guid":"nope"}`), KindEntry); err == nil {
 		t.Fatal("bad guid accepted")
 	}
-	// workflow state round-trips through the document
+	// a workflow field's value round-trips through the document
 	a2 := all[g2]
-	a2.SetWorkflowState("dev", "open")
-	if a2.Doc.Object("workflows").String("dev") != "open" || a2.Workflows["dev"] != "open" {
-		t.Fatal("SetWorkflowState")
+	a2.SetWorkflowValue("status", WorkflowValue{State: "review", Transition: "submit", Previous: "open"})
+	stored, _ := FieldsObject(a2.Doc).Get("status")
+	if v, ok := a2.WorkflowValue("status"); !ok || v.State != "review" || v.Transition != "submit" || v.Previous != "open" || WorkflowStateOf(stored) != "review" {
+		t.Fatalf("workflow value %+v", v)
+	}
+	a2.SetWorkflowValue("status", WorkflowValue{State: "open"})
+	if s, _ := json.Marshal(FieldsObject(a2.Doc).Object("status")); string(s) != `{"state":"open"}` {
+		t.Fatalf("a new artifact stores only the state: %s", s)
+	}
+	for _, bad := range []any{"open", map[string]any{}, map[string]any{"state": 1}, map[string]any{"state": "open", "extra": "x"}} {
+		if _, ok := ParseWorkflowValue(bad); ok {
+			t.Errorf("accepted %v as a workflow value", bad)
+		}
 	}
 }
 

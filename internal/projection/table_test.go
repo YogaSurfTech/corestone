@@ -21,22 +21,22 @@ func TestTableQueryOrder(t *testing.T) {
 	}
 	commit(t, repo, "config",
 		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[
-			{"id":"req","displayName":"Requirement","fields":["prio","tags","n","stage"],"workflows":["dev"]},
+			{"id":"req","displayName":"Requirement","fields":["prio","tags","n","stage"]},
 			{"id":"zz","displayName":"Alpha"}]}`)},
 		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[
 			{"id":"prio","type":"enum","options":[{"value":"low"},{"value":"medium"},{"value":"high"}]},
 			{"id":"tags","type":"enum","multiple":true,"options":[{"value":"a"},{"value":"b"},{"value":"c"}]},
 			{"id":"n","type":"integer"},
 			{"id":"stage","type":"workflow","workflow":"dev"}]}`)},
-		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","review","done"],"transitions":[{"from":"open","to":"review"}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"}]}`)},
 		gitx.Op{Path: ".corestone/config/links/types.json", Content: []byte(`{"types":[{"id":"refines","displayName":"Refines"}]}`)},
 		gitx.Op{Path: ".corestone/config/comments/types.json", Content: []byte(`{"types":[{"id":"comment"}]}`)})
 	commit(t, repo, "entries",
-		entry("specs", e1, "req", "item 10", "REQ-10", `"fields":{"prio":"high","n":10,"tags":["a"],"stage":"done"},"workflows":{"dev":"done"}`),
-		entry("specs", e2, "req", "Item 2", "REQ-2", `"fields":{"prio":"low","n":2,"tags":["c","a"],"stage":"open"},"workflows":{"dev":"open"}`),
-		entry("specs", e3, "req", "", "TASKDOC", `"fields":{"prio":"weird","n":30},"workflows":{"dev":"review"}`),
+		entry("specs", e1, "req", "item 10", "REQ-10", `"fields":{"prio":"high","n":10,"tags":["a"],"stage":{"state":"done","transition":"approve","previous":"review"}}`),
+		entry("specs", e2, "req", "Item 2", "REQ-2", `"fields":{"prio":"low","n":2,"tags":["c","a"],"stage":{"state":"open"}}`),
+		entry("specs", e3, "req", "", "TASKDOC", `"fields":{"prio":"weird","n":30,"stage":{"state":"review","transition":"submit","previous":"open"}}`),
 		entry("specs", e4, "req", "zeta", "", ""),
-		entry("specs", e5, "req", "beta", "REQ-9", `"fields":{"prio":""},"workflows":{"dev":"bogus"}`),
+		entry("specs", e5, "req", "beta", "REQ-9", `"fields":{"prio":"","stage":{"state":"bogus"}}`),
 		entry("other", e6, "zz", "other", "", ""))
 	commit(t, repo, "links and comments",
 		gitx.Op{Path: "specs/.corestone/links/" + l1 + ".json", Content: []byte(fmt.Sprintf(`{"guid":%q,"kind":"link","type":"refines","source":%q,"target":%q}`, l1, e2, e1))},
@@ -74,7 +74,8 @@ func TestTableQueryOrder(t *testing.T) {
 	check("multi-valued enum by highest", entries, []SortLevel{asc("tags"), hid}, "e1 e2 e5 e3 e4")
 	check("numbers", entries, []SortLevel{asc("n"), hid}, "e2 e1 e3 e5 e4")
 	check("numbers desc", entries, []SortLevel{desc("n"), hid}, "e3 e1 e2 e5 e4")
-	check("workflow field", entries, []SortLevel{asc("stage"), hid}, "e2 e1 e5 e3 e4")
+	check("workflow field by its states' order", entries, []SortLevel{asc("stage"), hid}, "e2 e3 e1 e5 e4")
+	check("workflow field desc", entries, []SortLevel{desc("stage"), hid}, "e1 e3 e2 e5 e4")
 	check("workflow states", entries, []SortLevel{asc("$state"), hid}, "e2 e3 e1 e5 e4")
 	check("workflow states desc", entries, []SortLevel{desc("$state"), hid}, "e1 e3 e2 e5 e4")
 	check("type display name", Query{Kinds: []model.Kind{model.KindEntry}, Subtree: true}, []SortLevel{asc("$type"), hid}, "e6 e2 e5 e1 e3 e4")

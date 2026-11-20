@@ -32,7 +32,8 @@ type SaveRequest struct {
 	Created map[string]string
 }
 
-type SaveTransition struct{ Workflow, To string }
+// SaveTransition runs a transition (by its id) on a workflow field.
+type SaveTransition struct{ Field, Transition string }
 
 type SaveFile struct {
 	Name    string
@@ -118,7 +119,7 @@ func (t *txn) save(guid, ifMatch string, req *SaveRequest) (*changeset, error) {
 		}
 	}
 	for _, tr := range req.Transitions {
-		if err := step(t.transition(guid, tr.Workflow, tr.To, "")); err != nil {
+		if err := step(t.transition(guid, tr.Field, tr.Transition, "")); err != nil {
 			return nil, err
 		}
 	}

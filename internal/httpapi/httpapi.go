@@ -491,7 +491,7 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := s.F.Transition(r.Context(), guid, body.String("workflow"), body.String("to"), ifMatch(r))
+	v, err := s.F.Transition(r.Context(), guid, body.String("field"), body.String("transition"), ifMatch(r))
 	if err != nil {
 		fail(w, err)
 		return
@@ -570,7 +570,7 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 	req := &foundation.SaveRequest{Patch: body.Object("patch"), PutFiles: files}
 	for _, v := range body.Array("transitions") {
 		if o, ok := v.(*ojson.Object); ok {
-			req.Transitions = append(req.Transitions, foundation.SaveTransition{Workflow: o.String("workflow"), To: o.String("to")})
+			req.Transitions = append(req.Transitions, foundation.SaveTransition{Field: o.String("field"), Transition: o.String("transition")})
 		}
 	}
 	for _, v := range body.Array("addLinks") {
@@ -880,11 +880,6 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 				q.Fields = map[string]string{}
 			}
 			q.Fields[strings.TrimPrefix(key, "field.")] = vals[0]
-		case strings.HasPrefix(key, "state."):
-			if q.States == nil {
-				q.States = map[string]string{}
-			}
-			q.States[strings.TrimPrefix(key, "state.")] = vals[0]
 		}
 	}
 	if v := qs.Get("valid"); v != "" {
@@ -932,7 +927,6 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 			Types   []string          `json:"types"`
 			HID     string            `json:"hid"`
 			Fields  map[string]string `json:"fields"`
-			States  map[string]string `json:"states"`
 			Valid   *bool             `json:"valid"`
 		} `json:"filter"`
 		Sort  []projection.SortLevel `json:"sort"`
@@ -951,7 +945,7 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := projection.Query{Text: f.Q, Type: f.Type, Types: f.Types, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
-		HID: f.HID, Fields: f.Fields, States: f.States, Valid: f.Valid}
+		HID: f.HID, Fields: f.Fields, Valid: f.Valid}
 	for _, k := range f.Kind {
 		kind, err := model.ParseKind(k)
 		if err != nil {

@@ -29,7 +29,7 @@ type SaveConflict struct {
 
 // ConflictItem is one thing both changed.
 type ConflictItem struct {
-	// Key names it: title, hid, text, fields.<id>, workflows.<id>,
+	// Key names it: title, hid, text, fields.<id>,
 	// files.<name>, links.<guid>, or another property of the artifact.
 	Key    string    `json:"key"`
 	Author string    `json:"author,omitempty"` // who changed it last
@@ -68,7 +68,7 @@ func (req *SaveRequest) mine() map[string]any {
 		}
 	}
 	for _, tr := range req.Transitions {
-		out["workflows."+tr.Workflow] = tr.To
+		out["fields."+tr.Field] = tr.Transition
 	}
 	for _, f := range req.PutFiles {
 		out["files."+f.Name] = "stored"
@@ -257,14 +257,12 @@ func fileState(files map[string]string, name string) any {
 
 // valueAt reads a conflict key's value from a document.
 func valueAt(doc *ojson.Object, key string) any {
-	for _, p := range []string{"fields.", "workflows."} {
-		if rest, ok := strings.CutPrefix(key, p); ok {
-			if o := doc.Object(strings.TrimSuffix(p, ".")); o != nil {
-				v, _ := o.Get(rest)
-				return v
-			}
-			return nil
+	if rest, ok := strings.CutPrefix(key, "fields."); ok {
+		if o := doc.Object("fields"); o != nil {
+			v, _ := o.Get(rest)
+			return v
 		}
+		return nil
 	}
 	v, _ := doc.Get(key)
 	return v

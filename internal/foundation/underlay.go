@@ -40,7 +40,11 @@ func (f *Foundation) CreateUnderlay(ctx context.Context, guid, ifMatch, title st
 			own = ojson.NewObject()
 		}
 		moved := ojson.NewObject()
+		eff := t.cfg.Effective(cur.Type, cur.Loc.Folder)
 		for _, id := range fields {
+			if def := eff.Field(id); def != nil && def.Type == model.FieldWorkflow {
+				return nil, model.Invalid("field %s is a workflow: every entry has its own state, it cannot move to a base", id)
+			}
 			v, ok := own.Get(id)
 			if !ok {
 				return nil, model.Invalid("field %s is not set in this entry", id)
@@ -61,7 +65,6 @@ func (f *Foundation) CreateUnderlay(ctx context.Context, guid, ifMatch, title st
 			bdoc.Set("base", cur.Base)
 		}
 		bdoc.Set("fields", moved)
-		bdoc.Set("workflows", ojson.NewObject())
 		base, err := model.ArtifactFromDoc(bdoc, model.KindEntry)
 		if err != nil {
 			return nil, err
@@ -78,7 +81,7 @@ func (f *Foundation) CreateUnderlay(ctx context.Context, guid, ifMatch, title st
 		doc := cur.Doc.Clone()
 		doc.Set("base", bguid)
 		if ef := doc.Object("fields"); ef != nil {
-			for _, k := range moved.Keys() {
+			for _, k := range fields { // not moved.Keys(): the base got its own workflow states meanwhile
 				ef.Delete(k)
 			}
 		}

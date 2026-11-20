@@ -281,7 +281,6 @@ var ddl = []string{
 		base text, source text, target text, subject text, parent text,
 		author text NOT NULL DEFAULT '',
 		created text NOT NULL DEFAULT '',
-		states jsonb NOT NULL DEFAULT '{}'::jsonb,
 		fields jsonb NOT NULL DEFAULT '{}'::jsonb,
 		search_text text NOT NULL DEFAULT '',
 		tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', left(search_text, 100000))) STORED,
