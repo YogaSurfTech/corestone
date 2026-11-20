@@ -6,6 +6,7 @@ import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
+import { hasSource, knownOptions, withMissing } from "./options";
 import { kindIcon, kindLabel, workflowStates } from "./util";
 import type { TableColumn, TableContext } from "./table";
 import "./table";
@@ -215,7 +216,8 @@ export class Overview extends LightElement {
         render: (row) => {
           const field = this.schemaOf(row)?.fields?.find((f) => f.id === c.id);
           const value = fieldValue(row, c.id);
-          return field?.type === "enum" ? html`<corestone-enum .options=${field.options ?? []} .value=${row.fields?.[c.id]}
+          const options = field && hasSource(field) ? withMissing(knownOptions(row.type, field.id, row.folder, () => this.requestUpdate()) ?? [], row.fields?.[c.id]) : field?.options ?? [];
+          return field?.type === "enum" ? html`<corestone-enum .options=${options} .value=${row.fields?.[c.id]}
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),
       ...(links ? [

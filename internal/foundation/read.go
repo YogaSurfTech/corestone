@@ -155,6 +155,46 @@ func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string)
 	return f.DB.FieldValues(ctx, typ, field, folder, 200)
 }
 
+// MaxEnumOptions caps the options of a dynamic enumeration.
+const MaxEnumOptions = 1000
+
+// FieldOptions lists the options of a dynamic enumeration: the artifacts
+// its source names, from the whole repository, in the source's order (by
+// title when it names none). The source's query is not evaluated yet.
+func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string) ([]*model.Summary, error) {
+	schema, err := f.EffectiveSchema(ctx, typ, folder)
+	if err != nil {
+		return nil, err
+	}
+	def := schema.Field(field)
+	if def == nil || def.Source == nil {
+		return nil, fmt.Errorf("%w: type %q has no field %q with a source", model.ErrNotFound, typ, field)
+	}
+	levels := []projection.SortLevel{}
+	for _, l := range def.Source.Sort {
+		levels = append(levels, projection.SortLevel{Col: l.Col, Dir: l.Dir})
+	}
+	if len(levels) == 0 {
+		levels = append(levels, projection.SortLevel{Col: "$title"})
+	}
+	res, err := f.DB.QueryIDs(ctx, projection.Query{Kinds: []model.Kind{def.Source.Kind}, Types: def.Source.Types, Subtree: true}, levels, MaxEnumOptions)
+	if err != nil {
+		return nil, err
+	}
+	out := []*model.Summary{}
+	for start := 0; start < len(res.IDs); start += projection.MaxDetails {
+		rows, err := f.DB.Details(ctx, res.IDs[start:min(start+projection.MaxDetails, len(res.IDs))])
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range rows {
+			s.Fields = nil
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 // SchemaOf resolves the effective schema of an existing artifact.
 func (f *Foundation) SchemaOf(ctx context.Context, guid string) (*model.Schema, *projection.Located, error) {
 	loc, err := f.DB.Locate(ctx, guid)

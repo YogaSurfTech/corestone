@@ -285,6 +285,27 @@ func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Objec
 					return model.Invalid("field %q is a workflow: its state changes through transitions", k)
 				}
 			}
+			// a dynamic enumeration: a value is checked when it is chosen, so an
+			// artifact deleted or retyped later does not block other edits
+			if def.Source != nil {
+				old, _ := prev.Get(k)
+				had := map[string]bool{}
+				for _, g := range def.SourceGUIDs(old) {
+					had[g] = true
+				}
+				for _, g := range def.SourceGUIDs(v) {
+					if had[g] {
+						continue
+					}
+					loc, err := t.exists(g)
+					if err != nil {
+						return fmt.Errorf("field %q: %w", k, err)
+					}
+					if !def.Source.Allows(loc.Kind, loc.Type) {
+						return model.Invalid("field %q does not offer %s (%s %s)", k, g, loc.Kind, loc.Type)
+					}
+				}
+			}
 			// links in a text are checked when added: a text that links to an item
 			// deleted later can still be edited (the link shows as missing)
 			linked := map[string]bool{}

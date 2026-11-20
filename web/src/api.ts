@@ -115,6 +115,8 @@ export const api = {
   search: (params: { q?: string; kind?: string; type?: string; path?: string; subtree?: boolean; limit?: number; [k: string]: string | number | boolean | undefined }) =>
     request<{ artifacts: Summary[]; total: number }>("GET", "/repository/search" + q(params)),
   types: (path: string) => request<{ types: Schema[] }>("GET", "/repository/types" + q({ path })),
+  /** The options of a dynamic enumeration field: the artifacts its source names. */
+  options: (type: string, field: string, path = "") => request<{ options: Summary[] }>("GET", "/repository/options" + q({ type, field, path })),
   values: (type: string, field: string, path = "") => request<{ values: { value: string; count: number }[] }>("GET", "/repository/values" + q({ type, field, path })),
   validate: () => request<{ issues: Issue[]; errors: number; warnings: number }>("GET", "/repository/validate"),
   reindex: () => request<{ started: boolean }>("POST", "/repository/reindex"),

@@ -156,7 +156,11 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 	rank := `(SELECT CASE WHEN count(*) = 0 THEN ` + strconv.Itoa(rankEmpty) + ` WHEN bool_or(` + r + ` IS NULL) THEN ` + strconv.Itoa(rankUnlisted) + ` ELSE max(` + r + `) END
 		FROM jsonb_array_elements_text(CASE jsonb_typeof(` + j + `) WHEN 'array' THEN ` + j + ` WHEN 'null' THEN '[]'::jsonb ELSE jsonb_build_array(` + j + `) END) v
 		WHERE v <> '')`
-	keys := rankedKeys(rank, "NULLIF("+fieldText(j)+", '')")
+	// A dynamic enumeration holds an artifact's GUID: it sorts by that
+	// artifact's title, as the table shows it.
+	text := `COALESCE((SELECT COALESCE(NULLIF(o.title, ''), o.hid) FROM artifacts o
+		WHERE jsonb_typeof(` + j + `) = 'string' AND length(` + j + ` #>> '{}') = 36 AND o.guid = ` + j + ` #>> '{}'), ` + fieldText(j) + `)`
+	keys := rankedKeys(rank, "NULLIF("+text+", '')")
 	// Numbers compare numerically before the text fallback.
 	keys = append(keys[:3], sortKey{expr: "CASE WHEN jsonb_typeof(" + j + ") = 'number' THEN (" + j + ")::text::numeric END"}, keys[3])
 	return keys, nil, nil

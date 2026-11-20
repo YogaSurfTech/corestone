@@ -105,6 +105,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/artifacts/details", s.details)
 	m.HandleFunc("GET /api/repository/types", s.types)
 	m.HandleFunc("GET /api/repository/values", s.values)
+	m.HandleFunc("GET /api/repository/options", s.options)
 	m.HandleFunc("GET /api/repository/validate", s.validate)
 	m.HandleFunc("POST /api/repository/reindex", s.reindex)
 	m.HandleFunc("POST /api/repository/folders/move", s.moveFolder)
@@ -998,6 +999,17 @@ func (s *Server) values(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"values": vals})
+}
+
+// options lists the options of a dynamic enumeration field.
+func (s *Server) options(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	opts, err := s.F.FieldOptions(r.Context(), q.Get("type"), q.Get("field"), q.Get("path"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"options": opts})
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {

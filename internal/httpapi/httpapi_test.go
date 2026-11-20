@@ -781,3 +781,82 @@ func TestCheckEntry(t *testing.T) {
 	a.ok("POST", "/api/documents/check", `{"path":"docs","type":"spec","title":"D"}`, 200)
 	a.ok("POST", "/api/entries/check", `not json`, 400)
 }
+
+// A dynamic enumeration offers artifacts as its options: a value is the
+// artifact's GUID, checked when it is chosen.
+func TestDynamicEnum(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	a.ok("PUT", "/api/config?path=entries/product-fields.json", `{"fields":[{"id":"rank","type":"integer"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
+		{"id":"requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
+		{"id":"testcase","hid":{"prefix":"TC"}},{"id":"product","hid":{"prefix":"P"}}]}`, 200)
+	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":[{"col":"rank","dir":"desc"}]}`
+	for _, bad := range []string{
+		`{"id":"product","type":"text",` + source + `}`,                                // only enumerations
+		`{"id":"product","type":"enum","options":[{"value":"a"}],` + source + `}`,      // a source replaces options
+		`{"id":"product","type":"enum","source":{"kind":"link","types":["verifies"]}}`, // entries and documents only
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,          // no type
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"up"}]}}`,
+	} {
+		a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[`+bad+`]}`, 400)
+	}
+	a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[{"id":"product","name":"Belongs to product","type":"enum",`+source+`},
+		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also"]}]}`, 200)
+
+	product := func(title string, rank int) string {
+		return meta(a.ok("POST", "/api/entries", fmt.Sprintf(`{"path":"products","type":"product","title":%q,"fields":{"rank":%d}}`, title, rank), 201), "guid")
+	}
+	beta, alpha, gamma := product("Beta", 2), product("Alpha", 3), product("Gamma", 1)
+	req := meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201), "guid")
+
+	// the options: every product, in the source's order (rank descending); the second field by title
+	titles := func(field string) string {
+		var out []string
+		for _, o := range a.ok("GET", "/api/repository/options?type=spec&path=docs&field="+field, "", 200).body["options"].([]any) {
+			out = append(out, o.(map[string]any)["title"].(string))
+		}
+		return strings.Join(out, " ")
+	}
+	if got := titles("product"); got != "Alpha Beta Gamma" {
+		t.Fatalf("options by rank: %s", got)
+	}
+	if got := titles("also"); got != "Alpha Beta Gamma" {
+		t.Fatalf("options by title: %s", got)
+	}
+	a.ok("PUT", "/api/entries/"+gamma, `{"title":"A first"}`, 200)
+	if got := titles("also"); got != "A first Alpha Beta" {
+		t.Fatalf("options by title after a rename: %s", got)
+	}
+	a.ok("GET", "/api/repository/options?type=spec&path=docs&field=nope", "", 404)
+	a.ok("GET", "/api/repository/options?type=requirement&path=specs&field=priority", "", 404)
+
+	// a value is the GUID of an option
+	doc := func(title, fields string, status int) string {
+		return meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"`+title+`","fields":`+fields+`}`, status), "guid")
+	}
+	doc("no guid", `{"product":"Beta"}`, 400)
+	doc("no option", `{"product":"`+req+`"}`, 400)
+	doc("missing", `{"product":"00000000-0000-4000-8000-000000000000"}`, 400)
+	doc("one of several is no option", `{"also":["`+alpha+`","`+req+`"]}`, 400)
+	dB := doc("For Beta", `{"product":"`+beta+`","also":["`+alpha+`","`+gamma+`"]}`, 201)
+	dA := doc("For Alpha", `{"product":"`+alpha+`"}`, 201)
+
+	// found by the value, and sorted by the chosen artifact's title
+	if found := a.ok("GET", "/api/repository/search?kind=document&field.product="+beta, "", 200); found.body["total"] != float64(1) {
+		t.Fatalf("search by product: %s", found.raw)
+	}
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":[{"col":"product"}]}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != dA || got[1] != dB {
+		t.Fatalf("sorted by product: %s", r.raw)
+	}
+
+	// a product deleted later: the value stays and other edits still work; it cannot be chosen again
+	a.ok("DELETE", "/api/entries/"+beta, "", 204)
+	a.ok("PUT", "/api/documents/"+dB, `{"title":"Still for Beta"}`, 200)
+	a.ok("PUT", "/api/documents/"+dA, `{"fields":{"product":"`+beta+`"}}`, 400)
+	if got := titles("product"); got != "Alpha A first" {
+		t.Fatalf("options after a delete: %s", got)
+	}
+}

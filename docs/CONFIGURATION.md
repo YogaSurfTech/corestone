@@ -88,6 +88,27 @@ is a property of the field, so one enumeration can back both:
     { "id": "tags", "name": "Tags", "type": "enum", "enum": "tags", "multiple": true } ] }
 ```
 
+A **dynamic enumeration** offers artifacts instead of a fixed list. It has a `source` in place of
+options:
+
+```json
+{ "id": "product", "name": "Belongs to product", "type": "enum",
+  "source": { "kind": "entry", "types": ["product"],
+              "sort": [ { "col": "rank", "dir": "desc" }, { "col": "$title" } ],
+              "query": "" } }
+```
+
+- `kind` is `entry` or `document`; `types` names the artifact types that are offered. The options
+  are all artifacts of these types in the whole repository.
+- `sort` orders the options, with up to three levels of table columns (`$title`, `$hid`) or field
+  ids. Without it they are ordered by title.
+- `query` is reserved for narrowing the options with the query language. It is stored and not
+  evaluated yet.
+- The value is the chosen artifact's GUID; `multiple` stores a list. A value is checked when it is
+  chosen. An artifact deleted later stays in the field and is shown as missing.
+- Tables show the artifact by HID and title and sort the column by its title. The client loads the
+  options from `GET /api/repository/options?type=&path=&field=`.
+
 **`<id>-enum.json`** — options of one enumeration:
 
 ```json

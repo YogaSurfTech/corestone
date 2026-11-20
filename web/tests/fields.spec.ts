@@ -424,3 +424,37 @@ test("rich text: invalid images, file links and formulas are refused by the serv
     expect(res.status).toBe(400);
   }
 });
+
+test("a dynamic enumeration offers entries as options and stores the chosen entry", async ({ page }) => {
+  // options come from the whole repository, so the type is this run's own
+  const product = `product-${id}`;
+  await addType(folder, "entries", { id: product, displayName: "Product", hid: { prefix: "PRD" }, fields: [{ id: "rank", name: "Rank", type: "integer" }] });
+  await addType(folder, "entries", { id: "feature", displayName: "Feature", hid: { prefix: "FEA" }, presentation: { columns: ["product"] },
+    fields: [{ id: "product", name: "Belongs to product", type: "enum", source: { kind: "entry", types: [product], sort: [{ col: "rank", dir: "desc" }] } }] });
+  const beta = await post("/entries", { path: `${folder}/products`, type: product, title: `Beta ${id}`, fields: { rank: 2 } });
+  await post("/entries", { path: `${folder}/products`, type: product, title: `Alpha ${id}`, fields: { rank: 3 } });
+  const feature = await post("/entries", { path: folder, type: "feature", title: `Feature ${id}` });
+
+  await page.goto(`/artifact/${feature.meta.guid}`);
+  const field = page.locator("corestone-detail [data-field=product]");
+  await field.locator(".enum-trigger").click();
+  // every product, in the source's order (rank descending), shown by HID and title
+  await expect(field.locator(".enum-option")).toHaveText([/none/, new RegExp(`PRD-2 – Alpha ${id}`), new RegExp(`PRD-1 – Beta ${id}`)]);
+  await field.locator(`.enum-option[data-value="${beta.meta.guid}"]`).click();
+  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${feature.meta.guid}`);
+  expect(stored.data.fields.product).toBe(beta.meta.guid);
+  await expect(field).toContainText(`Beta ${id}`);
+
+  // the table shows the product, not its GUID
+  await page.goto(`/folder/${folder}`);
+  const row = page.locator("corestone-overview table.grid tbody tr", { hasText: `Feature ${id}` });
+  await expect(row).toContainText(`Beta ${id}`);
+  await expect(row).not.toContainText(beta.meta.guid);
+
+  // a product deleted later stays in the field, marked as missing
+  await fetch(`${api}/entries/${beta.meta.guid}`, { method: "DELETE" });
+  await page.goto(`/artifact/${feature.meta.guid}`);
+  await expect(field).toContainText("Missing item");
+});
