@@ -53,8 +53,7 @@ Goals:
   "inheritance": "off",
   "types": [
     { "id": "task", "displayName": "Task", "hid": { "prefix": "TSK" },
-      "workflows": ["task"],
-      "fields": [ { "id": "priority", "required": true }, "effort", "description", "tags" ],
+      "fields": [ { "id": "priority", "required": true }, "effort", "description", "tags", "status" ],
       "presentation": { "columns": ["priority", "effort"] } }
   ]
 }
@@ -96,7 +95,39 @@ is a property of the field, so one enumeration can back both:
   "options": [ { "value": "low" }, { "value": "high", "presentation": { "color": "#d6455d" } } ] }
 ```
 
-**`<id>-workflow.json`** — a state machine, in today's workflow format.
+**`<id>-workflow.json`** — a state machine: its states, the initial one, and the transitions
+between them. Every transition has an `id`, unique in its workflow, and may have a `name`; two
+transitions may lead from the same state to the same state.
+
+```json
+{ "name": "Task", "initial": "open",
+  "states": [ "open", { "id": "review", "name": "In review" }, { "id": "done", "final": true } ],
+  "transitions": [
+    { "id": "send_to_review", "name": "Send to review", "from": "open", "to": "review" },
+    { "id": "approve", "from": "review", "to": "done" },
+    { "id": "waive", "name": "Close without review", "from": "review", "to": "done" } ] }
+```
+
+A workflow is used through a field of type `workflow` that names it:
+
+```json
+{ "id": "status", "name": "Status", "type": "workflow", "workflow": "task" }
+```
+
+A type may have several workflow fields, and two fields may follow the same workflow. The field's
+value is written by the server only. It is an object: the state, the transition that led to it and
+the state before it. A new artifact holds only the initial state.
+
+```json
+"fields": { "status": { "state": "review", "transition": "send_to_review", "previous": "open" } }
+```
+
+A client changes the state by sending the field and a transition's id
+(`POST /api/artifacts/{guid}/transition` with `{"field": "status", "transition": "approve"}`, or
+`transitions` in a save). Writing the value directly is refused. Searches find a workflow field
+by its state like an enumeration (`field.status=review`), and by `field.status.transition` and
+`field.status.previous`. A state is not inherited: every entry has its own, also an overlay, and a
+workflow field cannot move to a base.
 
 **`icons/<name>.svg`** — a 16×16 icon (`viewBox="0 0 16 16"`) that a type shows in lists, links,
 dialogs and its detail view. A type selects it with `"presentation": { "icon": "<name>" }`; types
@@ -207,8 +238,8 @@ The server enforces the effective configuration at the artifact's location:
   a search or subtree view combines artifacts with the same type name from different scopes.
 - **Workflow sorting:** workflow fields and the overview's State column use the sequence of the
   workflow's `states` list, reversed for descending order, not state names or transitions.
-  The State column compares workflows in the type's declared `workflows` order, using subsequent
-  workflows to break ties. Definitions are loaded for each artifact's folder and type. Unlisted
+  The State column compares the type's workflow fields in the order of its `fields` list, using
+  subsequent ones to break ties. Definitions are loaded for each artifact's folder and type. Unlisted
   states follow defined states; missing states stay last in both directions.
 - Direct Git pushes cannot be refused. Violations they introduce are reported by the validation
   service (`unknown-type`, `undeclared-field`) and surfaced in the client.

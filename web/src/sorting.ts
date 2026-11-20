@@ -1,6 +1,6 @@
 import type { Summary } from "./types";
 import { plainText } from "@corestone/editor/model"; // the stored form only, without the editor (also in Node)
-import { isRichText } from "./util";
+import { isRichText, isWorkflowValue } from "./util";
 
 interface RankedValue { value: string; rank: number }
 type ScalarValue = string | number | null | RankedValue;
@@ -38,6 +38,7 @@ export function fieldValue(row: Summary, id: string): string | number | null {
   if (typeof v === "number") return v;
   if (isRichText(v)) return plainText(v);
   if (Array.isArray(v)) return v.join(", ");
+  if (isWorkflowValue(v)) return v.state;
   if (typeof v === "object") return "{…}";
   return String(v);
 }

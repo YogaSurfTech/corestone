@@ -23,7 +23,7 @@ t=sorted(x['type'] for x in json.load(sys.stdin)['types']); assert t==['comment'
 
 # Search finds the seeded requirement; field and state filters work.
 R1=$(curl -sfS "$API/repository/search?q=selling" | py "d=json.load(sys.stdin); assert d['total']==1, d; print(d['artifacts'][0]['guid'])")
-curl -sfS "$API/repository/search?state.dev=review&kind=entry" | py "assert json.load(sys.stdin)['total']==1"
+curl -sfS "$API/repository/search?field.status=review&kind=entry" | py "assert json.load(sys.stdin)['total']==1"
 curl -sfS "$API/repository/search?field.priority=high&path=specs" | py "assert json.load(sys.stdin)['total']==2"
 
 # Effective schema composes root and subtree definitions.
@@ -43,9 +43,11 @@ ETAG=$(curl -sfSI "$API/entries/$R1" | tr -d '\r' | awk -F': ' 'tolower($1)=="et
 
 # Workflow evaluation and an illegal transition.
 curl -sfS "$API/artifacts/$R1/workflows" | py "
-w={x['id']:x for x in json.load(sys.stdin)['workflows']}; assert w['dev']['state']=='review' and w['publish']['state']=='draft', w
-assert {t['id'] for t in w['dev']['available']}=={'approve','rework'}, w['dev']['available']"
-[ "$(code -X POST "$API/artifacts/$R1/transition" -H 'Content-Type: application/json' -d '{"workflow":"publish","to":"draft"}')" = 400 ] || fail "illegal transition accepted"
+w={x['id']:x for x in json.load(sys.stdin)['workflows']}; assert w['status']['state']=='review' and w['publication']['state']=='draft', w
+assert w['status']['transition']=='submit' and w['status']['previous']=='open', w['status']
+assert {t['id'] for t in w['status']['available']}=={'approve','rework'}, w['status']['available']"
+[ "$(code -X POST "$API/artifacts/$R1/transition" -H 'Content-Type: application/json' -d '{"field":"publication","transition":"withdraw"}')" = 400 ] || fail "illegal transition accepted"
+[ "$(code -X PUT "$API/entries/$R1" -H 'Content-Type: application/json' -d '{"fields":{"status":{"state":"done"}}}')" = 400 ] || fail "a state written without a transition"
 
 # Relationship analysis lists the verifying test and allowed link types.
 curl -sfS "$API/artifacts/$R1/relationships" | py "
@@ -54,7 +56,7 @@ assert 'verifies' in [s['type'] for s in d['allowedAsTarget']], d"
 
 # Move keeps identity, workflow state, comments and history.
 curl -sfS -X POST "$API/artifacts/$R1/move" -H 'Content-Type: application/json' -d '{"path":"archive/e2e"}' >/dev/null
-curl -sfS "$API/entries/$R1" | py "m=json.load(sys.stdin)['meta']; assert m['folder']=='archive/e2e' and m['workflows']['dev']=='review', m"
+curl -sfS "$API/entries/$R1" | py "d=json.load(sys.stdin); assert d['meta']['folder']=='archive/e2e' and d['data']['fields']['status']['state']=='review', d"
 curl -sfS "$API/artifacts/$R1/comments" | py "c=json.load(sys.stdin)['comments']; assert len(c)==2 and c[1]['data']['parent']==c[0]['meta']['guid'], c"
 curl -sfS "$API/artifacts/$R1/history" | py "
 h=json.load(sys.stdin)['history']; assert any('moved' in e['subject'] for e in h) and h[-1]['trailers']['Corestone-Op']=='create', h"

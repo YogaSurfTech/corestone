@@ -85,14 +85,16 @@ export async function seedDomain(scope: string, prefix: string) {
   await defineWorkflow(scope, ["entries", "documents"], "publish", { name: "Publishing", initial: "draft", states: ["draft", "released"],
     transitions: [{ id: "release", from: "draft", to: "released" }, { id: "withdraw", from: "released", to: "draft" }] });
   await defineTypes(scope, "entries", [
-    { id: "req", displayName: "Requirement", hid: { prefix }, workflows: ["dev", "publish"],
+    { id: "req", displayName: "Requirement", hid: { prefix },
       fields: [{ id: "priority", name: "Priority", type: "enum", required: true, options: [{ value: "low" }, { value: "high" }] },
-               { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" }],
+               { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" },
+               { id: "status", name: "Status", type: "workflow", workflow: "dev" }, { id: "publication", name: "Publication", type: "workflow", workflow: "publish" }],
       presentation: { columns: ["priority", "effort"] } },
     { id: "tc", displayName: "Test case", hid: { prefix: prefix + "T" } },
   ]);
-  await defineTypes(scope, "documents", [{ id: "spec", displayName: "Specification", workflows: ["publish"],
-    fields: [{ id: "audience", name: "Audience", type: "enum", options: [{ value: "internal" }, { value: "customer" }] }] }]);
+  await defineTypes(scope, "documents", [{ id: "spec", displayName: "Specification",
+    fields: [{ id: "audience", name: "Audience", type: "enum", options: [{ value: "internal" }, { value: "customer" }] },
+             { id: "publication", name: "Publication", type: "workflow", workflow: "publish" }] }]);
   await defineTypes(scope, "links", [
     { id: "verifies", displayName: "verifies", reverseName: "verified by", sourceTypes: ["tc"], targetTypes: ["req"], cardinality: "many-to-many",
       fields: [{ id: "coverage", name: "Coverage", type: "enum", options: [{ value: "full" }, { value: "partial" }] }] },

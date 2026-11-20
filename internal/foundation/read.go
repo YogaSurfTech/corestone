@@ -211,6 +211,11 @@ func (f *Foundation) Overlay(ctx context.Context, guid string) (*OverlayView, er
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ov.WithoutWorkflows(cfg.Effective(v.Meta.Type, v.Meta.Folder))
 	overlays, err := f.DB.Overlays(ctx, guid)
 	if err != nil {
 		return nil, err

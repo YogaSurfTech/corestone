@@ -111,7 +111,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   (`t.load` honours staged ops; duplicate and cardinality checks count links dropped or added in
   the same save); the parts are combined into one commit with one event.
 - `merge.go` — a save from an older version: what the user and others both changed since that
-  version (properties, fields, workflows, attachments, removed links), with who changed it; only
+  version (properties, fields, attachments, removed links), with who changed it; only
   such overlaps refuse the save (`SaveConflict`), everything else merges.
 - `config.go` — configuration files (read, write with warnings for unresolved references, delete),
   attachments. Enforcement of the configuration — types defined where an artifact lives, including

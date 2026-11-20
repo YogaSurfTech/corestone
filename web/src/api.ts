@@ -81,7 +81,8 @@ const q = (params: Record<string, string | number | boolean | undefined>) => {
 /** The body of a save: what changed besides attachments to store. */
 export interface SaveChanges {
   patch?: Record<string, unknown>;
-  transitions?: { workflow: string; to: string }[];
+  /** Transitions to run, each on a workflow field, by the transition's id. */
+  transitions?: { field: string; transition: string }[];
   addLinks?: { type: string; source: string; target: string }[];
   /** Each removed link with the version the user saw: a link changed since conflicts. */
   removeLinks?: { guid: string; etag?: string }[];
@@ -138,8 +139,8 @@ export const api = {
   overlay: (guid: string) => request<OverlayView>("GET", `/artifacts/${guid}/overlay`),
   documents: (guid: string) => request<{ documents: Summary[] }>("GET", `/artifacts/${guid}/documents`),
   workflows: (guid: string) => request<{ workflows: WorkflowEval[] }>("GET", `/artifacts/${guid}/workflows`),
-  transition: (guid: string, workflow: string, to: string, etag?: string) =>
-    request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
+  transition: (guid: string, field: string, transition: string, etag?: string) =>
+    request<View>("POST", `/artifacts/${guid}/transition`, { field, transition }, etag ? { "If-Match": `"${etag}"` } : {}),
   /** Everything the detail form changed, published as one commit; attachments go as multipart. */
   /** Whether an entry or document could be created from body (nothing is created). */
   check: (collection: "entries" | "documents", body: unknown) => request<{ ok: boolean; problems: string[] }>("POST", `/${collection}/check`, body),

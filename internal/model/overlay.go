@@ -63,3 +63,26 @@ func ResolveOverlay(entry *Artifact, lookup func(guid string) (*Artifact, error)
 	}
 	return ov, nil
 }
+
+// WithoutWorkflows leaves the schema's workflow fields out of the analysis:
+// a state is no value an overlay inherits or overrides, every entry has its
+// own. A nil overlay or schema is left as it is.
+func (o *Overlay) WithoutWorkflows(s *Schema) *Overlay {
+	if o == nil || s == nil {
+		return o
+	}
+	for _, f := range s.WorkflowFields() {
+		o.Fields.Delete(f.ID)
+		delete(o.Origin, f.ID)
+		for i := range o.Chain {
+			kept := o.Chain[i].Fields[:0]
+			for _, id := range o.Chain[i].Fields {
+				if id != f.ID {
+					kept = append(kept, id)
+				}
+			}
+			o.Chain[i].Fields = kept
+		}
+	}
+	return o
+}

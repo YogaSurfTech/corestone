@@ -6,7 +6,7 @@ import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
-import { kindIcon, kindLabel } from "./util";
+import { kindIcon, kindLabel, workflowStates } from "./util";
 import type { TableColumn, TableContext } from "./table";
 import "./table";
 import "./type-icon";
@@ -201,7 +201,7 @@ export class Overview extends LightElement {
           render: (row) => html`<corestone-type-icon .kind=${row.kind} .type=${row.type} .folder=${row.folder} .schema=${this.schemaOf(row) ?? null}></corestone-type-icon>${row.title || html`<span class="muted">${row.kind}</span>`}` },
         { id: "$type", name: "Type", render: type },
         { id: "$state", name: "State",
-          render: (row) => html`${Object.entries(row.workflows ?? {}).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
+          render: (row) => html`${workflowStates(row.fields).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
       ] satisfies Column[]),
       ...this.fieldColumns().map((c): Column => ({ ...c,
         render: (row) => {

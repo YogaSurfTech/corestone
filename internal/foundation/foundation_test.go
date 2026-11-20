@@ -219,6 +219,12 @@ func TestLifecycle(t *testing.T) {
 
 	// create underlay: a new level between an overlay and its base, in one commit, values unchanged
 	ovBefore, _ := f.Overlay(ctx, ov.Meta.GUID)
+	if _, inherited := ovBefore.Fields.Get("status"); inherited || ovBefore.Origin["status"] != "" {
+		t.Fatalf("a workflow state is part of the overlay: %+v", ovBefore.Overlay)
+	}
+	if _, err := f.CreateUnderlay(ctx, ov.Meta.GUID, "", "mid", []string{"status"}); !errors.Is(err, model.ErrValidation) {
+		t.Fatalf("a workflow state moved to a base: %v", err)
+	}
 	commits := func() int { l, _ := f.Repo.Log(ctx, mustHead(t, f), nil, 0); return len(l) }
 	nCommits := commits()
 	if _, err := f.CreateUnderlay(ctx, ov.Meta.GUID, "", "mid", []string{"nope"}); !errors.Is(err, model.ErrValidation) {

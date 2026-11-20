@@ -5,9 +5,9 @@ import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { store, type Route, type State, toastError } from "./store";
-import type { Attachment, CommentView, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval } from "./types";
+import type { Attachment, CommentView, Field, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval, WorkflowValue } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, hidLabel, label, showValue, undeclaredField } from "./util";
+import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./util";
 import "./type-icon";
 import "./table";
 import type { TableColumn } from "./table";
@@ -26,8 +26,8 @@ import type { PickerAction } from "./dialogs";
 
 /** Changes besides fields that wait for Save, published together in one commit. */
 interface Pending {
-  /** Workflow id → the transition chosen and the state it leads to. */
-  transitions: Record<string, { to: string; state: string }>;
+  /** Workflow field id → the transition chosen and the state it leads to. */
+  transitions: Record<string, { transition: string; state: string }>;
   links: { type: string; source: string; target: string; other: Summary; role: string; dir: "in" | "out" }[];
   removedLinks: string[];
   comments: { type: string | null; text: string; parent?: string }[];
@@ -36,7 +36,7 @@ interface Pending {
 }
 const noPending = (): Pending => ({ transitions: {}, links: [], removedLinks: [], comments: [], files: [], removedFiles: [] });
 
-const SECTIONS = ["comment", "fields", "workflows", "relationships", "comments", "overlay", "attachments", "documents", "history", "metadata"] as const;
+const SECTIONS = ["comment", "fields", "relationships", "comments", "overlay", "attachments", "documents", "history", "metadata"] as const;
 type Section = (typeof SECTIONS)[number];
 const OPEN_KEY = "corestone.detail.sections";
 
@@ -331,7 +331,6 @@ export class Detail extends LightElement {
     const added = (guids: string[]) => guids.filter((g) => c.added.includes(g)).length;
     switch (s) {
       case "fields": return c.changed.some((k) => k.startsWith("fields.")) ? ["changed"] : [];
-      case "workflows": return c.changed.some((k) => k.startsWith("workflows.")) ? ["changed"] : [];
       case "comment": return this.changed("text") ? ["changed"] : [];
       case "relationships": {
         if (this.view?.meta.kind === "link") return this.changed("source") || this.changed("target") ? ["changed"] : [];
@@ -351,8 +350,7 @@ export class Detail extends LightElement {
     const p = this.pending;
     const badges = (n: number, what: string, verb: string) => (n ? [`${plural(n, what)} ${verb}`] : []);
     switch (s) {
-      case "fields": return this.draft && this.view && this.edited.includes("fields") ? ["changed"] : [];
-      case "workflows": return Object.keys(p.transitions).length ? ["changed"] : [];
+      case "fields": return (this.draft && this.view && this.edited.includes("fields")) || Object.keys(p.transitions).length ? ["changed"] : [];
       case "relationships": return [...badges(p.links.length, "link", "added"), ...badges(p.removedLinks.length, "link", "removed")];
       case "comments": return badges(p.comments.length, "comment", "added");
       case "attachments": return [...badges(p.files.length, "attachment", "added"), ...badges(p.removedFiles.length, "attachment", "removed")];
@@ -370,7 +368,7 @@ export class Detail extends LightElement {
       <span>${fmtTime(h.commit.time)} · ${h.commit.author} · <span title=${h.commit.body ?? ""}>${h.commit.subject}</span></span>
       <span class="mono muted small" title="Content blob ${h.etag} at commit ${h.commit.sha}">${h.etag.slice(0, 8)} @ ${h.commit.sha.slice(0, 8)}</span>
       ${h.exact ? nothing : html`<span class="small" data-test="historic-inexact">The requested commit is unknown; shown at the commit that introduced this version.</span>`}
-      <span class="small muted">Read-only. Fields, workflows and link roles are shown with today's configuration.</span>
+      <span class="small muted">Read-only. Fields and link roles are shown with today's configuration.</span>
       <span class="spacer"></span>
       ${h.exists ? html`<button class="btn sm" data-test="historic-back" @click=${back}>Back to current</button>`
         : html`<span class="small" data-test="historic-deleted">This artifact has been deleted since.</span>`}
@@ -453,7 +451,7 @@ export class Detail extends LightElement {
     const p = this.pending;
     const changes: SaveChanges = {
       patch,
-      transitions: Object.entries(p.transitions).map(([workflow, t]) => ({ workflow, to: t.to })),
+      transitions: Object.entries(p.transitions).map(([field, t]) => ({ field, transition: t.transition })),
       addLinks: p.links.map(({ type, source, target }) => ({ type, source, target })),
       removeLinks: p.removedLinks.map((guid) => ({ guid, etag: this.linkEtag(guid) })),
       addComments: p.comments.map((c) => ({ ...c, author: this.s.user })),
@@ -512,7 +510,6 @@ export class Detail extends LightElement {
     const id = rest.join(".");
     switch (kind) {
       case "fields": return this.schema?.fields?.find((f) => f.id === id)?.name ?? id;
-      case "workflows": { const w = this.workflows.find((x) => x.id === id); return `${w?.definition.name ?? id} (state)`; }
       case "files": return `Attachment ${id}`;
       case "links": {
         const r = [...(this.rel?.incoming ?? []), ...(this.rel?.outgoing ?? [])].find((x) => x.link.guid === id);
@@ -523,12 +520,11 @@ export class Detail extends LightElement {
   }
 
   /** A transition waits for Save; choosing again replaces it, choosing none drops it. */
-  private transition(wf: string, to: string) {
-    const w = this.workflows.find((x) => x.id === wf);
-    const t = w?.available.find((x) => (x.id || x.to) === to);
+  private transition(field: string, id: string) {
+    const t = this.workflows.find((x) => x.id === field)?.available.find((x) => x.id === id);
     const transitions = { ...this.pending.transitions };
-    if (!to || !t) delete transitions[wf];
-    else transitions[wf] = { to, state: t.to };
+    if (!t) delete transitions[field];
+    else transitions[field] = { transition: t.id, state: t.to };
     this.pending = { ...this.pending, transitions };
     this.touched();
   }
@@ -645,7 +641,6 @@ export class Detail extends LightElement {
     const body: Record<Section, () => unknown> = {
       comment: () => this.ownCommentSection(),
       fields: () => this.fieldsSection(),
-      workflows: () => this.workflowSection(),
       relationships: () => this.relSection(),
       comments: () => this.commentSection(),
       overlay: () => this.overlaySection(),
@@ -734,7 +729,6 @@ export class Detail extends LightElement {
     switch (s) {
       case "comment": return k === "comment";
       case "relationships": return k !== "comment";
-      case "workflows": return this.workflows.length > 0;
       case "attachments": return k === "entry" || k === "document";
       case "documents": return k === "entry" && !this.historic;
       case "overlay": return !!this.overlay;
@@ -743,7 +737,7 @@ export class Detail extends LightElement {
   }
   private isEmpty(s: Section): boolean {
     switch (s) {
-      case "fields": return !(this.schema?.fields ?? []).some((f) => f.type !== "workflow") && !Object.keys(this.draft?.fields ?? {}).length;
+      case "fields": return !(this.schema?.fields ?? []).length && !Object.keys(this.draft?.fields ?? {}).length;
       case "relationships": return this.view?.meta.kind !== "link" && (!this.rel || !(this.rel.incoming.length + this.rel.outgoing.length));
       case "comments": return !this.comments.length;
       case "attachments": return !this.view?.attachments?.length;
@@ -792,7 +786,7 @@ export class Detail extends LightElement {
       <span class="actions">${actions}</span></h3>
       ${open ? body() : nothing}</section>`;
   }
-  private sectionName(s: string) { return { comment: "Comment", fields: "Fields", workflows: "Workflows", relationships: "Relationships", comments: "Comments", attachments: "Attachments", documents: "Documents", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
+  private sectionName(s: string) { return { comment: "Comment", fields: "Fields", relationships: "Relationships", comments: "Comments", attachments: "Attachments", documents: "Documents", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
   private sectionCount(s: string): string {
     switch (s) {
       case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
@@ -808,12 +802,12 @@ export class Detail extends LightElement {
 
   private fieldsSection() {
     const d = this.draft!;
-    const fields = (this.schema?.fields ?? []).filter((f) => f.type !== "workflow");
+    const fields = this.schema?.fields ?? [];
     const known = new Set(fields.map((f) => f.id));
     const extra = Object.keys(d.fields).filter((k) => !known.has(k));
     return this.section("fields", () => html`
       ${!fields.length && !extra.length ? html`<div class="muted small">No fields defined for this type. Add a schema to describe it.</div>` : nothing}
-      ${fields.map((f) => { const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .files=${this.entryFiles} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
+      ${fields.map((f) => { if (f.type === "workflow") return this.workflowField(f); const ov = this.overlayState(f.id); return html`<corestone-field .field=${f} .value=${ov?.state === "inherited" ? ov.baseValue : d.fields[f.id]} .attachments=${this.view?.attachments ?? []} .files=${this.entryFiles} .typeId=${this.view?.meta.type ?? ""} .folder=${this.view?.meta.folder ?? ""}
         .overlay=${ov} .readonly=${!!this.historic} .changed=${this.changed("fields." + f.id)} @focusin=${this.touched}
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
@@ -844,23 +838,30 @@ export class Detail extends LightElement {
     return lvl?.hid || lvl?.title || guid.slice(0, 8);
   }
 
-  private workflowSection() {
-    return this.section("workflows", () => html`
-      ${this.workflows.map((w) => { const next = this.pending.transitions[w.id]; return html`<div class="workflow ${this.changedClass("workflows." + w.id)} ${next ? "pending-add" : ""}" data-workflow=${w.id}>
-        <span class="name">${w.definition.name || w.id}</span>
-        <span class="pill state ${next ? "pending-remove" : ""}">${w.state}</span>
-        ${next ? html`<span class="arrow">→</span><span class="pill state" data-test=${"pending-state-" + w.id} title="Saved with the next Save">${next.state}</span>` : nothing}
-        ${this.historic ? nothing : html`<select data-test=${"transition-" + w.id} .value=${next?.to ?? ""} @change=${(e: Event) => this.transition(w.id, (e.target as HTMLSelectElement).value)}>
-          <option value="" ?selected=${!next}>${!w.available.length ? "No transitions available" : next ? "Keep " + w.state : "Transition to…"}</option>
-          ${w.available.map((t) => html`<option value=${t.id || t.to} ?selected=${next?.to === (t.id || t.to)}>${t.name || t.id || "→ " + t.to}</option>`)}
+  /** A workflow field: its state, and the transitions allowed from it. Choosing one waits for Save. */
+  private workflowField(f: Field) {
+    const w = this.workflows.find((x) => x.id === f.id);
+    const state = w?.state ?? (isWorkflowValue(this.draft!.fields[f.id]) ? (this.draft!.fields[f.id] as WorkflowValue).state : "");
+    const next = this.pending.transitions[f.id];
+    const stateName = (id: string) => { const st = w?.definition.states.find((x) => x.id === id); return st?.name || id; };
+    return html`<div class="field ${this.changedClass("fields." + f.id)}" data-field=${f.id}>
+      <label for=${"f-" + f.id}>${f.name || f.id}</label>
+      <div class="value"><div class="workflow ${next ? "pending-add" : ""}" data-workflow=${f.id}>
+        <span class="pill state ${next ? "pending-remove" : ""}">${state ? stateName(state) : "—"}</span>
+        ${next ? html`<span class="arrow">→</span><span class="pill state" data-test=${"pending-state-" + f.id} title="Saved with the next Save">${stateName(next.state)}</span>` : nothing}
+        ${this.historic || !w ? nothing : html`<select id=${"f-" + f.id} data-test=${"transition-" + f.id} .value=${next?.transition ?? ""} @change=${(e: Event) => this.transition(f.id, (e.target as HTMLSelectElement).value)}>
+          <option value="" ?selected=${!next}>${!w.available.length ? "No transitions available" : next ? "Keep " + stateName(w.state) : "Change state…"}</option>
+          ${w.available.map((t) => html`<option value=${t.id} ?selected=${next?.transition === t.id}>${t.name || t.id} → ${stateName(t.to)}</option>`)}
         </select>`}
-        <button class="btn sm" @click=${() => (this.showDiagram = this.showDiagram === w.id ? null : w.id)}>? diagram</button>
-        ${this.showDiagram === w.id ? html`<div class="wf-diagram" style="flex-basis:100%">
+        ${w ? html`<button class="btn sm" title=${"Workflow " + (w.definition.name || w.definition.id)} @click=${() => (this.showDiagram = this.showDiagram === f.id ? null : f.id)}>? diagram</button>` : nothing}
+        ${w && this.showDiagram === f.id ? html`<div class="wf-diagram" style="flex-basis:100%">
           ${w.definition.states.map((s) => html`<span class="wf-state ${s.id === w.state ? "current" : ""}" style=${s.presentation?.color ? `border-color:${s.presentation.color}` : ""}>${s.name || s.id}</span>`)}
           <span class="wf-edge">·</span>
-          ${w.definition.transitions.map((t) => html`<span class="wf-edge">${t.from.join("|")} → ${t.to}${t.name ? ` (${t.name})` : ""}</span>`)}
+          ${w.definition.transitions.map((t) => html`<span class="wf-edge">${t.from.join("|")} → ${t.to} (${t.name || t.id})</span>`)}
           <span class="muted small">defined in ${w.definition.scope || "/"}</span></div>` : nothing}
-      </div>`; })}`);
+      </div>
+      ${f.description ? html`<div class="help">${f.description}</div>` : nothing}</div>
+    </div>`;
   }
 
   /**
@@ -1037,7 +1038,7 @@ export class Detail extends LightElement {
         ${base ? html`<div class="col">${node(base.guid, base.hid, base.title, base.fields)}</div><span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>` : nothing}
         <div class="col"><div class="node self"><b>this entry</b>${sets(self?.fields ?? [])}</div></div>
         ${ov.overlays.length ? html`<span class="arrow" title=${OVERLAY_HELP}>→ overlaid by</span>
-          <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {})))}</div>` : nothing}
+          <div class="col" data-test="overlays">${ov.overlays.map((o) => node(o.guid, o.hid, o.title, Object.keys(o.fields ?? {}).filter((id) => !isWorkflowValue(o.fields![id]))))}</div>` : nothing}
       </div>
       ${base ? html`<dl class="kv" style="margin-top:10px"><dt>Effective fields</dt><dd>${Object.entries(ov.fields).map(([k, v]) => html`<div><b>${k}</b>: ${showValue(v)} <span class="muted small">from ${ov.origin[k] === this.guid ? "this entry" : this.levelLabel(ov.origin[k])}</span></div>`)}</dd></dl>` : nothing}`}`,
       this.historic ? nothing : html`${this.baseActions(!!base)}<button class="btn sm" data-test="create-overlay" @click=${this.createOverlay}>＋ Create overlay</button>`);
@@ -1061,9 +1062,11 @@ export class Detail extends LightElement {
       actions, onPick: (s: Summary) => { void this.previewBase(s); } } });
   };
 
-  /** The fields this entry sets itself, which can move into a new base. */
+  /** The fields this entry sets itself, which can move into a new base. A workflow's state cannot: every entry has its own. */
   private ownFields(): Record<string, unknown> {
-    return ((this.view?.data as Record<string, unknown> | undefined)?.fields ?? {}) as Record<string, unknown>;
+    const own = ((this.view?.data as Record<string, unknown> | undefined)?.fields ?? {}) as Record<string, unknown>;
+    const workflows = new Set((this.schema?.fields ?? []).filter((f) => f.type === "workflow").map((f) => f.id));
+    return Object.fromEntries(Object.entries(own).filter(([id]) => !workflows.has(id)));
   }
 
   /** Without a base of its own, a new base must contain the required fields. */
@@ -1140,7 +1143,7 @@ export class Detail extends LightElement {
    *  removal with "keep", inherited values are copied into the entry. */
   private baseChangeRows() {
     const c = this.baseChange!, ov = this.overlay!;
-    const own = ((this.view!.data as Record<string, unknown>).fields ?? {}) as Record<string, unknown>;
+    const own = this.ownFields();
     const after: Record<string, unknown> = {}, afterFrom: Record<string, string> = {};
     if (c.next) for (const [k, v] of Object.entries(c.next.fields)) { after[k] = v; afterFrom[k] = c.next.origin[k]; }
     if (!c.to && c.keep) for (const [k, v] of Object.entries(ov.fields)) { after[k] = v; afterFrom[k] = this.guid; }
@@ -1160,7 +1163,7 @@ export class Detail extends LightElement {
     const same = !!c.to && c.to.guid === this.view.meta.base;
     const rows = cycle || same ? [] : this.baseChangeRows();
     const changed = rows.filter((r) => r.changed);
-    const ownCount = Object.keys(((this.view.data as Record<string, unknown>).fields ?? {}) as object).length;
+    const ownCount = Object.keys(this.ownFields()).length;
     const overlays = this.overlay.overlays.length;
     const show = (v: unknown) => v === undefined || v === "" ? html`<span class="muted">—</span>` : html`<span class="pre-line">${showValue(v)}</span>`;
     return html`<div class="base-change" data-test="base-change">

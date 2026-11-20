@@ -301,7 +301,7 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		return nil, err
 	}
 	lookup := f.historicLookup(ctx, sc, pt.seq)
-	if v.Overlay, err = historicOverlay(a, lookup); err != nil {
+	if v.Overlay, err = historicOverlay(a, lookup, v.Schema); err != nil {
 		return nil, err
 	}
 	if a.Base != "" && v.Overlay != nil {
@@ -309,7 +309,7 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		if err != nil {
 			return nil, err
 		}
-		if v.BaseOverlay, err = historicOverlay(base, lookup); err != nil {
+		if v.BaseOverlay, err = historicOverlay(base, lookup, v.Schema); err != nil {
 			return nil, err
 		}
 	}
@@ -443,7 +443,7 @@ func (f *Foundation) historicLookup(ctx context.Context, sc *scanner.Scanner, se
 
 // historicOverlay resolves a base chain with every base as it was then; a
 // base that did not exist then leaves the chain unresolved (nil).
-func historicOverlay(a *model.Artifact, l *lookupAt) (*model.Overlay, error) {
+func historicOverlay(a *model.Artifact, l *lookupAt, schema *model.Schema) (*model.Overlay, error) {
 	ov, err := model.ResolveOverlay(a, l.get)
 	if l.failed != nil {
 		return nil, l.failed
@@ -451,7 +451,7 @@ func historicOverlay(a *model.Artifact, l *lookupAt) (*model.Overlay, error) {
 	if err != nil {
 		return nil, nil //nolint:nilerr // a broken chain then is shown without overlay, not as an error
 	}
-	return ov, nil
+	return ov.WithoutWorkflows(schema), nil
 }
 
 // historicSurroundings fills what surrounded the artifact at seq, everything

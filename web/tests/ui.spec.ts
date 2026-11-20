@@ -28,9 +28,10 @@ test.beforeAll(async () => {
   await defineWorkflow(folder, ["entries"], "dev", { initial: "open", states: ["open", "review", "done"],
     transitions: [{ id: "submit", name: "Submit for review", from: "open", to: "review" }, { id: "approve", from: "review", to: "done" }] });
   await defineTypes(folder, "entries", [
-    { id: "req", displayName: "Requirement", hid: { prefix: "UR" + stamp.slice(-3).toUpperCase() }, workflows: ["dev"],
+    { id: "req", displayName: "Requirement", hid: { prefix: "UR" + stamp.slice(-3).toUpperCase() },
       fields: [{ id: "priority", name: "Priority", type: "enum", required: true, options: [{ value: "low" }, { value: "high" }] },
-               { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" }] },
+               { id: "rationale", name: "Rationale", type: "multiline" }, { id: "effort", name: "Effort", type: "integer" },
+               { id: "status", name: "Status", type: "workflow", workflow: "dev" }] },
     { id: "tc", displayName: "Test case", hid: { prefix: "UT" + stamp.slice(-3).toUpperCase() } },
   ]);
   await defineTypes(folder, "documents", [{ id: "spec", displayName: "Specification" }]);
@@ -152,12 +153,13 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
 test("workflow transitions from the detail view", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Workflow item", fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
-  const wf = page.locator(".workflow[data-workflow=dev]");
+  const wf = page.locator(".workflow[data-workflow=status]");
   await expect(wf.locator(".pill.state")).toHaveText("open");
   await expect(wf.locator("select option")).toHaveCount(2); // placeholder + submit
+  await expect(wf.locator("select option").nth(1)).toHaveText("Submit for review → review"); // the transition and where it leads
   await wf.locator("select").selectOption("submit");
   // the transition waits for Save
-  await expect(wf.locator("[data-test=pending-state-dev]")).toHaveText("review");
+  await expect(wf.locator("[data-test=pending-state-status]")).toHaveText("review");
   await page.locator("[data-test=save]").click();
   await expect(page.locator("[data-test=save]")).toHaveCount(0);
   await expect(wf.locator(".pill.state")).toHaveText("review");
@@ -191,7 +193,7 @@ test("one Save publishes edits, a transition, a link and a comment as a single c
   const e = await post("/entries", { path: folder, type: "req", title: `Batch ${stamp}`, fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
   await page.locator("[data-test=title]").fill(`Batch edited ${stamp}`);
-  await page.locator(".workflow[data-workflow=dev] select").selectOption("submit");
+  await page.locator(".workflow[data-workflow=status] select").selectOption("submit");
   await page.locator("#sec-relationships .actions button", { hasText: "related" }).click();
   await page.locator("corestone-picker input[type=search]").fill(`Batch target ${stamp}`);
   await page.locator(".picker-results .row", { hasText: `Batch target ${stamp}` }).click();
@@ -204,12 +206,12 @@ test("one Save publishes edits, a transition, a link and a comment as a single c
   const before = await get<{ history: unknown[] }>(`/artifacts/${e.meta.guid}/history`);
   await page.locator("[data-test=save]").click();
   await expect(page.locator("[data-test=save]")).toHaveCount(0);
-  await expect(page.locator(".workflow[data-workflow=dev] .pill.state")).toHaveText("review");
+  await expect(page.locator(".workflow[data-workflow=status] .pill.state")).toHaveText("review");
   await expect(page.locator("#sec-relationships .link-row")).toHaveCount(1);
   await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
   const after = await get<{ history: { subject: string }[] }>(`/artifacts/${e.meta.guid}/history`);
   expect(after.history.length).toBe(before.history.length + 1);
-  expect(after.history[0].subject).toContain("open -> review, 1 link added, 1 comment added");
+  expect(after.history[0].subject).toContain("status: Submit for review (open -> review), 1 link added, 1 comment added");
   void other;
 });
 
