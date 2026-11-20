@@ -57,6 +57,9 @@ type queryEnv struct {
 	options map[string]map[string]bool
 	open    map[string]bool
 	dynamic map[string]bool // enumerations whose options are artifacts
+	// links are the link types that are defined at the root or in use.
+	links map[string]bool
+	cfg   *model.ConfigIndex
 }
 
 func (p *DB) queryEnv(ctx context.Context) (*queryEnv, error) {
@@ -64,17 +67,21 @@ func (p *DB) queryEnv(ctx context.Context) (*queryEnv, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.sql.QueryContext(ctx, `SELECT DISTINCT folder, type FROM artifacts`)
+	rows, err := p.sql.QueryContext(ctx, `SELECT DISTINCT folder, type, kind FROM artifacts`)
 	if err != nil {
 		return nil, unavailable(err)
 	}
 	defer rows.Close()
-	env := &queryEnv{types: map[string]map[model.FieldType]bool{}, options: map[string]map[string]bool{}, open: map[string]bool{}, dynamic: map[string]bool{}}
+	env := &queryEnv{types: map[string]map[model.FieldType]bool{}, options: map[string]map[string]bool{}, open: map[string]bool{}, dynamic: map[string]bool{},
+		links: map[string]bool{}, cfg: cfg}
 	conf := map[string]map[string]*typeConfig{}
 	for rows.Next() {
-		var folder, typ string
-		if err := rows.Scan(&folder, &typ); err != nil {
+		var folder, typ, kind string
+		if err := rows.Scan(&folder, &typ, &kind); err != nil {
 			return nil, unavailable(err)
+		}
+		if kind == string(model.KindLink) {
+			env.links[typ] = true
 		}
 		schema := cfg.Effective(typ, folder)
 		tc := newTypeConfig(cfg, folder, typ)
@@ -155,6 +162,7 @@ func (p *DB) compileQuery(ctx context.Context, text string, strict bool) (*query
 type compiler struct {
 	env      *queryEnv
 	warnings []Warning
+	links    int // has_link criteria so far, for their table aliases
 }
 
 // never is a criterion that cannot match, with the reason as a warning.
@@ -184,9 +192,30 @@ func (c *compiler) node(n *query.Node, a string) []any {
 		}
 		return append(out, ")")
 	case query.Link:
-		return c.never(n, "has_link is not available yet")
+		return c.link(n, a)
 	}
 	return append(append(seq("COALESCE(("), c.term(n, a)...), "), FALSE)")
+}
+
+// link is has_link: the artifact has a link of the type to an artifact
+// that matches the inner query. The artifact is the link's source and the
+// inner query applies to the target; "~" turns that around.
+func (c *compiler) link(n *query.Node, a string) []any {
+	if s := c.env.cfg.Effective(n.LinkType, ""); !c.env.links[n.LinkType] && (s == nil || s.Kind != model.KindLink) {
+		return c.never(n, "unknown link type %q", n.LinkType)
+	}
+	c.links++
+	l, other := "l"+strconv.Itoa(c.links), "b"+strconv.Itoa(c.links)
+	here, there := "source", "target"
+	if n.Reverse {
+		here, there = there, here
+	}
+	out := seq("EXISTS (SELECT 1 FROM artifacts "+l+" JOIN artifacts "+other+" ON "+other+".guid = "+l+"."+there+
+		" WHERE "+l+".kind = 'link' AND "+l+"."+here+" = "+a+".guid AND "+l+".type = ", bound{n.LinkType})
+	if n.Query != nil {
+		out = append(append(out, " AND "), c.node(n.Query, other)...)
+	}
+	return append(out, ")")
 }
 
 // allWords joins values without a field that stand side by side by AND:

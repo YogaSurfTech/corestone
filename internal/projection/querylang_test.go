@@ -15,7 +15,7 @@ func TestQueryLanguage(t *testing.T) {
 	p, repo := testDB(t)
 	ctx := context.Background()
 	guids := map[string]string{}
-	for _, n := range []string{"t1", "t2", "t3", "t4", "n1", "d1"} {
+	for _, n := range []string{"t1", "t2", "t3", "t4", "n1", "d1", "l1", "l2", "l3"} {
 		guids[n] = model.NewGUID()
 	}
 	name := map[string]string{}
@@ -48,13 +48,25 @@ func TestQueryLanguage(t *testing.T) {
 		entry("specs/brakes/front", "t3", "task", "view of tables", "TSK-100", `"priority":"medium","effort":-1,"status":{"state":"open"},"review":{"state":"open"}`),
 		entry("other", "t4", "task", "", "", `"status":{"state":"done"},"review":{"state":"done"}`),
 		entry("other", "n1", "note", "A note on Corestone", "", `"description":"claude wrote this"`))
+	// t1 depends on t2, t2 on t3, the note on t1; the note verifies nothing
+	link := func(n, typ, source, target string) gitx.Op {
+		return gitx.Op{Path: ".corestone/links/" + guids[n] + ".json", Content: []byte(`{"guid":"` + guids[n] + `","kind":"link","type":"` + typ + `","source":"` + guids[source] + `","target":"` + guids[target] + `"}`)}
+	}
+	commit(t, repo, "links",
+		gitx.Op{Path: ".corestone/config/links/types.json", Content: []byte(`{"types":[{"id":"depends_on","reverseName":"blocks"},{"id":"verifies"}]}`)},
+		link("l1", "depends_on", "t1", "t2"), link("l2", "depends_on", "t2", "t3"), link("l3", "depends_on", "n1", "t1"))
 	if err := p.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	run := func(q string) (string, []Warning) {
 		t.Helper()
-		res, err := p.QueryIDs(ctx, Query{Lang: q, Subtree: true}, nil, 0)
+		// the view's own filter: entries, unless the query asks for links
+		view := Query{Lang: q, Subtree: true, Kinds: []model.Kind{model.KindEntry}}
+		if strings.Contains(q, "kind:link") {
+			view.Kinds = nil
+		}
+		res, err := p.QueryIDs(ctx, view, nil, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}
@@ -96,6 +108,12 @@ func TestQueryLanguage(t *testing.T) {
 		{"hid:NULL", "n1 t4"}, {"guid:" + guids["n1"], "n1"}, {"valid:true", "d1 n1 t1 t2 t3"}, {"valid:false", "t4"}, // an entry without a title is invalid,
 		{"folder:specs", "d1 t1"}, {"folder:specs/brakes", "t2"}, {"folder:specs/*", "d1 t1 t2 t3"}, {"folder:specs/brakes/*", "t2 t3"},
 		{"folder~1:specs", "t2"}, {"folder~2:specs", "t3"}, {"folder~1:specs/brakes", "t3"}, {`folder~1:""`, "d1 n1 t1 t4"},
+		// links: the artifact is the source, the query applies to the target; ~ turns it around
+		{"kind:entry AND has_link:(depends_on)", "n1 t1 t2"}, {"has_link:(~depends_on)", "t1 t2 t3"}, {"kind:entry AND NOT has_link:(~depends_on)", "d1 n1 t4"},
+		{"has_link:(depends_on, priority:low)", "t1"}, {"has_link:(~depends_on, type:note)", "t1"}, {"has_link:(depends_on, hid:>TSK-9 AND status:open)", "t2"},
+		{"has_link:(depends_on, has_link:(depends_on, title:tables))", "t1"}, {"has_link:(depends_on, has_link:(~depends_on, type:note))", "n1"},
+		{"has_link:(verifies)", ""}, {"type:task AND has_link:(depends_on) AND has_link:(~depends_on)", "t1 t2"},
+		{"kind:link", "l1 l2 l3"}, {"kind:link AND type:depends_on", "l1 l2 l3"},
 		// operators
 		{"priority:high XOR tags:docs", "t2"}, {"NOT (type:task OR type:note)", "d1"}, {"type:task AND NOT (priority:high OR priority:low)", "t3 t4"},
 	} {
@@ -122,7 +140,7 @@ func TestQueryLanguage(t *testing.T) {
 		{"priority.previous:low", "", `unknown field "priority.previous"`, 0},
 		{"title~1:x", "", "~1 is for folder only", 0},
 		{"done:>true", "", "done is true or false", 0},
-		{"type:task OR has_link:(verifies)", "t1 t2 t3 t4", "has_link is not available yet", 13},
+		{"type:note OR has_link:(nope)", "n1", `unknown link type "nope"`, 13},
 	} {
 		got, warnings := run(c.q)
 		if got != c.want || len(warnings) != 1 || !strings.Contains(warnings[0].Message, c.warning) || warnings[0].Pos != c.pos {
