@@ -867,3 +867,32 @@ func TestDynamicEnum(t *testing.T) {
 		t.Fatalf("options after a delete: %s", got)
 	}
 }
+
+// The search's sort names a column; "~" in front sorts descending.
+func TestSearchSortDirection(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	for _, title := range []string{"Bravo", "Alpha", "Charlie"} { // REQ-1, REQ-2, REQ-3, created in this order
+		a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"`+title+`","fields":{"priority":"low"}}`, 201)
+	}
+	titles := func(sort string) string {
+		var out []string
+		for _, s := range a.ok("GET", "/api/repository/search?kind=entry&sort="+sort, "", 200).body["artifacts"].([]any) {
+			out = append(out, s.(map[string]any)["title"].(string))
+		}
+		return strings.Join(out, " ")
+	}
+	for sort, want := range map[string]string{
+		"title": "Alpha Bravo Charlie", "~title": "Charlie Bravo Alpha",
+		"hid": "Bravo Alpha Charlie", "~hid": "Charlie Alpha Bravo",
+		"created": "Bravo Alpha Charlie", "~created": "Charlie Alpha Bravo",
+		"modified": "Bravo Alpha Charlie", "~modified": "Charlie Alpha Bravo", "": "Charlie Alpha Bravo",
+	} {
+		if got := titles(sort); got != want {
+			t.Errorf("sort=%s: %s, want %s", sort, got, want)
+		}
+	}
+	for _, bad := range []string{"nope", "~", "~~title", "title%20desc"} {
+		a.ok("GET", "/api/repository/search?sort="+bad, "", 400)
+	}
+}

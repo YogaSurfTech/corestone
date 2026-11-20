@@ -26,9 +26,12 @@ type Query struct {
 	HID     string
 	Fields  map[string]string // field id -> exact value; a workflow field by its state
 	Valid   *bool
-	Sort    string // "modified" (default), "title", "hid", "path", "created"
-	Limit   int
-	Offset  int
+	// Sort is "title", "hid", "path", "created" or "modified", ascending;
+	// "~" in front sorts descending ("~created": newest first). Empty: by
+	// relevance for a text search, then most recently modified.
+	Sort   string
+	Limit  int
+	Offset int
 }
 
 const (
@@ -180,15 +183,29 @@ func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error)
 	if q.Text != "" {
 		order = "ts_rank(a.tsv, plainto_tsquery('simple', " + arg(q.Text) + ")) DESC, " + order
 	}
-	switch q.Sort {
+	// Missing values stay last in both directions.
+	name, descending := model.SortOrder(q.Sort)
+	dir := " ASC"
+	if descending {
+		dir = " DESC"
+	}
+	if name == "" && descending {
+		name = "~" // a direction without a column
+	}
+	switch name {
+	case "":
 	case "title":
-		order = "lower(a.title), a.file_path"
+		order = "lower(a.title)" + dir + ", a.file_path"
 	case "hid":
-		order = "a.hid NULLS LAST, a.file_path"
+		order = "a.hid_prefix" + dir + " NULLS LAST, a.hid_num" + dir + " NULLS LAST, a.hid" + dir + " NULLS LAST, a.file_path"
 	case "path":
-		order = "a.file_path"
+		order = "a.file_path" + dir
 	case "created":
-		order = "a.created_at DESC NULLS LAST, a.file_path"
+		order = "a.created_at" + dir + " NULLS LAST, a.file_path"
+	case "modified":
+		order = "a.modified_at" + dir + " NULLS LAST, a.file_path"
+	default:
+		return nil, 0, fmt.Errorf("%w: sort %q (title, hid, path, created or modified, \"~\" in front for descending)", model.ErrValidation, q.Sort)
 	}
 	limit := q.Limit
 	if limit <= 0 {
