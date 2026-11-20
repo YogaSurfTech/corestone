@@ -65,15 +65,19 @@ type EnumSource struct {
 	// Query narrows the options, in the query language. It is stored and
 	// not evaluated yet.
 	Query string `json:"query,omitempty"`
-	// Sort is the order of the options: table columns ("$title", "$hid")
-	// or field ids, first level first. Empty: by title.
-	Sort []EnumSort `json:"sort,omitempty"`
+	// Sort is the order of the options, first level first: a built-in
+	// field ("title", "hid", …) or a field id, with "~" in front for
+	// descending ("~title" is Z to A). Empty: by title.
+	Sort []string `json:"sort,omitempty"`
 }
 
-// EnumSort is one sort level of a dynamic enumeration's options.
-type EnumSort struct {
-	Col string `json:"col"`
-	Dir string `json:"dir,omitempty"` // "asc" (default) or "desc"
+// SortOrder splits a sort level into the field and its direction: "~" in
+// front means descending.
+func SortOrder(level string) (field string, descending bool) {
+	if strings.HasPrefix(level, "~") {
+		return level[1:], true
+	}
+	return level, false
 }
 
 // MaxEnumSortLevels caps the sort levels of a dynamic enumeration.
@@ -98,11 +102,9 @@ func (s *EnumSource) validate(field string) error {
 		return Invalid("field %q source: at most %d sort levels", field, MaxEnumSortLevels)
 	}
 	for _, l := range s.Sort {
-		if l.Col == "" || len(l.Col) > 64 {
-			return Invalid("field %q source: a sort level needs a column", field)
-		}
-		if l.Dir != "" && l.Dir != "asc" && l.Dir != "desc" {
-			return Invalid("field %q source: sort direction must be \"asc\" or \"desc\"", field)
+		id, _ := SortOrder(l)
+		if id == "" || len(id) > 64 || strings.ContainsAny(id, " \t\n/.~$") {
+			return Invalid("field %q source: sort level %q is no field (\"title\", or \"~title\" for descending)", field, l)
 		}
 	}
 	return nil

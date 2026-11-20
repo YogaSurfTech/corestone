@@ -791,19 +791,22 @@ func TestDynamicEnum(t *testing.T) {
 	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
 		{"id":"requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"testcase","hid":{"prefix":"TC"}},{"id":"product","hid":{"prefix":"P"}}]}`, 200)
-	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":[{"col":"rank","dir":"desc"}]}`
+	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":["~rank","title"]}`
 	for _, bad := range []string{
 		`{"id":"product","type":"text",` + source + `}`,                                // only enumerations
 		`{"id":"product","type":"enum","options":[{"value":"a"}],` + source + `}`,      // a source replaces options
 		`{"id":"product","type":"enum","source":{"kind":"link","types":["verifies"]}}`, // entries and documents only
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,          // no type
-		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"up"}]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["rank desc"]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~"]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"desc"}]}}`, // the old form
 	} {
 		a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[`+bad+`]}`, 400)
 	}
 	a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[{"id":"product","name":"Belongs to product","type":"enum",`+source+`},
-		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}}]}`, 200)
-	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also"]}]}`, 200)
+		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}},
+		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed"]}]}`, 200)
 
 	product := func(title string, rank int) string {
 		return meta(a.ok("POST", "/api/entries", fmt.Sprintf(`{"path":"products","type":"product","title":%q,"fields":{"rank":%d}}`, title, rank), 201), "guid")
@@ -824,6 +827,9 @@ func TestDynamicEnum(t *testing.T) {
 	}
 	if got := titles("also"); got != "Alpha Beta Gamma" {
 		t.Fatalf("options by title: %s", got)
+	}
+	if got := titles("reversed"); got != "Gamma Beta Alpha" {
+		t.Fatalf("options by ~title: %s", got)
 	}
 	a.ok("PUT", "/api/entries/"+gamma, `{"title":"A first"}`, 200)
 	if got := titles("also"); got != "A first Alpha Beta" {

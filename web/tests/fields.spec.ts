@@ -430,7 +430,7 @@ test("a dynamic enumeration offers entries as options and stores the chosen entr
   const product = `product-${id}`;
   await addType(folder, "entries", { id: product, displayName: "Product", hid: { prefix: "PRD" }, fields: [{ id: "rank", name: "Rank", type: "integer" }] });
   await addType(folder, "entries", { id: "feature", displayName: "Feature", hid: { prefix: "FEA" }, presentation: { columns: ["product"] },
-    fields: [{ id: "product", name: "Belongs to product", type: "enum", source: { kind: "entry", types: [product], sort: [{ col: "rank", dir: "desc" }] } }] });
+    fields: [{ id: "product", name: "Belongs to product", type: "enum", source: { kind: "entry", types: [product], sort: ["~rank"] } }] });
   const beta = await post("/entries", { path: `${folder}/products`, type: product, title: `Beta ${id}`, fields: { rank: 2 } });
   await post("/entries", { path: `${folder}/products`, type: product, title: `Alpha ${id}`, fields: { rank: 3 } });
   const feature = await post("/entries", { path: folder, type: "feature", title: `Feature ${id}` });

@@ -94,14 +94,15 @@ options:
 ```json
 { "id": "product", "name": "Belongs to product", "type": "enum",
   "source": { "kind": "entry", "types": ["product"],
-              "sort": [ { "col": "rank", "dir": "desc" }, { "col": "$title" } ],
+              "sort": ["~rank", "title"],
               "query": "" } }
 ```
 
 - `kind` is `entry` or `document`; `types` names the artifact types that are offered. The options
   are all artifacts of these types in the whole repository.
-- `sort` orders the options, with up to three levels of table columns (`$title`, `$hid`) or field
-  ids. Without it they are ordered by title.
+- `sort` orders the options, with up to three levels. A level is a field id or a built-in field
+  (`title`, `hid`, `type`, `folder`, `author`, `created`, `modified`); `~` in front sorts
+  descending (`~title` is Z to A). Without it they are ordered by title.
 - `query` is reserved for narrowing the options with the query language. It is stored and not
   evaluated yet.
 - The value is the chosen artifact's GUID; `multiple` stores a list. A value is checked when it is

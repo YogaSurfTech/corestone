@@ -58,7 +58,7 @@ export interface Field {
   options?: EnumOption[];
   extendable?: boolean;
   /** A dynamic enumeration: the options are artifacts, a value is the chosen artifact's GUID. */
-  source?: { kind: "entry" | "document"; types: string[]; query?: string; sort?: { col: string; dir?: "asc" | "desc" }[] };
+  source?: { kind: "entry" | "document"; types: string[]; query?: string; sort?: string[] };
   currency?: string;
   workflow?: string;
   targetTypes?: string[];

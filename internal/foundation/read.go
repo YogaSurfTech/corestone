@@ -155,6 +155,10 @@ func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string)
 	return f.DB.FieldValues(ctx, typ, field, folder, 200)
 }
 
+// builtinSort are the built-in fields a sort level may name; any other
+// name is a field id.
+var builtinSort = map[string]bool{"title": true, "hid": true, "type": true, "folder": true, "author": true, "created": true, "modified": true}
+
 // MaxEnumOptions caps the options of a dynamic enumeration.
 const MaxEnumOptions = 1000
 
@@ -172,7 +176,15 @@ func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string
 	}
 	levels := []projection.SortLevel{}
 	for _, l := range def.Source.Sort {
-		levels = append(levels, projection.SortLevel{Col: l.Col, Dir: l.Dir})
+		id, desc := model.SortOrder(l)
+		if builtinSort[id] {
+			id = "$" + id
+		}
+		level := projection.SortLevel{Col: id}
+		if desc {
+			level.Dir = "desc"
+		}
+		levels = append(levels, level)
 	}
 	if len(levels) == 0 {
 		levels = append(levels, projection.SortLevel{Col: "$title"})
