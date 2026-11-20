@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -895,4 +896,53 @@ func TestSearchSortDirection(t *testing.T) {
 	for _, bad := range []string{"nope", "~", "~~title", "title%20desc"} {
 		a.ok("GET", "/api/repository/search?sort="+bad, "", 400)
 	}
+}
+
+// The query language through the API: the table query and the search take
+// a query text; a second call parses one without running it.
+func TestQueryLanguageAPI(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	var guids []string
+	for _, prio := range []string{"high", "low", "high"} {
+		guids = append(guids, meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"R `+prio+`","fields":{"priority":"`+prio+`"}}`, 201), "guid"))
+	}
+	a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201)
+	a.ok("POST", "/api/artifacts/"+guids[1]+"/transition", `{"field":"status","transition":"submit"}`, 200)
+
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"query":"priority:high AND status:open"},"sort":["hid"]}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != guids[0] || got[1] != guids[2] || r.body["warnings"] != nil {
+		t.Fatalf("query: %s", r.raw)
+	}
+	// combined with the view's own filter by AND
+	r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"NOT priority:high","path":"specs","kind":["entry"]}}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 1 || got[0] != guids[1] {
+		t.Fatalf("query with a filter: %s", r.raw)
+	}
+	// forgiving, with warnings; strict refuses; a query that cannot be parsed is refused
+	r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"type:testcase OR priorty:high"}}`, 200)
+	if w := r.body["warnings"].([]any); r.body["total"] != float64(1) || len(w) != 1 || w[0].(map[string]any)["pos"] != float64(17) {
+		t.Fatalf("warnings: %s", r.raw)
+	}
+	a.ok("POST", "/api/repository/query", `{"filter":{"query":"priorty:high","strict":true}}`, 400)
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"(priority:high"}}`, 400); !strings.Contains(string(r.raw), "position 1") {
+		t.Fatalf("parse error: %s", r.raw)
+	}
+	// the search
+	s := a.ok("GET", "/api/repository/search?query="+url.QueryEscape("status:review nope:1")+"&sort=title", "", 200)
+	if s.body["total"] != float64(1) || len(s.body["warnings"].([]any)) != 1 {
+		t.Fatalf("search: %s", s.raw)
+	}
+	a.ok("GET", "/api/repository/search?strict=true&query="+url.QueryEscape("nope:1"), "", 400)
+
+	// parse only: the tree and the warnings
+	p := a.ok("POST", "/api/repository/query/parse", `{"query":"priority:high AND NOT nope:1"}`, 200)
+	tree := p.body["tree"].(map[string]any)
+	if tree["op"] != "and" || len(tree["children"].([]any)) != 2 || len(p.body["warnings"].([]any)) != 1 {
+		t.Fatalf("parse: %s", p.raw)
+	}
+	if p = a.ok("POST", "/api/repository/query/parse", `{"query":" "}`, 200); p.body["tree"] != nil || len(p.body["warnings"].([]any)) != 0 {
+		t.Fatalf("parse of an empty query: %s", p.raw)
+	}
+	a.ok("POST", "/api/repository/query/parse", `{"query":"a AND"}`, 400)
 }

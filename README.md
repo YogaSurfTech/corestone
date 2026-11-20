@@ -164,6 +164,8 @@ GET  /api/repository                      head, projection status, statistics, s
 GET  /api/repository/tree?path=&subtree=  folders and artifacts
 GET  /api/repository/search?q=&kind=&type=&path=&subtree=&hid=&field.<id>=&sort=&limit=&offset=
                                           sort: title, hid, path, created or modified; "~" in front for descending (~created: newest first)
+                                          query: a query in the query language; strict=true refuses one with warnings
+POST /api/repository/query/parse          {query} -> {tree, warnings}: parses a query without running it
 GET  /api/repository/options?type=&path=&field=   the options of a dynamic enumeration field (artifacts)
 GET  /api/repository/types?path=          effective schemas visible at a folder
 GET  /api/repository/values?type=&field=&path=   field values in use, most frequent first

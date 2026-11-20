@@ -102,6 +102,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/repository/tree", s.tree)
 	m.HandleFunc("GET /api/repository/search", s.search)
 	m.HandleFunc("POST /api/repository/query", s.tableQuery)
+	m.HandleFunc("POST /api/repository/query/parse", s.parseQuery)
 	m.HandleFunc("POST /api/artifacts/details", s.details)
 	m.HandleFunc("GET /api/repository/types", s.types)
 	m.HandleFunc("GET /api/repository/values", s.values)
@@ -861,7 +862,11 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		Sort:    qs.Get("sort"),
 		Limit:   intParam(r, "limit", projection.DefaultLimit),
 		Offset:  intParam(r, "offset", 0),
+		Lang:    qs.Get("query"),
+		Strict:  boolParam(r, "strict", false),
 	}
+	warnings := []projection.Warning{}
+	q.Warnings = &warnings
 	for _, k := range qs["kind"] {
 		for _, part := range strings.Split(k, ",") {
 			if part = strings.TrimSpace(part); part != "" {
@@ -892,7 +897,11 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"artifacts": res, "total": total, "limit": q.Limit, "offset": q.Offset})
+	out := map[string]any{"artifacts": res, "total": total, "limit": q.Limit, "offset": q.Offset}
+	if len(warnings) > 0 {
+		out["warnings"] = warnings
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // readJSON decodes a JSON request body into v.
@@ -921,6 +930,8 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Filter struct {
 			Q       string            `json:"q"`
+			Query   string            `json:"query"`  // in the query language; combined with the rest by AND
+			Strict  bool              `json:"strict"` // refuse a query with warnings
 			Path    string            `json:"path"`
 			Subtree *bool             `json:"subtree"`
 			Kind    []string          `json:"kind"`
@@ -946,7 +957,7 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := projection.Query{Text: f.Q, Type: f.Type, Types: f.Types, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
-		HID: f.HID, Fields: f.Fields, Valid: f.Valid}
+		HID: f.HID, Fields: f.Fields, Valid: f.Valid, Lang: f.Query, Strict: f.Strict}
 	for _, k := range f.Kind {
 		kind, err := model.ParseKind(k)
 		if err != nil {
@@ -961,6 +972,27 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// parseQuery parses a query of the query language without running it:
+// {query} -> {tree, warnings}. The tree is null for an empty query. A
+// query that cannot be parsed is refused with the position of the problem.
+func (s *Server) parseQuery(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query string `json:"query"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	tree, warnings, err := s.F.DB.CompileQuery(r.Context(), body.Query)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if warnings == nil {
+		warnings = []projection.Warning{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tree": tree, "warnings": warnings})
 }
 
 // details returns table rows by GUID: {ids, columns} -> {artifacts, related}.
