@@ -4,7 +4,7 @@ import type { EditorView, NodeView } from "prosemirror-view";
 import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { safeFileName, schema } from "./schema";
-import { dataUrlToBlob, el } from "@corestone/ui";
+import { dataUrlToBlob, el, Overlay } from "@corestone/ui";
 
 // Images and file links: files of the entry the text belongs to. The host
 // application keeps the files (the editor knows nothing of where); new ones
@@ -230,33 +230,18 @@ export class FileUI {
   private readonly menu: HTMLElement;
   private readonly altPop: HTMLElement;
   private readonly note: HTMLElement;
-  private outside?: (e: MouseEvent) => void;
+  private readonly overlay: Overlay;
   private noteTimer?: number;
 
-  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement, private readonly files: () => EntryFiles | undefined) {
-    this.picker = el("div", "cs-filepop");
-    this.picker.setAttribute("role", "dialog");
-    this.menu = el("div", "cs-menu cs-imagemenu");
-    this.menu.setAttribute("role", "menu");
-    this.menu.setAttribute("aria-label", "Image");
-    this.altPop = el("div", "cs-altpop");
-    this.altPop.setAttribute("role", "dialog");
-    this.altPop.setAttribute("aria-label", "Alternative text");
+  constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly files: () => EntryFiles | undefined) {
+    this.overlay = new Overlay({ root, keepFocus: "input, label", onEscape: () => this.view().focus() });
+    this.picker = this.overlay.panel("cs-filepop", "dialog");
+    this.menu = this.overlay.panel("cs-menu cs-imagemenu", "menu", "Image");
+    this.altPop = this.overlay.panel("cs-altpop", "dialog", "Alternative text");
     this.note = el("div", "cs-notice");
     this.note.setAttribute("role", "status");
-    for (const p of [this.picker, this.menu, this.altPop]) {
-      p.hidden = true;
-      p.addEventListener("mousedown", (e) => { if (!(e.target as HTMLElement).closest("input, label")) e.preventDefault(); });
-      p.addEventListener("keydown", (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        this.close();
-        this.view().focus();
-      });
-    }
     this.note.hidden = true;
-    root.append(this.picker, this.menu, this.altPop, this.note);
+    root.append(this.note);
   }
 
   /** A short message at the bottom of the editor. */
@@ -328,7 +313,7 @@ export class FileUI {
     }
     this.picker.setAttribute("aria-label", title.textContent);
     this.picker.replaceChildren(head, list, upload);
-    this.open(this.picker, opts.at ?? this.cursorPoint());
+    this.overlay.open(this.picker, opts.at ?? this.cursorPoint());
     (list.querySelector("button") as HTMLElement | null ?? upload).focus();
   }
 
@@ -358,7 +343,7 @@ export class FileUI {
       if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
       it.run?.();
     }));
-    this.open(this.menu, at);
+    this.overlay.open(this.menu, at);
     (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
   }
 
@@ -385,19 +370,9 @@ export class FileUI {
     ok.addEventListener("click", (e) => { e.preventDefault(); apply(); });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } });
     this.altPop.replaceChildren(input, ok);
-    this.open(this.altPop, at ?? this.cursorPoint());
+    this.overlay.open(this.altPop, at ?? this.cursorPoint());
     input.focus();
     input.select();
-  }
-
-  private open(panel: HTMLElement, at: { x: number; y: number }) {
-    this.close();
-    panel.hidden = false;
-    const r = this.root.getBoundingClientRect();
-    panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
-    panel.style.top = `${at.y - r.top}px`;
-    this.outside = (e) => { if (!panel.contains(e.target as globalThis.Node)) this.close(); };
-    document.addEventListener("mousedown", this.outside, true);
   }
 
   private cursorPoint() {
@@ -406,11 +381,7 @@ export class FileUI {
     return { x: c.left, y: c.bottom + 4 };
   }
 
-  close() {
-    this.picker.hidden = this.menu.hidden = this.altPop.hidden = true;
-    if (this.outside) document.removeEventListener("mousedown", this.outside, true);
-    this.outside = undefined;
-  }
+  close() { this.overlay.close(); }
 
   destroy() { this.close(); window.clearTimeout(this.noteTimer); }
 }

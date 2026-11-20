@@ -6,7 +6,7 @@ import { icon } from "./icons";
 import { buildMenu, type MenuItem } from "./menu";
 import { MAX_FORMULA } from "./model";
 import { schema } from "./schema";
-import { button, el } from "@corestone/ui";
+import { button, el, Overlay } from "@corestone/ui";
 
 // Formulas: LaTeX in the text, shown as a picture of it, a PNG file of the entry
 // (one per formula). MathJax makes the picture; it is loaded only to write a
@@ -226,29 +226,18 @@ export function selectedFormula(state: EditorState): { pos: number; node: Node }
 export class FormulaUI {
   private readonly dialog: HTMLElement;
   private readonly menu: HTMLElement;
-  private outside?: (e: MouseEvent) => void;
+  private readonly overlay: Overlay;
   private previewUrl = "";
   private timer?: number;
 
-  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement) {
-    this.dialog = el("div", "cs-formulapop");
-    this.dialog.setAttribute("role", "dialog");
-    this.dialog.setAttribute("aria-label", "Formula");
-    this.menu = el("div", "cs-menu cs-formulamenu");
-    this.menu.setAttribute("role", "menu");
-    this.menu.setAttribute("aria-label", "Formula");
-    for (const p of [this.dialog, this.menu]) {
-      p.hidden = true;
-      p.addEventListener("mousedown", (e) => { if (!(e.target as HTMLElement).closest("textarea")) e.preventDefault(); });
-      p.addEventListener("keydown", (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        this.close();
-        this.view().focus();
-      });
-    }
-    root.append(this.dialog, this.menu);
+  constructor(private readonly view: () => EditorView, root: HTMLElement) {
+    this.overlay = new Overlay({
+      root, keepFocus: "textarea",
+      onEscape: () => this.view().focus(),
+      onClose: () => window.clearTimeout(this.timer),
+    });
+    this.dialog = this.overlay.panel("cs-formulapop", "dialog", "Formula");
+    this.menu = this.overlay.panel("cs-menu cs-formulamenu", "menu", "Formula");
   }
 
   /** Writes a new formula, or the selected one. */
@@ -357,7 +346,7 @@ export class FormulaUI {
     canApply(false);
 
     this.dialog.replaceChildren(head, msg, src, shown, foot); // the error above the LaTeX
-    this.open(this.dialog, at ?? this.cursorPoint());
+    this.overlay.open(this.dialog, at ?? this.cursorPoint());
     src.focus();
     preview();
   }
@@ -382,18 +371,8 @@ export class FormulaUI {
       if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
       it.run?.();
     }));
-    this.open(this.menu, at);
+    this.overlay.open(this.menu, at);
     (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
-  }
-
-  private open(panel: HTMLElement, at: { x: number; y: number }) {
-    this.close();
-    panel.hidden = false;
-    const r = this.root.getBoundingClientRect();
-    panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
-    panel.style.top = `${at.y - r.top}px`;
-    this.outside = (e) => { if (!panel.contains(e.target as globalThis.Node)) this.close(); };
-    document.addEventListener("mousedown", this.outside, true);
   }
 
   private cursorPoint() {
@@ -402,12 +381,7 @@ export class FormulaUI {
     return { x: c.left, y: c.bottom + 4 };
   }
 
-  close() {
-    this.dialog.hidden = this.menu.hidden = true;
-    window.clearTimeout(this.timer);
-    if (this.outside) document.removeEventListener("mousedown", this.outside, true);
-    this.outside = undefined;
-  }
+  close() { this.overlay.close(); }
 
   destroy() { this.close(); URL.revokeObjectURL(this.previewUrl); }
 }
