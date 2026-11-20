@@ -45,6 +45,11 @@ test("two workflow fields on one artifact, with diagram and rework", async ({ pa
   expect(stored.data.fields.publication).toEqual({ state: "released", transition: "release", previous: "draft" });
   await page.locator(".quicklinks a", { hasText: "History" }).click();
   await expect(page.locator("#sec-history .history-row", { hasText: "status: review to open" })).toHaveCount(1);
+  // the overview's State column shows the fields in the type's order (status before publication), named by the field
+  await page.goto(`/folder/${folder}`);
+  const pills = page.locator("corestone-overview table.grid tbody tr", { hasText: "Two workflows" }).locator(".pill.state");
+  await expect(pills).toHaveText(["open", "released"]);
+  await expect(pills.first()).toHaveAttribute("title", "Status");
 });
 
 test("relationships: typed links both ways, removal, and endpoint rules", async ({ page }) => {

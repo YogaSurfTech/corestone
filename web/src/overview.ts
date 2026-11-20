@@ -136,6 +136,14 @@ export class Overview extends LightElement {
 
   private schemaOf(row: Pick<Summary, "folder" | "type">) { return this.rowSchemas[schemaKey(row)] ?? undefined; }
 
+  /** A row's workflow fields with their states, in the order of the type's fields; fields the type does not define come last. */
+  private statesOf(row: Summary): [{ id: string; name: string }, string][] {
+    const fields = this.schemaOf(row)?.fields ?? [];
+    const rank = (id: string) => { const i = fields.findIndex((f) => f.id === id); return i < 0 ? fields.length : i; };
+    return workflowStates(row.fields).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .map(([id, st]) => [{ id, name: fields.find((f) => f.id === id)?.name || id }, st]);
+  }
+
   private typeName(row: Pick<Summary, "folder" | "type">, ctx: TableContext) { return this.schemaOf(row)?.displayName ?? ctx.typeName(row); }
 
   /** What a comment is about: the subject's kind, or a reply to another comment. */
@@ -201,7 +209,7 @@ export class Overview extends LightElement {
           render: (row) => html`<corestone-type-icon .kind=${row.kind} .type=${row.type} .folder=${row.folder} .schema=${this.schemaOf(row) ?? null}></corestone-type-icon>${row.title || html`<span class="muted">${row.kind}</span>`}` },
         { id: "$type", name: "Type", render: type },
         { id: "$state", name: "State",
-          render: (row) => html`${workflowStates(row.fields).map(([w, st]) => html`<span class="pill state" title=${w}>${st}</span> `)}` },
+          render: (row) => html`${this.statesOf(row).map(([w, st]) => html`<span class="pill state" data-field=${w.id} title=${w.name}>${st}</span> `)}` },
       ] satisfies Column[]),
       ...this.fieldColumns().map((c): Column => ({ ...c,
         render: (row) => {
