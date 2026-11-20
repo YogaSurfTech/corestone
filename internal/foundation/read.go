@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 
 	"github.com/thomdehoog/corestone/internal/gitx"
 	"github.com/thomdehoog/corestone/internal/model"
@@ -160,36 +161,51 @@ const MaxEnumOptions = 1000
 
 // FieldOptions lists the options of a dynamic enumeration: the artifacts
 // its source names, from the whole repository, in the source's order (by
-// title when it names none). The source's query is not evaluated yet.
-func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string) ([]*model.Summary, error) {
+// title when it names none), narrowed by the source's query. The query is
+// forgiving: what it names wrongly matches nothing and comes back as a
+// warning, so a field is not broken by a later change of the configuration.
+func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string) ([]*model.Summary, []projection.Warning, error) {
 	schema, err := f.EffectiveSchema(ctx, typ, folder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	def := schema.Field(field)
 	if def == nil || def.Source == nil {
-		return nil, fmt.Errorf("%w: type %q has no field %q with a source", model.ErrNotFound, typ, field)
+		return nil, nil, fmt.Errorf("%w: type %q has no field %q with a source", model.ErrNotFound, typ, field)
 	}
 	levels := def.Source.Sort
 	if len(levels) == 0 {
 		levels = []string{"title"}
 	}
-	res, err := f.DB.QueryIDs(ctx, projection.Query{Kinds: []model.Kind{def.Source.Kind}, Types: def.Source.Types, Subtree: true}, levels, MaxEnumOptions)
+	res, err := f.DB.QueryIDs(ctx, sourceQuery(def.Source, ""), levels, MaxEnumOptions)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := []*model.Summary{}
 	for start := 0; start < len(res.IDs); start += projection.MaxDetails {
 		rows, err := f.DB.Details(ctx, res.IDs[start:min(start+projection.MaxDetails, len(res.IDs))])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, s := range rows {
 			s.Fields = nil
 			out = append(out, s)
 		}
 	}
-	return out, nil
+	return out, res.Warnings, nil
+}
+
+// sourceQuery selects the options of a dynamic enumeration; with a GUID,
+// only that artifact if it is one of them.
+func sourceQuery(s *model.EnumSource, guid string) projection.Query {
+	q := projection.Query{Kinds: []model.Kind{s.Kind}, Types: s.Types, Subtree: true, Lang: s.Query}
+	if guid != "" {
+		q.Lang = "guid:" + guid
+		if strings.TrimSpace(s.Query) != "" {
+			q.Lang += " AND (" + s.Query + ")"
+		}
+	}
+	return q
 }
 
 // SchemaOf resolves the effective schema of an existing artifact.

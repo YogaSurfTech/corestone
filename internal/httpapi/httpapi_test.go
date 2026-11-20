@@ -793,12 +793,13 @@ func TestDynamicEnum(t *testing.T) {
 	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
 		{"id":"requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"testcase","hid":{"prefix":"TC"}},{"id":"product","hid":{"prefix":"P"}}]}`, 200)
-	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":["~rank","title"]}`
+	source := `"source":{"kind":"entry","types":["product"],"sort":["~rank","title"]}`
 	for _, bad := range []string{
 		`{"id":"product","type":"text",` + source + `}`,                                // only enumerations
 		`{"id":"product","type":"enum","options":[{"value":"a"}],` + source + `}`,      // a source replaces options
 		`{"id":"product","type":"enum","source":{"kind":"link","types":["verifies"]}}`, // entries and documents only
-		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,          // no type
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"query":"(rank:>1"}}`, // the query must parse          // no type
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["rank desc"]}}`,
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~"]}}`,
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"desc"}]}}`, // the old form
@@ -807,8 +808,10 @@ func TestDynamicEnum(t *testing.T) {
 	}
 	a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[{"id":"product","name":"Belongs to product","type":"enum",`+source+`},
 		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}},
-		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}}]}`, 200)
-	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed"]}]}`, 200)
+		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}},
+		{"id":"top","type":"enum","source":{"kind":"entry","types":["product"],"query":"rank:>1 AND folder:products/*"}},
+		{"id":"odd","type":"enum","source":{"kind":"entry","types":["product"],"query":"rank:>1 OR nope:1"}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed","top","odd"]}]}`, 200)
 
 	product := func(title string, rank int) string {
 		return meta(a.ok("POST", "/api/entries", fmt.Sprintf(`{"path":"products","type":"product","title":%q,"fields":{"rank":%d}}`, title, rank), 201), "guid")
@@ -833,6 +836,16 @@ func TestDynamicEnum(t *testing.T) {
 	if got := titles("reversed"); got != "Gamma Beta Alpha" {
 		t.Fatalf("options by ~title: %s", got)
 	}
+	// the source's query narrows the options, and a value must be one of them
+	if got := titles("top"); got != "Alpha Beta" {
+		t.Fatalf("options of a source with a query: %s", got)
+	}
+	odd := a.ok("GET", "/api/repository/options?type=spec&path=docs&field=odd", "", 200)
+	if len(odd.body["options"].([]any)) != 2 || len(odd.body["warnings"].([]any)) != 1 {
+		t.Fatalf("a query with an unknown field: %s", odd.raw)
+	}
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"not selected","fields":{"top":"`+gamma+`"}}`, 400)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"selected","fields":{"top":"`+alpha+`"}}`, 201)
 	a.ok("PUT", "/api/entries/"+gamma, `{"title":"A first"}`, 200)
 	if got := titles("also"); got != "A first Alpha Beta" {
 		t.Fatalf("options by title after a rename: %s", got)
@@ -852,10 +865,13 @@ func TestDynamicEnum(t *testing.T) {
 	dA := doc("For Alpha", `{"product":"`+alpha+`"}`, 201)
 
 	// found by the value, and sorted by the chosen artifact's title
+	if found := a.ok("GET", "/api/repository/search?kind=document&query=product:P-1", "", 200); found.body["total"] != float64(1) { // Beta, by its HID
+		t.Fatalf("query by the product's HID: %s", found.raw)
+	}
 	if found := a.ok("GET", "/api/repository/search?kind=document&field.product="+beta, "", 200); found.body["total"] != float64(1) {
 		t.Fatalf("search by product: %s", found.raw)
 	}
-	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":["product"]}`, 200)
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec","query":"NOT product:NULL"},"sort":["product"]}`, 200)
 	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != dA || got[1] != dB {
 		t.Fatalf("sorted by product: %s", r.raw)
 	}

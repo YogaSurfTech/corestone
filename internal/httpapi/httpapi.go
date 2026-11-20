@@ -1036,12 +1036,16 @@ func (s *Server) values(w http.ResponseWriter, r *http.Request) {
 // options lists the options of a dynamic enumeration field.
 func (s *Server) options(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	opts, err := s.F.FieldOptions(r.Context(), q.Get("type"), q.Get("field"), q.Get("path"))
+	opts, warnings, err := s.F.FieldOptions(r.Context(), q.Get("type"), q.Get("field"), q.Get("path"))
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": opts})
+	out := map[string]any{"options": opts}
+	if len(warnings) > 0 {
+		out["warnings"] = warnings // of the source's query
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {

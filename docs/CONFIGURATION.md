@@ -103,10 +103,12 @@ options:
 - `sort` orders the options, with up to three levels. A level is a field id or a built-in field
   (`title`, `hid`, `type`, `folder`, `author`, `created`, `modified`); `~` in front sorts
   descending (`~title` is Z to A). Without it they are ordered by title.
-- `query` is reserved for narrowing the options with the query language. It is stored and not
-  evaluated yet.
+- `query` narrows the options with the query language, for example
+  `"folder:products/* AND NOT finished:true"`. It must parse when the file is saved. What it
+  names is checked when the options are listed: an unknown field matches nothing and comes back
+  as a warning, so a later change of the configuration does not break the field.
 - The value is the chosen artifact's GUID; `multiple` stores a list. A value is checked when it is
-  chosen. An artifact deleted later stays in the field and is shown as missing.
+  chosen: it must be one of the options. An artifact deleted later stays in the field and is shown as missing.
 - Tables show the artifact by HID and title and sort the column by its title. The client loads the
   options from `GET /api/repository/options?type=&path=&field=`.
 
