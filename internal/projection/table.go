@@ -53,6 +53,8 @@ type TableResult struct {
 	Total     int      `json:"total"`
 	IDs       []string `json:"ids"`
 	Truncated bool     `json:"truncated"`
+	// Warnings are the criteria of the query text that cannot match as written.
+	Warnings []Warning `json:"warnings,omitempty"`
 }
 
 // sortKey is one ORDER BY expression. Fixed keys (empty or unlisted
@@ -185,6 +187,8 @@ type typeConfig struct {
 	Label     string                    `json:"label,omitempty"`
 	Workflows []string                  `json:"workflows"`
 	Fields    map[string]map[string]int `json:"fields"`
+	// Final are the final states per workflow field (for "finished").
+	Final map[string]map[string]bool `json:"final,omitempty"`
 }
 
 func ranks(states []model.State) map[string]int {
@@ -241,6 +245,10 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []string, limit int) 
 		limit = MaxTableIDs
 	}
 	q.normalize()
+	warnings, err := p.prepare(ctx, &q)
+	if err != nil {
+		return nil, err
+	}
 	// $1 is the configuration (folder -> type -> typeConfig), bound once
 	// the needed (folder, type) pairs are known.
 	args := make([]any, 1)
@@ -353,7 +361,7 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []string, limit int) 
 		return nil, unavailable(err)
 	}
 	defer res.Close()
-	out := &TableResult{IDs: []string{}}
+	out := &TableResult{IDs: []string{}, Warnings: warnings}
 	for res.Next() {
 		var guid string
 		if err := res.Scan(&guid, &out.Total); err != nil {

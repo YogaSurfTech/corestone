@@ -26,6 +26,13 @@ type Query struct {
 	HID     string
 	Fields  map[string]string // field id -> exact value; a workflow field by its state
 	Valid   *bool
+	// Lang is a query in the query language (TSK-13), combined with the
+	// other criteria by AND. Strict refuses a query with warnings.
+	Lang     string
+	Strict   bool
+	compiled *compiled
+	// Warnings receives the query's warnings, if set.
+	Warnings *[]Warning
 	// Sort is "title", "hid", "path", "created" or "modified", ascending;
 	// "~" in front sorts descending ("~created": newest first). Empty: by
 	// relevance for a text search, then most recently modified.
@@ -155,6 +162,9 @@ func (q *Query) conditions(arg func(any) string) []string {
 	if q.Valid != nil {
 		where = append(where, "a.valid = "+arg(*q.Valid))
 	}
+	if q.compiled != nil {
+		where = append(where, q.compiled.render(arg))
+	}
 	if q.Text != "" {
 		t := arg(q.Text)
 		like := arg("%" + escapeLike(q.Text) + "%")
@@ -172,6 +182,13 @@ func (p *DB) Search(ctx context.Context, q Query) ([]*model.Summary, int, error)
 		return nil, 0, fmt.Errorf("%w: projection is being rebuilt", model.ErrUnavailable)
 	}
 	q.normalize()
+	warnings, err := p.prepare(ctx, &q)
+	if err != nil {
+		return nil, 0, err
+	}
+	if q.Warnings != nil {
+		*q.Warnings = warnings
+	}
 	var args []any
 	arg := func(v any) string {
 		args = append(args, v)

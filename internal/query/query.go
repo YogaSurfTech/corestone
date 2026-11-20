@@ -15,6 +15,9 @@
 //	link      = "has_link" ":" "(" [ "~" ] id [ "," query ] ")" ;
 //	value     = word | quoted | "NULL" ;
 //
+// A word holds letters, digits and _ - . / @ + *. The star has a meaning
+// only at the end of a folder ("folder:specs/*": the folder and all below).
+//
 // Operators are written in capitals. Two criteria side by side are joined
 // by OR. NOT binds strongest, then AND, then XOR, then OR.
 package query
@@ -132,7 +135,7 @@ type token struct {
 
 // wordRune reports whether r may appear in a value without quotes.
 func wordRune(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("_-./@+", r)
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("_-./@+*", r)
 }
 
 func lex(text string) ([]token, error) {
