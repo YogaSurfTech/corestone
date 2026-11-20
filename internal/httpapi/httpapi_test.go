@@ -544,7 +544,7 @@ func TestTableQueryAndDetails(t *testing.T) {
 	}
 	// REQ-1 high, REQ-2 low, REQ-3 high: low before high, then ID descending
 	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"type":"requirement"},
-		"sort":[{"col":"priority"},{"col":"$hid","dir":"desc"}]}`, 200)
+		"sort":["priority","~$hid"]}`, 200)
 	if got := ids(r); !slices.Equal(got, []string{reqs[1], reqs[2], reqs[0]}) || r.body["total"] != float64(3) || r.body["truncated"] != false {
 		t.Fatalf("query: %s", r.raw)
 	}
@@ -561,7 +561,8 @@ func TestTableQueryAndDetails(t *testing.T) {
 	if r = a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"types":["*"]}}`, 200); r.body["total"] != float64(4) {
 		t.Fatalf("types wildcard: %s", r.raw)
 	}
-	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$nope"}]}`, 400)
+	a.ok("POST", "/api/repository/query", `{"sort":["$nope"]}`, 400)
+	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$hid","dir":"desc"}]}`, 400) // the old form
 	a.ok("POST", "/api/repository/query", `{"filter":{"kind":["nope"]}}`, 400)
 	a.ok("POST", "/api/repository/query", `{"filter":{"path":"../x"}}`, 400)
 	a.ok("POST", "/api/repository/query", `[`, 400)
@@ -853,7 +854,7 @@ func TestDynamicEnum(t *testing.T) {
 	if found := a.ok("GET", "/api/repository/search?kind=document&field.product="+beta, "", 200); found.body["total"] != float64(1) {
 		t.Fatalf("search by product: %s", found.raw)
 	}
-	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":[{"col":"product"}]}`, 200)
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":["product"]}`, 200)
 	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != dA || got[1] != dB {
 		t.Fatalf("sorted by product: %s", r.raw)
 	}

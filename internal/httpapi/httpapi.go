@@ -930,8 +930,8 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 			Fields  map[string]string `json:"fields"`
 			Valid   *bool             `json:"valid"`
 		} `json:"filter"`
-		Sort  []projection.SortLevel `json:"sort"`
-		Limit int                    `json:"limit"`
+		Sort  []string `json:"sort"` // "~" in front: descending
+		Limit int      `json:"limit"`
 	}
 	if !readJSON(w, r, &body) {
 		return

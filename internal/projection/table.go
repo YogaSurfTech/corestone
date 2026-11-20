@@ -15,10 +15,21 @@ import (
 // Generic tables (TSK-34): the server sorts the complete filtered set and
 // returns its GUIDs; clients fetch the rows they show in batches (Details).
 
-// SortLevel is one level of a multi-level table sort.
-type SortLevel struct {
-	Col string `json:"col"`
-	Dir string `json:"dir"` // "asc" (default) or "desc"
+// A sort level of a table is written as everywhere in the project: the
+// column or field, with "~" in front for descending ("~$hid", "~priority").
+// Columns start with "$"; a built-in field may be named without it
+// ("title" is "$title"); any other name is a field id.
+
+// builtinSort are the built-in fields that are sorted by their column.
+var builtinSort = map[string]bool{"title": true, "hid": true, "type": true, "folder": true, "author": true, "created": true, "modified": true}
+
+// sortLevel resolves a written sort level to its column and direction.
+func sortLevel(level string) (col string, descending bool) {
+	col, descending = model.SortOrder(level)
+	if builtinSort[col] {
+		col = "$" + col
+	}
+	return col, descending
 }
 
 const (
@@ -216,7 +227,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 // of the sort levels (design: TSK-34). Without levels the order is the
 // one of Search (relevance for text, else most recently modified).
 // Ties fall back to that order and finally the file path.
-func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit int) (*TableResult, error) {
+func (p *DB) QueryIDs(ctx context.Context, q Query, levels []string, limit int) (*TableResult, error) {
 	if q.Text != "" && !p.Status().Capabilities.Search {
 		return nil, fmt.Errorf("%w: full-text search is being rebuilt", model.ErrUnavailable)
 	}
@@ -242,16 +253,15 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit in
 	seen := map[string]bool{}
 	needCfg, needSubjects := false, false
 	for _, l := range levels {
-		var dir string
-		switch strings.ToLower(l.Dir) {
-		case "", "asc":
-			dir = "ASC"
-		case "desc":
-			dir = "DESC"
-		default:
-			return nil, fmt.Errorf("%w: sort direction %q", model.ErrValidation, l.Dir)
+		col, descending := sortLevel(l)
+		if strings.Contains(col, "~") {
+			return nil, fmt.Errorf("%w: sort level %q", model.ErrValidation, l)
 		}
-		keys, js, err := sortColumn(l.Col, arg)
+		dir := "ASC"
+		if descending {
+			dir = "DESC"
+		}
+		keys, js, err := sortColumn(col, arg)
 		if err != nil {
 			return nil, err
 		}
@@ -273,8 +283,8 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit in
 				joins = append(joins, j)
 			}
 		}
-		needCfg = needCfg || !strings.HasPrefix(l.Col, "$") || l.Col == "$type" || l.Col == "$role" || l.Col == "$state" || l.Col == "$subject"
-		needSubjects = needSubjects || l.Col == "$subject"
+		needCfg = needCfg || !strings.HasPrefix(col, "$") || col == "$type" || col == "$role" || col == "$state" || col == "$subject"
+		needSubjects = needSubjects || col == "$subject"
 	}
 	if q.Text != "" {
 		order = append(order, "ts_rank(a.tsv, plainto_tsquery('simple', "+arg(q.Text)+")) DESC")

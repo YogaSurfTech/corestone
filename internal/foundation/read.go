@@ -155,10 +155,6 @@ func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string)
 	return f.DB.FieldValues(ctx, typ, field, folder, 200)
 }
 
-// builtinSort are the built-in fields a sort level may name; any other
-// name is a field id.
-var builtinSort = map[string]bool{"title": true, "hid": true, "type": true, "folder": true, "author": true, "created": true, "modified": true}
-
 // MaxEnumOptions caps the options of a dynamic enumeration.
 const MaxEnumOptions = 1000
 
@@ -174,20 +170,9 @@ func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string
 	if def == nil || def.Source == nil {
 		return nil, fmt.Errorf("%w: type %q has no field %q with a source", model.ErrNotFound, typ, field)
 	}
-	levels := []projection.SortLevel{}
-	for _, l := range def.Source.Sort {
-		id, desc := model.SortOrder(l)
-		if builtinSort[id] {
-			id = "$" + id
-		}
-		level := projection.SortLevel{Col: id}
-		if desc {
-			level.Dir = "desc"
-		}
-		levels = append(levels, level)
-	}
+	levels := def.Source.Sort
 	if len(levels) == 0 {
-		levels = append(levels, projection.SortLevel{Col: "$title"})
+		levels = []string{"title"}
 	}
 	res, err := f.DB.QueryIDs(ctx, projection.Query{Kinds: []model.Kind{def.Source.Kind}, Types: def.Source.Types, Subtree: true}, levels, MaxEnumOptions)
 	if err != nil {
@@ -504,7 +489,7 @@ func (f *Foundation) Search(ctx context.Context, q projection.Query) ([]*model.S
 
 // TableQuery returns the sorted GUIDs of every artifact matching q
 // (generic tables, TSK-34).
-func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []projection.SortLevel, limit int) (*projection.TableResult, error) {
+func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []string, limit int) (*projection.TableResult, error) {
 	if q.Folder != "" {
 		folder, err := model.CleanFolder(q.Folder)
 		if err != nil {

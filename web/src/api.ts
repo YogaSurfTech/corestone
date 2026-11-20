@@ -122,8 +122,10 @@ export const api = {
   reindex: () => request<{ started: boolean }>("POST", "/repository/reindex"),
   moveFolder: (from: string, to: string) => request<{ moved: number }>("POST", "/repository/folders/move", { from, to }),
   /** The sorted GUIDs of every match (generic tables); rows come from details. */
+  /** A sort level goes out as its column, with "~" in front for descending. */
   query: (body: { filter?: TableFilter; sort?: SortLevel[]; limit?: number }, signal?: AbortSignal) =>
-    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query", body, {}, signal),
+    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query",
+      { ...body, sort: body.sort?.map((l) => (l.dir === "desc" ? "~" : "") + l.col) }, {}, signal),
   details: (ids: string[], columns?: string[], signal?: AbortSignal) =>
     request<TableRows>("POST", "/artifacts/details", { ids, columns }, {}, signal),
   hid: (hid: string) => request<{ records: { guid: string; hid: string; current: boolean }[] }>("GET", "/repository/hids/" + encodeURIComponent(hid)),
