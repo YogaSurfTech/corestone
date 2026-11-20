@@ -6,10 +6,10 @@ import {
 } from "prosemirror-tables";
 import type { EditorView } from "prosemirror-view";
 import { icon } from "./icons";
-import { buildMenu, type MenuItem } from "./menu";
+import { buildMenu, runItem, type MenuItem } from "./menu";
 import { hexColor, schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
 import type { ColorChoices } from "./toolbar";
-import { button, el } from "@corestone/ui";
+import { button, dialogHead, el, Overlay } from "@corestone/ui";
 
 // Tables: inserting one (a size grid), the context menu (rows, columns,
 // header format, merging) and the Properties dialog (size, stripes,
@@ -185,13 +185,17 @@ export class TableUI {
   private readonly menu: HTMLElement;
   private readonly props: HTMLElement;
   private readonly colorPop: HTMLElement;
-  private outside?: (e: MouseEvent) => void;
+  private readonly overlay: Overlay;
 
-  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement, private readonly colors: ColorChoices) {
+  constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly colors: ColorChoices) {
     // the size grid
-    this.grid = el("div", "cs-tablegrid");
-    this.grid.setAttribute("role", "dialog");
-    this.grid.setAttribute("aria-label", "Insert table");
+    this.overlay = new Overlay({
+      root, keepFocus: "input, select",
+      escape: () => { const open = !this.colorPop.hidden; this.colorPop.hidden = true; return open; },
+      onEscape: () => this.view().focus(),
+      onClose: () => { this.colorPop.hidden = true; },
+    });
+    this.grid = this.overlay.panel("cs-tablegrid", "dialog", "Insert table");
     const label = el("div", "size");
     const cells = el("div", "cells");
     const R = 8, C = 10;
@@ -221,31 +225,14 @@ export class TableUI {
     mark(0, 0);
     this.grid.append(label, cells);
 
-    this.menu = el("div", "cs-menu cs-tablemenu");
-    this.menu.setAttribute("role", "menu");
-    this.menu.setAttribute("aria-label", "Table");
-    this.props = el("div", "cs-tableprops");
+    this.menu = this.overlay.panel("cs-menu cs-tablemenu", "menu", "Table");
+    this.props = this.overlay.panel("cs-tableprops", "dialog", "Table properties");
     this.colorPop = el("div", "colorpop");
-    this.props.setAttribute("role", "dialog");
-    this.props.setAttribute("aria-label", "Table properties");
-    for (const p of [this.grid, this.menu, this.props]) {
-      p.hidden = true;
-      p.addEventListener("mousedown", (e) => { if (!(e.target as HTMLElement).closest("input, select")) e.preventDefault(); });
-      p.addEventListener("keydown", (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (!this.colorPop.hidden) { this.colorPop.hidden = true; return; }
-        this.close();
-        this.view().focus();
-      });
-    }
-    root.append(this.grid, this.menu, this.props);
   }
 
   /** Opens the size grid with its first cell under the mouse pointer, or at the cursor. */
   openGrid(at?: { x: number; y: number }) {
-    this.open(this.grid, at ?? this.cursorPoint());
+    this.overlay.open(this.grid, at ?? this.cursorPoint());
     const first = this.grid.querySelector("button") as HTMLElement;
     if (at) {
       const b = first.getBoundingClientRect();
@@ -269,17 +256,12 @@ export class TableUI {
       { label: "Properties…", run: () => this.openProps(at) },
     ];
     this.menu.replaceChildren(...this.items(items, state));
-    this.open(this.menu, at ?? this.cursorPoint());
+    this.overlay.open(this.menu, at ?? this.cursorPoint());
     (this.menu.querySelector("[role=menuitem], [role=menuitemcheckbox]") as HTMLElement | null)?.focus();
   }
 
   private items(items: MenuItem[], state: EditorState): HTMLElement[] {
-    return buildMenu(items, state, (it) => {
-      this.close();
-      const v = this.view();
-      if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
-      it.run?.();
-    });
+    return buildMenu(items, state, (it) => { this.close(); runItem(this.view(), it); });
   }
 
   /** The Properties dialog of the table at the cursor: its size, stripes (and their
@@ -291,11 +273,7 @@ export class TableUI {
     let colors: [string, string] = cur.colors ?? this.colors.presets[0]?.colors ?? ["#ffffff", "#f3f4f6"];
     let themed = !cur.colors; // no own colours: the theme's stripes
 
-    const head = el("div", "head");
-    const title = el("span", "title");
-    title.textContent = "Table Properties";
-    const x = button({ cls: "x", label: "Close", html: icon("close", 20) });
-    head.append(title, x);
+    const { head } = dialogHead("Table Properties", icon("close", 20), () => { this.close(); this.view().focus(); });
 
     const num = (cls: string, name: string, value: number, max: number) => {
       const l = el("label", "num");
@@ -408,8 +386,7 @@ export class TableUI {
       if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") { e.preventDefault(); apply(); }
     };
     ok.addEventListener("click", (e) => { e.preventDefault(); apply(); });
-    x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
-    this.open(this.props, at ?? this.cursorPoint());
+    this.overlay.open(this.props, at ?? this.cursorPoint());
     rows.i.focus();
     rows.i.select();
   }
@@ -446,31 +423,15 @@ export class TableUI {
     this.colorPop.style.top = `${a.bottom - p.top + 4}px`;
   }
 
-  /** Shows one of the panels at a point of the window, inside the editor; the others close. */
-  private open(panel: HTMLElement, at: { x: number; y: number }) {
-    this.close();
-    panel.hidden = false;
-    const r = this.root.getBoundingClientRect();
-    panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
-    panel.style.top = `${at.y - r.top}px`;
-    this.outside = (e) => { if (!panel.contains(e.target as globalThis.Node)) this.close(); };
-    document.addEventListener("mousedown", this.outside, true);
-  }
-
   private cursorPoint() {
     const view = this.view();
     const c = view.coordsAtPos(view.state.selection.head);
     return { x: c.left, y: c.bottom + 4 };
   }
 
-  get isOpen() { return !this.grid.hidden || !this.menu.hidden || !this.props.hidden; }
+  get isOpen() { return this.overlay.isOpen; }
 
-  close() {
-    this.colorPop.hidden = true;
-    this.grid.hidden = this.menu.hidden = this.props.hidden = true;
-    if (this.outside) document.removeEventListener("mousedown", this.outside, true);
-    this.outside = undefined;
-  }
+  close() { this.overlay.close(); }
 
   destroy() { this.close(); }
 }

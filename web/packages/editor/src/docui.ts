@@ -1,11 +1,11 @@
 import { Fragment } from "prosemirror-model";
 import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import { buildMenu, type MenuItem } from "./menu";
+import { openMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { fileNames, toStorage } from "./model";
 import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, setTocDepth, structureKey, xrefText, type DocumentHost } from "./structure";
-import { el } from "@corestone/ui";
+import { el, Overlay } from "@corestone/ui";
 
 // The document's own panels: the menus of a placed entry and of a table of contents, and the
 // cross-reference picker.
@@ -13,27 +13,13 @@ import { el } from "@corestone/ui";
 export class DocumentUI {
   private readonly menu: HTMLElement;
   private readonly picker: HTMLElement;
-  private outside?: (e: MouseEvent) => void;
+  private readonly overlay: Overlay;
 
-  constructor(private readonly view: () => EditorView, private readonly root: HTMLElement, private readonly host: () => DocumentHost | undefined,
+  constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly host: () => DocumentHost | undefined,
     private readonly notice: (msg: string) => void) {
-    this.menu = el("div", "cs-menu cs-placementmenu");
-    this.menu.setAttribute("role", "menu");
-    this.menu.setAttribute("aria-label", "Entry");
-    this.picker = el("div", "cs-xrefpop");
-    this.picker.setAttribute("role", "dialog");
-    this.picker.setAttribute("aria-label", "Cross-reference");
-    for (const p of [this.menu, this.picker]) {
-      p.hidden = true;
-      p.addEventListener("keydown", (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        this.close();
-        this.view().focus();
-      });
-    }
-    root.append(this.menu, this.picker);
+    this.overlay = new Overlay({ root, onEscape: () => this.view().focus() });
+    this.menu = this.overlay.panel("cs-menu cs-placementmenu", "menu", "Entry");
+    this.picker = this.overlay.panel("cs-xrefpop", "dialog", "Cross-reference");
   }
 
   /** Lets the host pick entries and places them at the cursor, in the order picked. */
@@ -128,15 +114,11 @@ export class DocumentUI {
 
   private showMenu(label: string, items: MenuItem[], at: { x: number; y: number }) {
     this.menu.setAttribute("aria-label", label);
-    this.menu.replaceChildren(...buildMenu(items, this.view().state, (it) => {
-      this.close();
-      const v = this.view();
+    openMenu(this.overlay, this.menu, items, this.view, at, (v, it) => {
       if (it.cmd) it.cmd(v.state, v.dispatch);
       else it.run?.();
       v.focus();
-    }));
-    this.open(this.menu, at);
-    (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
+    });
   }
 
   /** The cross-reference picker: the sections and the entries of this document. */
@@ -188,25 +170,11 @@ export class DocumentUI {
     show();
     this.picker.replaceChildren(head, filter, list);
     const c = view.coordsAtPos(view.state.selection.head);
-    this.open(this.picker, at ?? { x: c.left, y: c.bottom + 4 });
+    this.overlay.open(this.picker, at ?? { x: c.left, y: c.bottom + 4 });
     filter.focus();
   }
 
-  private open(panel: HTMLElement, at: { x: number; y: number }) {
-    this.close();
-    panel.hidden = false;
-    const r = this.root.getBoundingClientRect();
-    panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
-    panel.style.top = `${at.y - r.top}px`;
-    this.outside = (e) => { if (!panel.contains(e.target as globalThis.Node)) this.close(); };
-    document.addEventListener("mousedown", this.outside, true);
-  }
-
-  close() {
-    this.menu.hidden = this.picker.hidden = true;
-    if (this.outside) document.removeEventListener("mousedown", this.outside, true);
-    this.outside = undefined;
-  }
+  close() { this.overlay.close(); }
 
   destroy() { this.close(); }
 }

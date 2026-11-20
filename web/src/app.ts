@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { LightElement, drag, prefs } from "@corestone/ui";
+import { LightElement, Resizer, splitter } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -27,8 +27,18 @@ export class App extends LightElement {
   @state() private dismissedConfig = ""; // the invalid-config set the user closed; a different set shows again
   private lastGuid: string | null = null;
   private statusTimer = 0;
-  @state() private split = Number(prefs.text("corestone.split")) || DEFAULT_SPLIT; // overview height, % of the main area
-  @state() private navW = Number(prefs.text("corestone.navWidth")) || DEFAULT_NAV_W;
+  /** The divider between the overview and the selected artifact: the overview's height, % of the main area. */
+  private readonly split = new Resizer({
+    key: "corestone.split", fallback: DEFAULT_SPLIT, min: MIN_SPLIT, max: MAX_SPLIT, axis: "y", step: 4,
+    at: (m, box) => (100 * (m.clientY - box.top)) / box.height,
+    changed: () => this.requestUpdate(),
+  });
+  /** The divider between the folder navigation and the main area: the navigation's width, px. */
+  private readonly nav = new Resizer({
+    key: "corestone.navWidth", fallback: DEFAULT_NAV_W, min: MIN_NAV_W, max: MAX_NAV_W, axis: "x", step: 16,
+    at: (m, box) => m.clientX - box.left,
+    changed: () => this.requestUpdate(),
+  });
 
   override connectedCallback() {
     super.connectedCallback();
@@ -66,55 +76,6 @@ export class App extends LightElement {
     this.statusTimer = window.setInterval(tick, 15000);
   }
 
-  private setSplit(pct: number, persist = true) {
-    this.split = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, pct));
-    if (persist) prefs.setText("corestone.split", String(Math.round(this.split)));
-  }
-
-  // The divider between the overview and the selected artifact: drag, arrow
-  // keys, or double-click to restore the default.
-  private dragSplit = (e: PointerEvent) => {
-    const bar = e.currentTarget as HTMLElement;
-    const box = bar.parentElement!.getBoundingClientRect();
-    drag(e, {
-      cls: "dragging",
-      move: (m) => this.setSplit((100 * (m.clientY - box.top)) / box.height, false),
-      end: () => this.setSplit(this.split),
-    });
-    e.preventDefault();
-  };
-
-  private keySplit = (e: KeyboardEvent) => {
-    const step = e.key === "ArrowUp" ? -4 : e.key === "ArrowDown" ? 4 : 0;
-    if (!step) return;
-    e.preventDefault();
-    this.setSplit(this.split + step);
-  };
-
-  private setNavW(px: number, persist = true) {
-    this.navW = Math.min(MAX_NAV_W, Math.max(MIN_NAV_W, px));
-    if (persist) prefs.setText("corestone.navWidth", String(Math.round(this.navW)));
-  }
-
-  // The divider between the folder navigation and the main area.
-  private dragNav = (e: PointerEvent) => {
-    const bar = e.currentTarget as HTMLElement;
-    const left = bar.parentElement!.getBoundingClientRect().left;
-    drag(e, {
-      cls: "dragging",
-      move: (m) => this.setNavW(m.clientX - left, false),
-      end: () => this.setNavW(this.navW),
-    });
-    e.preventDefault();
-  };
-
-  private keyNav = (e: KeyboardEvent) => {
-    const step = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
-    if (!step) return;
-    e.preventDefault();
-    this.setNavW(this.navW + step);
-  };
-
   private setName = () => {
     if (this.s.account) { store.set({ dialog: { kind: "account" } }); return; }
     const theme = this.s.theme; // the dialog previews themes live; Cancel restores this one
@@ -144,7 +105,7 @@ export class App extends LightElement {
     const health = !status ? "bad" : p?.maintenance ? "warn" : status.inSync ? "ok" : "warn";
     const healthText = !status ? "server unreachable" : p?.maintenance ? `maintenance: ${p.phase || p.reason || ""} ${p.total ? `${p.progress}/${p.total}` : ""}` : status.inSync ? "in sync" : "syncing…";
     const mainClass = route.guid && this.selectedKind === "document" ? "document" : route.expanded ? "expanded" : "";
-    return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}" style=${`--nav-w:${this.navW}px`}>
+    return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}" style=${`--nav-w:${this.nav.value}px`}>
       <header class="header">
         <button class="btn sm icon" title="Toggle navigation" aria-label="Toggle navigation" @click=${() => store.toggleNav()}>☰</button>
         <a class="brand" href="/" @click=${(e: Event) => { e.preventDefault(); navigate({ folder: "", guid: null, q: "", type: "", kind: "" }); }}><span class="logo"></span>Corestone</a>
@@ -156,15 +117,11 @@ export class App extends LightElement {
         <button class="btn sm" data-test="user" title=${this.s.account ? "Your account" : "Your name and theme"} @click=${this.setName}>${this.s.user || "anonymous"}</button>
       </header>
       <corestone-sidebar></corestone-sidebar>
-      <div class="nav-splitter" data-test="nav-splitter" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"
-        aria-valuemin=${MIN_NAV_W} aria-valuemax=${MAX_NAV_W} aria-valuenow=${Math.round(this.navW)}
-        @pointerdown=${this.dragNav} @keydown=${this.keyNav} @dblclick=${() => this.setNavW(DEFAULT_NAV_W)}></div>
+      ${splitter(this.nav, "nav-splitter", "nav-splitter")}
       <div class="nav-scrim" @click=${() => store.toggleNav()}></div>
-      <div class="main ${mainClass}" style=${`--split:${this.split}%`}>
+      <div class="main ${mainClass}" style=${`--split:${this.split.value}%`}>
         <corestone-overview></corestone-overview>
-        <div class="splitter" data-test="splitter" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to resize; double-click to reset"
-          aria-valuemin=${MIN_SPLIT} aria-valuemax=${MAX_SPLIT} aria-valuenow=${Math.round(this.split)}
-          @pointerdown=${this.dragSplit} @keydown=${this.keySplit} @dblclick=${() => this.setSplit(DEFAULT_SPLIT)}></div>
+        ${splitter(this.split, "splitter", "splitter")}
         ${route.guid ? (this.selectedKind === "document" ? html`<corestone-document .guid=${route.guid}></corestone-document>` : html`<corestone-detail .guid=${route.guid} .version=${route.version} .at=${route.at}></corestone-detail>`)
           : html`<div class="empty-state" style="display:grid;place-items:center"><div><div class="big">Select an artifact</div>Pick a row above, search with <kbd>/</kbd>, or create one with <kbd>n</kbd>.</div></div>`}
       </div>
