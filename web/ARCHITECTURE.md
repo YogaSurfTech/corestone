@@ -7,7 +7,7 @@ at the top of `scripts/check-layers.mjs`.
 | Layer | Where | Contains | May import |
 |---|---|---|---|
 | 1 | `packages/ui/src/lib/` | Helpers without a user interface of their own: `el`, `button`, `prefs`, `errorText`, `drag`, formatting, `LightElement` | Lit |
-| 2 | `packages/ui/src/` | Controls built on layer 1 (overlay, dialog, menu, button bar; not written yet) | Lit, layer 1 |
+| 2 | `packages/ui/src/` | Controls built on layer 1: `Overlay` and `dialogHead`, menus (`buildMenu`, `popupMenu`), `Resizer` and `splitter` | Lit, layer 1 |
 | 3 | `packages/editor/src/` | The rich-text and document editor | `@corestone/ui`, ProseMirror, MathJax |
 | 4 | `src/` | The application: server access, store, router, views | Everything above |
 

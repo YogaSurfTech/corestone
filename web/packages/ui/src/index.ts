@@ -11,3 +11,4 @@ export { deepEqual, fmtSize, fmtTime, relTime } from "./lib/format";
 export { dataUrlToBlob } from "./lib/data-url";
 export { LightElement } from "./lib/light-element";
 export { buildMenu, popupMenu, type MenuEntry } from "./menu";
+export { Resizer, splitter, type ResizerOptions } from "./resizer";
