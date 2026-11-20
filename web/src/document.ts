@@ -1,5 +1,5 @@
 import { html, nothing, render, type TemplateResult } from "lit";
-import { LightElement, deepEqual, errorText, fmtTime, relTime } from "@corestone/ui";
+import { deepEqual, errorText, fmtTime, LightElement, relTime, Resizer, splitter } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import "@corestone/editor";
@@ -48,6 +48,12 @@ export class DocumentView extends LightElement {
   @property() guid = "";
   private unsub?: () => void;
   private s!: State;
+  /** The left edge of the sidebars: their width, px. */
+  private readonly side = new Resizer({
+    key: "corestone.docSideWidth", fallback: 320, min: 240, max: 720, axis: "x", step: 16, reverse: true,
+    at: (m, box) => box.right - m.clientX,
+    changed: () => this.requestUpdate(),
+  });
   @state() private view: View | null = null;
   @state() private schema: Schema | null = null;
   @state() private docTitle = "";
@@ -625,7 +631,8 @@ export class DocumentView extends LightElement {
             @click=${(e: Event) => { const g = (e.target as HTMLElement).closest<HTMLElement>(".cs-placement")?.dataset.placement; if (g && g !== this.current) { this.current = g; this.editor?.refresh(); } }}></cs-document>
         </div></div>
       </div>
-      ${r.sidebars.length ? html`<aside class="doc-side">${r.sidebars.map((id) => this.sidebar(id))}</aside>` : nothing}`;
+      ${r.sidebars.length ? html`${splitter(this.side, "doc-splitter", "doc-splitter")}
+        <aside class="doc-side" style=${`--doc-side-w:${this.side.value}px`}>${r.sidebars.map((id) => this.sidebar(id))}</aside>` : nothing}`;
   }
 
   /** Ctrl+S saves. */

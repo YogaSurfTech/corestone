@@ -601,6 +601,34 @@ test("sidebars: properties with schema fields, comments, relationships, versions
   await expect(page).toHaveURL(/sb=props,rel(&|$)/);
 });
 
+test("the sidebars' edge can be dragged, keyed, reset, and is remembered", async ({ page }) => {
+  const d = await newDoc(`Sidebar width ${id}`);
+  await page.goto(`/artifact/${d.meta.guid}`);
+  await page.locator("[data-test=sb-outline]").click();
+  const side = page.locator(".doc-side");
+  const bar = page.locator("[data-test=doc-splitter]");
+  const width = async () => (await side.boundingBox())!.width;
+  await expect(side).toBeVisible();
+  const initial = await width();
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + 3, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 117, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeGreaterThan(initial + 100);
+  const dragged = await width();
+  await page.reload();
+  await expect.poll(width).toBeCloseTo(dragged, -1);
+  await bar.focus();
+  await page.keyboard.press("ArrowRight"); // towards the edge of the window: narrower
+  expect(await width()).toBeLessThan(dragged);
+  await bar.dblclick();
+  await expect.poll(width).toBeCloseTo(initial, -1);
+  // gone with the last sidebar
+  await page.locator("[data-test=sb-outline]").click();
+  await expect(bar).toHaveCount(0);
+});
+
 test("document creation from the + menu starts with an empty page", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await page.keyboard.press("n");
