@@ -1,4 +1,4 @@
-import { el } from "./lib/dom";
+import { button, el } from "./lib/dom";
 
 export interface Point { x: number; y: number }
 
@@ -69,4 +69,17 @@ export class Overlay {
     this.outside = undefined;
     this.o.onClose?.();
   }
+}
+
+/**
+ * The head of a small dialog: its title and a close button showing the given
+ * markup (an icon). With `close`, a click on the button calls it.
+ */
+export function dialogHead(title: string, closeIcon: string, close?: () => void): { head: HTMLElement; x: HTMLButtonElement } {
+  const head = el("div", "head");
+  const text = el("span", "title");
+  text.textContent = title;
+  const x = button({ cls: "x", label: "Close", html: closeIcon, run: close });
+  head.append(text, x);
+  return { head, x };
 }

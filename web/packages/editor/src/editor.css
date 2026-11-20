@@ -143,8 +143,9 @@
 .cs-menu .mi[aria-haspopup]::after { content: "▸"; margin-left: auto; padding-left: 16px; color: var(--cs-muted); }
 .cs-menu .mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 9px; }
 .cs-tableprops { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; width: 262px; }
-.cs-tableprops .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
-.cs-tableprops .title { font-weight: 600; }
+/* The head of the small dialogs (dialogHead): title on the left, close button on the right. */
+.cs-tableprops .head, .cs-formulapop .head, .cs-filepop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
+.cs-tableprops .title, .cs-formulapop .title, .cs-filepop .title { font-weight: 600; }
 .cs-tableprops button.x, .cs-tableprops button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0;
   border: 0; border-radius: 6px; background: transparent; color: var(--cs-text); cursor: pointer; }
 .cs-tableprops button.x { width: 26px; height: 26px; color: var(--cs-muted); }
@@ -202,8 +203,6 @@
 .cs-formulapop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; padding: 8px 10px 10px; width: min(420px, 100%);
   display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
-.cs-formulapop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
-.cs-formulapop .title { font-weight: 600; }
 .cs-formulapop button.x, .cs-formulapop button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px;
   padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 .cs-formulapop button.x { width: 26px; height: 26px; color: var(--cs-muted); }
@@ -242,8 +241,6 @@
 .cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-filepop { padding: 8px 10px 10px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
-.cs-filepop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
-.cs-filepop .title { font-weight: 600; }
 .cs-filepop button.x { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0;
   border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
 .cs-filepop button.x:hover { background: var(--cs-hover); }

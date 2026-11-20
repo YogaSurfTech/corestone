@@ -6,7 +6,7 @@ import { icon } from "./icons";
 import { openMenu, type MenuItem } from "./menu";
 import { MAX_FORMULA } from "./model";
 import { schema } from "./schema";
-import { button, el, Overlay } from "@corestone/ui";
+import { button, dialogHead, el, Overlay } from "@corestone/ui";
 
 // Formulas: LaTeX in the text, shown as a picture of it, a PNG file of the entry
 // (one per formula). MathJax makes the picture; it is loaded only to write a
@@ -246,12 +246,7 @@ export class FormulaUI {
     const current = selectedFormula(view.state);
     let display = current ? !!current.node.attrs.display : false;
 
-    const head = el("div", "head");
-    const title = el("span", "title");
-    title.textContent = "Formula";
-    const x = button({ cls: "x", label: "Close", html: icon("close", 18) });
-    x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
-    head.append(title, x);
+    const { head } = dialogHead("Formula", icon("close", 18), () => { this.close(); this.view().focus(); });
 
     const src = el("textarea", "latex") as HTMLTextAreaElement;
     src.value = current?.node.attrs.latex ?? "";

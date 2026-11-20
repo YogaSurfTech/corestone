@@ -9,7 +9,7 @@ import { icon } from "./icons";
 import { buildMenu, runItem, type MenuItem } from "./menu";
 import { hexColor, schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
 import type { ColorChoices } from "./toolbar";
-import { button, el, Overlay } from "@corestone/ui";
+import { button, dialogHead, el, Overlay } from "@corestone/ui";
 
 // Tables: inserting one (a size grid), the context menu (rows, columns,
 // header format, merging) and the Properties dialog (size, stripes,
@@ -273,11 +273,7 @@ export class TableUI {
     let colors: [string, string] = cur.colors ?? this.colors.presets[0]?.colors ?? ["#ffffff", "#f3f4f6"];
     let themed = !cur.colors; // no own colours: the theme's stripes
 
-    const head = el("div", "head");
-    const title = el("span", "title");
-    title.textContent = "Table Properties";
-    const x = button({ cls: "x", label: "Close", html: icon("close", 20) });
-    head.append(title, x);
+    const { head } = dialogHead("Table Properties", icon("close", 20), () => { this.close(); this.view().focus(); });
 
     const num = (cls: string, name: string, value: number, max: number) => {
       const l = el("label", "num");
@@ -390,7 +386,6 @@ export class TableUI {
       if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") { e.preventDefault(); apply(); }
     };
     ok.addEventListener("click", (e) => { e.preventDefault(); apply(); });
-    x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
     this.overlay.open(this.props, at ?? this.cursorPoint());
     rows.i.focus();
     rows.i.select();

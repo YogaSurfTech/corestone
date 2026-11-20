@@ -4,7 +4,7 @@ import type { Node } from "prosemirror-model";
 import { isPicture, type EntryFiles } from "./files";
 import { icon } from "./icons";
 import { schema } from "./schema";
-import { button, dataUrlToBlob, el } from "@corestone/ui";
+import { button, dataUrlToBlob, dialogHead, el } from "@corestone/ui";
 
 // Diagrams: drawn in draw.io, kept as one PNG file of the entry with the
 // diagram's source inside it (draw.io's "xmlpng"). The host serves draw.io (the
@@ -90,9 +90,7 @@ export class DiagramUI {
 
   private show(url: string, files: EntryFiles, png: string | null, previous: string | null, pos: number | null) {
     let dirty = false, saving = false;
-    const head = el("div", "head");
-    const title = el("span", "title");
-    title.textContent = previous ? "Diagram" : "New diagram";
+    const { head, x } = dialogHead(previous ? "Diagram" : "New diagram", icon("close", 18));
     const ask = el("span", "ask");
     ask.hidden = true;
     const askText = el("span", "");
@@ -100,11 +98,7 @@ export class DiagramUI {
     const discard = button({ cls: "lb danger", text: "Discard" });
     const keep = button({ cls: "lb", text: "Keep editing" });
     ask.append(askText, discard, keep);
-    const x = button({ cls: "x" });
-    x.title = "Close";
-    x.setAttribute("aria-label", "Close");
-    x.innerHTML = icon("close", 18);
-    head.append(title, ask, x);
+    x.before(ask);
 
     const frame = document.createElement("iframe");
     frame.title = "draw.io";

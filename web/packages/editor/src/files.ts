@@ -4,7 +4,7 @@ import type { EditorView, NodeView } from "prosemirror-view";
 import { icon } from "./icons";
 import { openMenu, type MenuItem } from "./menu";
 import { safeFileName, schema } from "./schema";
-import { dataUrlToBlob, el, Overlay } from "@corestone/ui";
+import { dataUrlToBlob, dialogHead, el, Overlay } from "@corestone/ui";
 
 // Images and file links: files of the entry the text belongs to. The host
 // application keeps the files (the editor knows nothing of where); new ones
@@ -258,16 +258,8 @@ export class FileUI {
     if (!files) return;
     let names: string[] = [];
     try { names = (await files.list()).filter((n) => !opts.images || isImageName(n)); } catch { /* none to show */ }
-    const head = el("div", "head");
-    const title = el("span", "title");
-    title.textContent = opts.images ? "Insert image" : "Link to a file";
-    const x = el("button", "x") as HTMLButtonElement;
-    x.type = "button";
-    x.title = "Close";
-    x.setAttribute("aria-label", "Close");
-    x.innerHTML = icon("close", 18);
-    x.addEventListener("click", (e) => { e.preventDefault(); this.close(); this.view().focus(); });
-    head.append(title, x);
+    const title = opts.images ? "Insert image" : "Link to a file";
+    const { head } = dialogHead(title, icon("close", 18), () => { this.close(); this.view().focus(); });
     const upload = el("label", "lb apply upload");
     upload.innerHTML = icon("upload", 16) + "<span>Upload…</span>";
     const input = document.createElement("input");
@@ -311,7 +303,7 @@ export class FileUI {
       b.addEventListener("click", (e) => { e.preventDefault(); this.close(); opts.chosen(n); this.view().focus(); });
       list.append(b);
     }
-    this.picker.setAttribute("aria-label", title.textContent);
+    this.picker.setAttribute("aria-label", title);
     this.picker.replaceChildren(head, list, upload);
     this.overlay.open(this.picker, opts.at ?? this.cursorPoint());
     (list.querySelector("button") as HTMLElement | null ?? upload).focus();
