@@ -24,10 +24,14 @@ type record struct {
 	Valid   bool
 	Error   string
 	Index   []fieldKV
-	Refs    []ref // outgoing references held in fields and document content
+	Texts   []fieldKV // the whole text per field, for its word index
+	Refs    []ref     // outgoing references held in fields and document content
 }
 
 type fieldKV struct{ Field, Value string }
+
+// maxFieldText caps the text of one field that goes into its word index.
+const maxFieldText = 100000
 
 // ref is one outgoing reference: the target GUID and where it is held,
 // "content" for a document's entry blocks or "field:<id>" for a field.
@@ -109,6 +113,9 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 			}
 			for _, s := range scalarStrings(v) {
 				r.Index = append(r.Index, fieldKV{k, trunc(s)})
+			}
+			if text := wholeText(v); text != "" {
+				r.Texts = append(r.Texts, fieldKV{k, text})
 			}
 			for _, g := range guidsIn(v) {
 				r.Refs = append(r.Refs, ref{g, "field:" + k})
@@ -212,6 +219,31 @@ func scalarStrings(v any) []string {
 		return out
 	}
 	return nil
+}
+
+// wholeText is the whole text of a text value (several values one per
+// line), for the field's word index. Numbers and booleans have none.
+func wholeText(v any) string {
+	var parts []string
+	if model.IsRichText(v) {
+		parts = []string{model.RichTextPlain(v)}
+	} else {
+		switch t := v.(type) {
+		case string:
+			parts = []string{t}
+		case []any:
+			for _, e := range t {
+				if s, ok := e.(string); ok {
+					parts = append(parts, s)
+				}
+			}
+		}
+	}
+	text := clean(strings.TrimSpace(strings.Join(parts, "\n")))
+	if len(text) > maxFieldText {
+		text = strings.ToValidUTF8(text[:maxFieldText], "")
+	}
+	return text
 }
 
 func guidsIn(v any) []string {

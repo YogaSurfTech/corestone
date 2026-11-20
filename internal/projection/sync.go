@@ -346,6 +346,15 @@ func (p *DB) upsertRecord(ctx context.Context, tx *sql.Tx, r *record, commit str
 	if err := insertFields(ctx, tx, r); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifact_field_text WHERE guid = $1`, r.GUID); err != nil {
+		return unavailable(err)
+	}
+	for _, kv := range r.Texts {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO artifact_field_text (guid, field, tsv) VALUES ($1,$2,to_tsvector('simple', $3))
+			ON CONFLICT DO NOTHING`, r.GUID, kv.Field, kv.Value); err != nil {
+			return unavailable(err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM artifact_refs WHERE guid = $1`, r.GUID); err != nil {
 		return unavailable(err)
 	}
