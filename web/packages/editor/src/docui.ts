@@ -1,7 +1,7 @@
 import { Fragment } from "prosemirror-model";
 import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import { buildMenu, type MenuItem } from "./menu";
+import { openMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { fileNames, toStorage } from "./model";
 import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, setTocDepth, structureKey, xrefText, type DocumentHost } from "./structure";
@@ -114,15 +114,11 @@ export class DocumentUI {
 
   private showMenu(label: string, items: MenuItem[], at: { x: number; y: number }) {
     this.menu.setAttribute("aria-label", label);
-    this.menu.replaceChildren(...buildMenu(items, this.view().state, (it) => {
-      this.close();
-      const v = this.view();
+    openMenu(this.overlay, this.menu, items, this.view, at, (v, it) => {
       if (it.cmd) it.cmd(v.state, v.dispatch);
       else it.run?.();
       v.focus();
-    }));
-    this.overlay.open(this.menu, at);
-    (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
+    });
   }
 
   /** The cross-reference picker: the sections and the entries of this document. */

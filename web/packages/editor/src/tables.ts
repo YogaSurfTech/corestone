@@ -6,7 +6,7 @@ import {
 } from "prosemirror-tables";
 import type { EditorView } from "prosemirror-view";
 import { icon } from "./icons";
-import { buildMenu, type MenuItem } from "./menu";
+import { buildMenu, runItem, type MenuItem } from "./menu";
 import { hexColor, schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
 import type { ColorChoices } from "./toolbar";
 import { button, el, Overlay } from "@corestone/ui";
@@ -261,12 +261,7 @@ export class TableUI {
   }
 
   private items(items: MenuItem[], state: EditorState): HTMLElement[] {
-    return buildMenu(items, state, (it) => {
-      this.close();
-      const v = this.view();
-      if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
-      it.run?.();
-    });
+    return buildMenu(items, state, (it) => { this.close(); runItem(this.view(), it); });
   }
 
   /** The Properties dialog of the table at the cursor: its size, stripes (and their

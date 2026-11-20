@@ -2,7 +2,7 @@ import type { Node } from "prosemirror-model";
 import { NodeSelection, Plugin, TextSelection, type Command, type EditorState } from "prosemirror-state";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { icon } from "./icons";
-import { buildMenu, type MenuItem } from "./menu";
+import { openMenu, type MenuItem } from "./menu";
 import { safeFileName, schema } from "./schema";
 import { dataUrlToBlob, el, Overlay } from "@corestone/ui";
 
@@ -337,14 +337,7 @@ export class FileUI {
       { label: "Delete", danger: true, cmd: (state, dispatch) => { dispatch?.(state.tr.delete(pos, pos + node.nodeSize)); return true; } },
     ];
     this.menu.setAttribute("aria-label", diagram ? "Diagram" : "Image");
-    this.menu.replaceChildren(...buildMenu(items, view.state, (it) => {
-      this.close();
-      const v = this.view();
-      if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
-      it.run?.();
-    }));
-    this.overlay.open(this.menu, at);
-    (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
+    openMenu(this.overlay, this.menu, items, this.view, at);
   }
 
   /** The alternative text of the selected image (read aloud, shown when it cannot load). */

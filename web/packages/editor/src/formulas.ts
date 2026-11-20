@@ -3,7 +3,7 @@ import { NodeSelection, Plugin, type Command, type EditorState } from "prosemirr
 import type { EditorView, NodeView } from "prosemirror-view";
 import type { EntryFiles } from "./files";
 import { icon } from "./icons";
-import { buildMenu, type MenuItem } from "./menu";
+import { openMenu, type MenuItem } from "./menu";
 import { MAX_FORMULA } from "./model";
 import { schema } from "./schema";
 import { button, el, Overlay } from "@corestone/ui";
@@ -365,14 +365,7 @@ export class FormulaUI {
         } },
       { label: "Delete", danger: true, cmd: (state, dispatch) => { dispatch?.(state.tr.delete(f.pos, f.pos + f.node.nodeSize)); return true; } },
     ];
-    this.menu.replaceChildren(...buildMenu(items, view.state, (it) => {
-      this.close();
-      const v = this.view();
-      if (it.cmd) { it.cmd(v.state, v.dispatch); v.focus(); }
-      it.run?.();
-    }));
-    this.overlay.open(this.menu, at);
-    (this.menu.querySelector("button:not(:disabled)") as HTMLElement | null)?.focus();
+    openMenu(this.overlay, this.menu, items, this.view, at);
   }
 
   private cursorPoint() {
