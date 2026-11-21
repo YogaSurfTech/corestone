@@ -1,4 +1,5 @@
 import { html, type TemplateResult } from "lit";
+import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import type { Field, Kind, Schema, Summary, WorkflowValue } from "./types";
 import { plainText, type RichText } from "@corestone/editor/model";
 
@@ -18,9 +19,27 @@ export function hidLabel(s: Summary | undefined | null): string {
   return s?.hid && s.title ? `${s.hid} – ${s.title}` : label(s);
 }
 
+// The pictogram of each kind, drawn on a grid of 16 in the colour of the text.
+const KIND_PATHS: Record<Kind, string> = {
+  // a card with a column of labels and lines of values
+  entry: '<rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M6 3v10M8.5 6.5h3.5M8.5 9.5h3.5"/>',
+  // a page with a folded corner
+  document: '<path d="M4 1.5h5.5L13 5v9.5H4zM9.5 1.5V5H13M6.5 8.5h4M6.5 11.5h4"/>',
+  // two things with an arrow from one up to the other
+  link: '<circle cx="3" cy="13" r="1.7" fill="currentColor"/><circle cx="13" cy="3" r="1.7" fill="currentColor"/><path d="M5.4 10.6 10 6M7 5.8h3.2V9"/>',
+  // a speech bubble
+  comment: '<path d="M3.5 2.5h9A1.5 1.5 0 0 1 14 4v5.5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5V4a1.5 1.5 0 0 1 1.5-1.5z"/>',
+};
+
+const kindSvg = (kind: Kind) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_PATHS[kind]}</svg>`;
+
+/** The markup of a kind's icon, for what is not rendered by Lit: its pictogram on a small tile in the kind's colour. */
+export function kindMark(kind: Kind): string {
+  return `<span class="kind-icon ${kind}">${kindSvg(kind)}</span>`;
+}
+
 export function kindIcon(kind: Kind, title: string = kindLabel[kind]): TemplateResult {
-  const letter = { entry: "E", document: "D", link: "L", comment: "C" }[kind];
-  return html`<span class="kind-icon ${kind}" title=${title}>${letter}</span>`;
+  return html`<span class="kind-icon ${kind}" role="img" aria-label=${title} title=${title}>${unsafeSVG(kindSvg(kind))}</span>`;
 }
 
 export function displayName(s: Schema | undefined, type: string): string {

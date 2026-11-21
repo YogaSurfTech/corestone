@@ -1,11 +1,13 @@
 import { button, el } from "./lib/dom";
 import type { Point } from "./overlay";
 
-// Menus: items with submenus, check marks and hidden or disabled items. Arrow
+// Menus: items with icons, submenus, check marks and hidden or disabled items. Arrow
 // keys move through them, → opens a submenu, ← / Escape closes it.
 
 export interface MenuEntry {
   label: string;
+  /** Markup of an icon shown in front of the label (written by the caller, never from data). */
+  icon?: string;
   /** What choosing the item does; an item with a submenu opens that instead. */
   run?: () => void;
   sub?: MenuEntry[];
@@ -23,6 +25,12 @@ export function buildMenu(items: MenuEntry[], act: (it: MenuEntry) => void = (it
   for (const it of items) {
     if (it.hidden) continue;
     const b = button({ cls: "mi" + (it.danger ? " danger" : ""), text: it.label });
+    if (it.icon) {
+      const icon = el("span", "mi-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = it.icon;
+      b.prepend(icon);
+    }
     b.setAttribute("role", it.checked !== undefined ? "menuitemcheckbox" : "menuitem");
     if (it.checked !== undefined) b.setAttribute("aria-checked", String(it.checked));
     if (it.disabled) b.disabled = true;
