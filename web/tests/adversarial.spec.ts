@@ -94,7 +94,11 @@ test("garbage deep links degrade gracefully", async ({ page }) => {
   await page.goto("/folder/%2e%2e/%2e%2e?q=%00&kind=blob&tab=nope&sb=a,b");
   await expect(page.locator(".toolbar")).toBeVisible();
   await expect(page.locator(".notice.error, .toast.error").first()).toBeVisible();
+  // the search is a query: text that is none is refused with a reason, and searched for when quoted
   await page.goto(`/folder/${folder}?q=${encodeURIComponent("'; DROP TABLE artifacts; --")}`);
+  await expect(page.locator("[data-test=query-error]")).toContainText("position");
+  await expect(page.locator(".toolbar .hint")).toHaveText("not searched");
+  await page.goto(`/folder/${folder}?q=${encodeURIComponent(`"'; DROP TABLE artifacts; --"`)}`);
   await expect(page.locator(".toolbar .hint")).toContainText("0 artifacts");
 });
 

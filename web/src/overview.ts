@@ -39,6 +39,9 @@ function loadLayout(): TableLayout {
 
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
+/** The total when the table could not be loaded: its own notice says why. */
+const FAILED = -2;
+
 @customElement("corestone-overview")
 export class Overview extends LightElement {
   private unsub?: () => void;
@@ -278,7 +281,7 @@ export class Overview extends LightElement {
           ${this.menu ? this.newMenu() : nothing}
         </div>
         <span class="title">${this.context()}</span>
-        <span class="hint">${total < 0 ? "loading…" : html`${total} artifact${total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
+        <span class="hint">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} artifact${total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
         <span class="grow"></span>
         <div class="chips">
@@ -295,6 +298,7 @@ export class Overview extends LightElement {
         .columns=${cols} .filter=${this.filter()} .sort=${sort} .widths=${this.layout.widths}
         .selected=${(row: Summary) => row.guid === sel || (r.kind === "comment" && !!sel && row.subject === sel)}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
+        @table-error=${() => (this.total = FAILED)}
         @rows-load=${this.onRows}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => this.saveLayout({ ...this.layout, sort: e.detail })}
         @widths-change=${(e: CustomEvent<Record<string, number>>) => this.saveLayout({ ...this.layout, widths: e.detail })}
