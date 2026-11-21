@@ -103,7 +103,7 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-join.xor { margin: 0 6px; }
 .qb-join.or { margin: 0 12px; }
 .qb-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-.qb-pop[hidden] { display: none; }
+.qb-pop[hidden] { display: none !important; } /* stronger than the display of .menu-like and .qb-two */
 .qb-pop.menu-like { min-width: 96px; padding: 6px; display: flex; flex-direction: column; }
 .qb-editor { display: flex; flex-direction: column; gap: 8px; }
 .menu-like { display: flex; flex-direction: column; }

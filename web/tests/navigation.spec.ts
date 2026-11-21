@@ -412,6 +412,9 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   const rows = page.locator("corestone-overview table.grid tbody tr");
   const clauses = page.locator("[data-test=query-clause]");
   await expect(rows).toHaveCount(4);
+  // nothing hangs below the field while nothing is open
+  await expect(page.locator("corestone-query-field .qb-pop")).toHaveCount(2);
+  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
   // "+" offers the fields; an enumeration offers its values
   await page.locator("[data-test=query-add]").click();
   await expect(page.locator("[data-test=query-fields] .mi[data-field=finished]")).toBeVisible();
@@ -442,6 +445,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.locator("[data-test=query-join]").click();
   await page.locator("[data-test=query-join-or]").click();
   await expect(page.locator("[data-test=query-join]")).toHaveText("OR");
+  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
   await expect(rows).toHaveCount(2);
   // NOT is switched on and off per criterion
   await page.locator("[data-test=query-not]").first().click();
