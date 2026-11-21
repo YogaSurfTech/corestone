@@ -12,5 +12,3 @@ src/components/folder-field.ts: imports src/api
 src/components/options.ts: imports src/api
 src/components/table.ts: imports src/api
 src/components/table.ts: imports src/store
-src/components/type-icon.ts: imports src/api
-src/components/type-icon.ts: imports src/store

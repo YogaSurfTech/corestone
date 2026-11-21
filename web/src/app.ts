@@ -6,6 +6,8 @@ import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import { announceName, announceView } from "./ws";
 import { folderCrumbs } from "./components/util";
+import { provideServices } from "./components/services";
+import { services } from "./services";
 import "./sidebar";
 import "./overview";
 import "./detail";
@@ -43,6 +45,7 @@ export class App extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    provideServices(this, services);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.route.guid !== this.lastGuid) {
