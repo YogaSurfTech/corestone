@@ -105,6 +105,8 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-pop .item:hover { background: var(--panel-2); }
 .qb-pop .item.on { font-weight: 700; color: var(--accent); }
 .qb-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
+.qb-find { width: 100%; margin-bottom: 4px; position: sticky; top: 0; }
+.qb-none { padding: 6px 10px; }
 .qb-title { font-weight: 600; }
 .qb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qb-row.end { justify-content: flex-end; }

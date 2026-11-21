@@ -69,6 +69,8 @@ export class QueryFieldElement extends LightElement {
   @state() private error = "";
   @state() private warnings: QueryWarning[] = [];
   @state() private open: Open | null = null;
+  /** What is typed to find a field in the list. */
+  @state() private find = "";
   // the editor's draft
   @state() private options: EnumOption[] | null = null;
   @state() private draft: { empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
@@ -260,9 +262,16 @@ export class QueryFieldElement extends LightElement {
           @click=${() => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c)))}>${j}</button>`)}
       </div>`;
     }
+    // a field stays if its name holds what is typed, anywhere in it
+    const find = this.find.trim().toLowerCase();
+    const found = this.fields.filter((f) => f.name.toLowerCase().includes(find));
     return html`<div class="qb-pop menu-like" data-test="query-fields" @click=${(e: Event) => e.stopPropagation()}>
+      <input type="search" class="qb-find" data-test="query-find" placeholder="Find a field…" aria-label="Find a field" .value=${this.find}
+        @input=${(e: Event) => { this.find = (e.target as HTMLInputElement).value; }}
+        @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter" && found.length) { e.preventDefault(); this.edit(found[0], null); } }} />
+      ${found.length ? nothing : html`<div class="muted small qb-none">No field with this name.</div>`}
       ${(["General", "Fields"] as const).map((g) => {
-        const fields = this.fields.filter((f) => f.group === g);
+        const fields = found.filter((f) => f.group === g);
         return fields.length ? html`<div class="group">${g}</div>${fields.map((f) => html`<button class="item" data-field=${f.id} @click=${() => this.edit(f, null)}>${f.name}</button>`)}` : nothing;
       })}
     </div>`;
@@ -274,7 +283,12 @@ export class QueryFieldElement extends LightElement {
     return html`
       <div class="qf-box ${this.error ? "invalid" : ""}" @keydown=${(e: KeyboardEvent) => { if (e.key === "Escape" && this.open) { e.stopPropagation(); this.open = null; } }}>
         <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
-          @click=${(e: Event) => { stop(e); this.open = this.open?.kind === "fields" ? null : { kind: "fields" }; }}>＋</button>
+          @click=${(e: Event) => {
+            stop(e);
+            this.find = "";
+            this.open = this.open?.kind === "fields" ? null : { kind: "fields" };
+            void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=query-find]")?.focus());
+          }}>＋</button>
         ${built ? html`<div class="qb-clauses" data-test="query-clauses">${this.clauses.map((c, i) => html`
             ${i ? html`<button class="qb-join ${c.join.toLowerCase()}" data-test="query-join" title="How the two criteria are joined"
               @click=${(e: Event) => { stop(e); this.open = { kind: "join", index: i }; }}>${c.join}</button>` : nothing}

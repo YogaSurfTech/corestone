@@ -415,7 +415,14 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   // "+" offers the fields; an enumeration offers its values
   await page.locator("[data-test=query-add]").click();
   await expect(page.locator("[data-test=query-fields] .item[data-field=finished]")).toBeVisible();
-  await page.locator("[data-test=query-fields] .item[data-field=priority]").click();
+  // the list is narrowed by a part of the name, anywhere in it
+  await expect(page.locator("[data-test=query-find]")).toBeFocused();
+  await page.locator("[data-test=query-find]").fill("IT");
+  await expect(page.locator("[data-test=query-fields] .item")).toHaveText(["Title", "Priority"]);
+  await page.locator("[data-test=query-find]").fill("nosuch");
+  await expect(page.locator("[data-test=query-fields]")).toContainText("No field with this name");
+  await page.locator("[data-test=query-find]").fill("prio");
+  await page.keyboard.press("Enter"); // the first one found
   await page.locator("[data-test=query-editor] input[data-value=high]").check();
   await page.locator("[data-test=query-apply]").click();
   await expect(clauses).toHaveText(["Priority: high"]);
