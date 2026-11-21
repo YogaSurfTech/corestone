@@ -196,6 +196,7 @@ export class Table extends LightElement {
       if (generation !== this.generation || abort.signal.aborted) return;
       this.error = errorText(e);
       this.ids = [];
+      this.dispatchEvent(new CustomEvent("table-error"));
     } finally {
       if (generation === this.generation) this.loading = false;
     }

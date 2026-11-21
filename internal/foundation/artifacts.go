@@ -304,6 +304,17 @@ func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Objec
 					if !def.Source.Allows(loc.Kind, loc.Type) {
 						return model.Invalid("field %q does not offer %s (%s %s)", k, g, loc.Kind, loc.Type)
 					}
+					// ... and one the source's query selects. An artifact created in
+					// this same save is not in the projection yet and is taken as it is.
+					if _, fresh := t.created[g]; !fresh && strings.TrimSpace(def.Source.Query) != "" {
+						res, err := t.f.DB.QueryIDs(t.ctx, sourceQuery(def.Source, g), nil, 1)
+						if err != nil {
+							return err
+						}
+						if len(res.IDs) == 0 {
+							return model.Invalid("field %q does not offer %s: its query does not select it", k, g)
+						}
+					}
 				}
 			}
 			// links in a text are checked when added: a text that links to an item

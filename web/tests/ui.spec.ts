@@ -309,7 +309,7 @@ test("search, filters, subtree toggle and deep links", async ({ page }) => {
   await expect(page).toHaveURL(/subtree=1/);
   await page.locator("[data-test=search]").fill("needle");
   await page.keyboard.press("Enter");
-  await expect(page.locator(".toolbar .title")).toContainText("needle");
+  await expect(page).toHaveURL(/q=needle/);
   await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   // the folder tree shows the subfolder and selecting it narrows the view
   await page.locator(`.tree .row[data-folder="${folder}/sub"]`).click();

@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -792,12 +793,13 @@ func TestDynamicEnum(t *testing.T) {
 	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
 		{"id":"requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"testcase","hid":{"prefix":"TC"}},{"id":"product","hid":{"prefix":"P"}}]}`, 200)
-	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":["~rank","title"]}`
+	source := `"source":{"kind":"entry","types":["product"],"sort":["~rank","title"]}`
 	for _, bad := range []string{
 		`{"id":"product","type":"text",` + source + `}`,                                // only enumerations
 		`{"id":"product","type":"enum","options":[{"value":"a"}],` + source + `}`,      // a source replaces options
 		`{"id":"product","type":"enum","source":{"kind":"link","types":["verifies"]}}`, // entries and documents only
-		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,          // no type
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"query":"(rank:>1"}}`, // the query must parse          // no type
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["rank desc"]}}`,
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~"]}}`,
 		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"desc"}]}}`, // the old form
@@ -806,8 +808,10 @@ func TestDynamicEnum(t *testing.T) {
 	}
 	a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[{"id":"product","name":"Belongs to product","type":"enum",`+source+`},
 		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}},
-		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}}]}`, 200)
-	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed"]}]}`, 200)
+		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}},
+		{"id":"top","type":"enum","source":{"kind":"entry","types":["product"],"query":"rank:>1 AND folder:products/*"}},
+		{"id":"odd","type":"enum","source":{"kind":"entry","types":["product"],"query":"rank:>1 OR nope:1"}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed","top","odd"]}]}`, 200)
 
 	product := func(title string, rank int) string {
 		return meta(a.ok("POST", "/api/entries", fmt.Sprintf(`{"path":"products","type":"product","title":%q,"fields":{"rank":%d}}`, title, rank), 201), "guid")
@@ -832,6 +836,16 @@ func TestDynamicEnum(t *testing.T) {
 	if got := titles("reversed"); got != "Gamma Beta Alpha" {
 		t.Fatalf("options by ~title: %s", got)
 	}
+	// the source's query narrows the options, and a value must be one of them
+	if got := titles("top"); got != "Alpha Beta" {
+		t.Fatalf("options of a source with a query: %s", got)
+	}
+	odd := a.ok("GET", "/api/repository/options?type=spec&path=docs&field=odd", "", 200)
+	if len(odd.body["options"].([]any)) != 2 || len(odd.body["warnings"].([]any)) != 1 {
+		t.Fatalf("a query with an unknown field: %s", odd.raw)
+	}
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"not selected","fields":{"top":"`+gamma+`"}}`, 400)
+	a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"selected","fields":{"top":"`+alpha+`"}}`, 201)
 	a.ok("PUT", "/api/entries/"+gamma, `{"title":"A first"}`, 200)
 	if got := titles("also"); got != "A first Alpha Beta" {
 		t.Fatalf("options by title after a rename: %s", got)
@@ -851,10 +865,13 @@ func TestDynamicEnum(t *testing.T) {
 	dA := doc("For Alpha", `{"product":"`+alpha+`"}`, 201)
 
 	// found by the value, and sorted by the chosen artifact's title
+	if found := a.ok("GET", "/api/repository/search?kind=document&query=product:P-1", "", 200); found.body["total"] != float64(1) { // Beta, by its HID
+		t.Fatalf("query by the product's HID: %s", found.raw)
+	}
 	if found := a.ok("GET", "/api/repository/search?kind=document&field.product="+beta, "", 200); found.body["total"] != float64(1) {
 		t.Fatalf("search by product: %s", found.raw)
 	}
-	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":["product"]}`, 200)
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec","query":"NOT product:NULL"},"sort":["product"]}`, 200)
 	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != dA || got[1] != dB {
 		t.Fatalf("sorted by product: %s", r.raw)
 	}
@@ -895,4 +912,53 @@ func TestSearchSortDirection(t *testing.T) {
 	for _, bad := range []string{"nope", "~", "~~title", "title%20desc"} {
 		a.ok("GET", "/api/repository/search?sort="+bad, "", 400)
 	}
+}
+
+// The query language through the API: the table query and the search take
+// a query text; a second call parses one without running it.
+func TestQueryLanguageAPI(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	var guids []string
+	for _, prio := range []string{"high", "low", "high"} {
+		guids = append(guids, meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"R `+prio+`","fields":{"priority":"`+prio+`"}}`, 201), "guid"))
+	}
+	a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201)
+	a.ok("POST", "/api/artifacts/"+guids[1]+"/transition", `{"field":"status","transition":"submit"}`, 200)
+
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"query":"priority:high AND status:open"},"sort":["hid"]}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != guids[0] || got[1] != guids[2] || r.body["warnings"] != nil {
+		t.Fatalf("query: %s", r.raw)
+	}
+	// combined with the view's own filter by AND
+	r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"NOT priority:high","path":"specs","kind":["entry"]}}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 1 || got[0] != guids[1] {
+		t.Fatalf("query with a filter: %s", r.raw)
+	}
+	// forgiving, with warnings; strict refuses; a query that cannot be parsed is refused
+	r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"type:testcase OR priorty:high"}}`, 200)
+	if w := r.body["warnings"].([]any); r.body["total"] != float64(1) || len(w) != 1 || w[0].(map[string]any)["pos"] != float64(17) {
+		t.Fatalf("warnings: %s", r.raw)
+	}
+	a.ok("POST", "/api/repository/query", `{"filter":{"query":"priorty:high","strict":true}}`, 400)
+	if r = a.ok("POST", "/api/repository/query", `{"filter":{"query":"(priority:high"}}`, 400); !strings.Contains(string(r.raw), "position 1") {
+		t.Fatalf("parse error: %s", r.raw)
+	}
+	// the search
+	s := a.ok("GET", "/api/repository/search?query="+url.QueryEscape("status:review nope:1")+"&sort=title", "", 200)
+	if s.body["total"] != float64(1) || len(s.body["warnings"].([]any)) != 1 {
+		t.Fatalf("search: %s", s.raw)
+	}
+	a.ok("GET", "/api/repository/search?strict=true&query="+url.QueryEscape("nope:1"), "", 400)
+
+	// parse only: the tree and the warnings
+	p := a.ok("POST", "/api/repository/query/parse", `{"query":"priority:high AND NOT nope:1"}`, 200)
+	tree := p.body["tree"].(map[string]any)
+	if tree["op"] != "and" || len(tree["children"].([]any)) != 2 || len(p.body["warnings"].([]any)) != 1 {
+		t.Fatalf("parse: %s", p.raw)
+	}
+	if p = a.ok("POST", "/api/repository/query/parse", `{"query":" "}`, 200); p.body["tree"] != nil || len(p.body["warnings"].([]any)) != 0 {
+		t.Fatalf("parse of an empty query: %s", p.raw)
+	}
+	a.ok("POST", "/api/repository/query/parse", `{"query":"a AND"}`, 400)
 }

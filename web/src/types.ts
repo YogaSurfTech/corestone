@@ -200,9 +200,14 @@ export interface SortLevel { col: string; dir: "asc" | "desc" }
 
 /** The filter of a generic table query; types may hold "<kind>/*". */
 export interface TableFilter {
-  q?: string; path?: string; subtree?: boolean; kind?: Kind[]; type?: string; types?: string[]; hid?: string;
+  q?: string;
+  /** A query in the query language, combined with the rest by AND. */
+  query?: string; path?: string; subtree?: boolean; kind?: Kind[]; type?: string; types?: string[]; hid?: string;
   fields?: Record<string, string>; states?: Record<string, string>; valid?: boolean;
 }
+
+/** A criterion of a query that cannot match as written. */
+export interface QueryWarning { pos: number; message: string }
 
 /** Table rows, the artifacts they point at, and type display names by folder and type. */
 export interface TableRows {

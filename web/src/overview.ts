@@ -4,7 +4,7 @@ import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
-import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
+import type { Kind, QueryWarning, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { fieldValue } from "./sorting";
 import { hasSource, knownOptions, withMissing } from "./options";
 import { kindIcon, kindLabel, workflowStates } from "./util";
@@ -39,6 +39,9 @@ function loadLayout(): TableLayout {
 
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
+/** The total when the table could not be loaded: its own notice says why. */
+const FAILED = -2;
+
 @customElement("corestone-overview")
 export class Overview extends LightElement {
   private unsub?: () => void;
@@ -46,6 +49,15 @@ export class Overview extends LightElement {
   @state() private total = -1; // -1 until the table has loaded
   @state() private below = -1; // artifacts including subfolders, when the view shows the folder itself
   @state() private error = "";
+  /** The text in the query field, and what the server says about it: why it
+   *  cannot be read, or what in it matches nothing. */
+  @state() private q = "";
+  @state() private queryError = "";
+  @state() private queryWarnings: QueryWarning[] = [];
+  private lastRouteQ: string | null = null;
+  private timer = 0;
+  private checks = 0;
+  private checked: string | null = null;
   @state() private schemas: Record<string, Schema> = {};
   /** The schema of every (folder, type) among the loaded rows; null when the type is not defined there. */
   @state() private rowSchemas: Record<string, Schema | null> = {};
@@ -61,6 +73,11 @@ export class Overview extends LightElement {
     this.unsub = store.subscribe((s) => {
       this.s = s;
       const r = s.route;
+      if (r.q !== this.lastRouteQ) { // never wipe text being typed
+        this.lastRouteQ = r.q;
+        this.q = r.q;
+        if (r.q !== this.checked) void this.check(r.q);
+      }
       const key = JSON.stringify([r.folder, r.q, r.subtree, r.kind, r.type]);
       if (key !== this.key || s.refreshTick !== this.lastTick) {
         // A commit may change definitions: resolve them again; the table reloads its rows itself.
@@ -74,13 +91,54 @@ export class Overview extends LightElement {
     });
     document.addEventListener("click", this.closeMenu);
   }
-  override disconnectedCallback() { this.unsub?.(); document.removeEventListener("click", this.closeMenu); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.unsub?.(); window.clearTimeout(this.timer); document.removeEventListener("click", this.closeMenu); super.disconnectedCallback(); }
   private closeMenu = () => { if (this.menu) this.menu = false; };
+
+  /** Have the server read the query: its problems show below the field. False if it cannot be read. */
+  private async check(text: string): Promise<boolean | null> {
+    const check = ++this.checks;
+    let error = "";
+    let warnings: QueryWarning[] = [];
+    if (text.trim()) {
+      try {
+        warnings = (await api.parseQuery(text)).warnings;
+      } catch (e) {
+        error = errorText(e);
+      }
+    }
+    if (check !== this.checks) return null; // typed on meanwhile
+    this.checked = text;
+    this.queryError = error;
+    this.queryWarnings = warnings;
+    return !error;
+  }
+
+  /** Run the query once it can be read; a half-typed one leaves the table as it is. */
+  private async search(replace: boolean) {
+    window.clearTimeout(this.timer);
+    const text = this.q;
+    if (await this.check(text)) navigate({ q: text, guid: null }, replace);
+  }
+
+  private queryField() {
+    const notes = this.queryError || this.queryWarnings.length;
+    return html`<div class="query-field">
+      <input type="search" placeholder="Search or query: priority:high  /" .value=${this.q} data-test="search" aria-label="Search or query"
+        class=${this.queryError ? "invalid" : ""} aria-invalid=${this.queryError ? "true" : "false"}
+        title="Words find title, HID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
+        @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.search(true), 250); }}
+        @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.search(false); }} />
+      ${notes ? html`<div class="query-notes">
+        ${this.queryError ? html`<div class="query-note error" role="alert" data-test="query-error">${this.queryError}</div>` : nothing}
+        ${this.queryWarnings.map((w) => html`<div class="query-note" data-test="query-warning">${w.message}</div>`)}
+      </div>` : nothing}
+    </div>`;
+  }
 
   private filter(): TableFilter {
     const r = this.s.route;
     return {
-      q: r.q || undefined, path: r.folder, subtree: !!r.subtree, type: r.type || undefined,
+      query: r.q || undefined, path: r.folder, subtree: !!r.subtree, type: r.type || undefined,
       kind: r.kind ? [r.kind as Kind] : ["entry", "document"],
     };
   }
@@ -258,7 +316,6 @@ export class Overview extends LightElement {
 
   private context(): string {
     const r = this.s.route;
-    if (r.q) return `Search “${r.q}”`;
     if (r.type) return `${this.schemas[r.type]?.displayName ?? r.type} · all ${r.kind === "document" ? "documents" : "entries"}`;
     return r.folder ? r.folder.split("/").pop()! : "Repository";
   }
@@ -278,9 +335,9 @@ export class Overview extends LightElement {
           ${this.menu ? this.newMenu() : nothing}
         </div>
         <span class="title">${this.context()}</span>
-        <span class="hint">${total < 0 ? "loading…" : html`${total} artifact${total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
+        <span class="hint">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} artifact${total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
-        <span class="grow"></span>
+        ${this.queryField()}
         <div class="chips">
           ${[["", "Entries + Docs"], ["entry", "Entries"], ["document", "Documents"], ["link", "Links"], ["comment", "Comments"]].map(([k, name]) => html`
             <button class="chip ${r.kind === k ? "on" : ""}" @click=${() => navigate({ kind: k, type: r.type })}>${name}</button>`)}
@@ -295,6 +352,7 @@ export class Overview extends LightElement {
         .columns=${cols} .filter=${this.filter()} .sort=${sort} .widths=${this.layout.widths}
         .selected=${(row: Summary) => row.guid === sel || (r.kind === "comment" && !!sel && row.subject === sel)}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
+        @table-error=${() => (this.total = FAILED)}
         @rows-load=${this.onRows}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => this.saveLayout({ ...this.layout, sort: e.detail })}
         @widths-change=${(e: CustomEvent<Record<string, number>>) => this.saveLayout({ ...this.layout, widths: e.detail })}

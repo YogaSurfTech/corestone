@@ -62,6 +62,17 @@ func TestTableQueryOrder(t *testing.T) {
 			t.Errorf("%s: got %v (total %d, truncated %v), want %s", label, got, res.Total, res.Truncated, want)
 		}
 	}
+	// field values carry a number where they are one, and a word index (for the query language)
+	var numbers, words, textAsNumber int
+	if err := p.sql.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM artifact_fields WHERE field = 'n' AND num > 5),
+		(SELECT count(*) FROM artifact_field_text WHERE field = 'prio' AND tsv @@ plainto_tsquery('simple', 'HIGH')),
+		(SELECT count(*) FROM artifact_fields WHERE field = 'prio' AND num IS NOT NULL)`).Scan(&numbers, &words, &textAsNumber); err != nil {
+		t.Fatal(err)
+	}
+	if numbers != 2 || words != 1 || textAsNumber != 0 { // n: 10, 2, 30; prio: one "high"
+		t.Fatalf("typed field values: %d numbers above 5, %d with the word, %d texts as numbers", numbers, words, textAsNumber)
+	}
 	asc := func(col string) string { return col }
 	desc := func(col string) string { return "~" + col }
 	hid := asc("$hid")

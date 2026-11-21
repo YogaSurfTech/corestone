@@ -129,7 +129,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 Routes (Go 1.22 method patterns), 4 MiB body cap, ETag/If-Match/If-None-Match per RFC 9110, error
 mapping (400/404/409/412/503), kind-checked collections. Generic tables use `POST /api/repository/query`
-(`{filter, sort: ["~$hid", "priority"], limit}`, `~` for descending → `{total, ids, truncated}`; `filter.types` restricts to type
+(`{filter, sort: ["~$hid", "priority"], limit}`, `~` for descending; `filter.query` is a query in the query language, `filter.strict` refuses one with warnings → `{total, ids, truncated}`; `filter.types` restricts to type
 ids, `kind/*` or `*`) and `POST /api/artifacts/details` (`{ids ≤ 500, columns}` →
 `{artifacts, related, typeNames}`). `ws.go` is the session hub: hello, commit
 and status broadcasts, viewer/editor presence per artifact.

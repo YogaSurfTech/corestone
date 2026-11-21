@@ -7,7 +7,7 @@ import { store, type State } from "./store";
 import type { FolderInfo, Schema } from "./types";
 import { displayName, kindPlural } from "./util";
 
-// Repository navigation (design guide §7.3): search, subtree toggle, the
+// Repository navigation (design guide §7.3): subtree toggle, the
 // folder hierarchy below the current folder, and artifacts grouped by schema type.
 
 const FILTER_FROM = 15; // children of the current folder before a filter box appears
@@ -28,11 +28,8 @@ export class Sidebar extends LightElement {
   @state() private root: Node = { info: { name: "Repository", path: "", artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
   @state() private types: Schema[] = [];
   @state() private counts: Record<string, number> = {};
-  @state() private q = "";
   private lastTick = -1;
   private lastFolder: string | null = null;
-  private lastRouteQ: string | null = null;
-  private timer = 0;
   @state() private filter = "";
   private rootSeq = 0;
 
@@ -50,7 +47,6 @@ export class Sidebar extends LightElement {
         this.rootAt(s.route.folder);
         this.loadTypes(s.route.folder);
       }
-      if (s.route.q !== this.lastRouteQ) { this.lastRouteQ = s.route.q; this.q = s.route.q; } // never wipe text being typed
       this.requestUpdate();
     });
   }
@@ -170,9 +166,6 @@ export class Sidebar extends LightElement {
     for (const t of this.types) if (t.kind === "entry" || t.kind === "document") (groups[t.kind] ??= []).push(t);
     return html`
       <div class="nav-search">
-        <input type="search" placeholder="Search (title, HID, text)…  /" .value=${this.q} data-test="search"
-          @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => navigate({ q: this.q, guid: null }, true), 250); }}
-          @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { window.clearTimeout(this.timer); navigate({ q: this.q, guid: null }); } }} />
         <label class="nav-toggle"><span>Include subfolders (subtree)</span>
           <input type="checkbox" .checked=${r.subtree} data-test="subtree" @change=${(e: Event) => navigate({ subtree: (e.target as HTMLInputElement).checked })} /></label>
       </div>

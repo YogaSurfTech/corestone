@@ -326,6 +326,21 @@ var ddl = []string{
 		value text NOT NULL,
 		PRIMARY KEY (guid, field, value))`,
 	`CREATE INDEX IF NOT EXISTS artifact_fields_lookup ON artifact_fields (field, value)`,
+	// The query language (TSK-13) compares numbers as numbers. PostgreSQL
+	// derives the number from the value on every write, so neither sync nor
+	// reindex has to fill it, and existing rows get it when the column is added.
+	`ALTER TABLE artifact_fields ADD COLUMN IF NOT EXISTS num numeric
+		GENERATED ALWAYS AS (CASE WHEN value ~ '^-?[0-9]{1,30}(\.[0-9]{1,30})?$' THEN value::numeric END) STORED`,
+	`CREATE INDEX IF NOT EXISTS artifact_fields_num ON artifact_fields (field, num) WHERE num IS NOT NULL`,
+	// ... and matches text by words, per field. artifact_fields holds the
+	// start of a value only (for exact comparison); this is the word index
+	// of a field's whole text, one row per field.
+	`CREATE TABLE IF NOT EXISTS artifact_field_text (
+		guid text NOT NULL REFERENCES artifacts (guid) ON DELETE CASCADE,
+		field text NOT NULL,
+		tsv tsvector NOT NULL,
+		PRIMARY KEY (guid, field))`,
+	`CREATE INDEX IF NOT EXISTS artifact_field_text_tsv ON artifact_field_text USING GIN (tsv)`,
 	`CREATE TABLE IF NOT EXISTS artifact_refs (
 		guid text NOT NULL REFERENCES artifacts (guid) ON DELETE CASCADE,
 		target text NOT NULL,
@@ -407,6 +422,7 @@ func (p *DB) migrate(ctx context.Context) error {
 	if err := p.sql.QueryRowContext(ctx, `SELECT to_regclass(quote_ident(current_schema()) || '.artifact_commits') IS NOT NULL
 		AND to_regclass(quote_ident(current_schema()) || '.artifact_refs') IS NOT NULL
 		AND to_regclass(quote_ident(current_schema()) || '.relation_commits') IS NOT NULL
+		AND to_regclass(quote_ident(current_schema()) || '.artifact_field_text') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
 			AND table_name = 'artifact_commits' AND column_name = 'path')
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
@@ -420,8 +436,9 @@ func (p *DB) migrate(ctx context.Context) error {
 	}
 	if !hadTables {
 		// A projection built before artifact_commits (with the file path and
-		// blob per commit), relation_commits, artifact_refs or the endpoints
-		// of deleted links existed lacks the history or reference index:
+		// blob per commit), relation_commits, artifact_refs, the endpoints
+		// of deleted links or the word index of field texts existed lacks
+		// the history, the reference index or that word index:
 		// force a rebuild, which backfills them from Git.
 		// Not '': that would equal the head of an empty repository and skip
 		// the rebuild, leaving the stale rows in place.

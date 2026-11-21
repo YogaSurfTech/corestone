@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/thomdehoog/corestone/internal/ojson"
+	"github.com/thomdehoog/corestone/internal/query"
 )
 
 // FieldType is one of the Foundation's generic field types (design guide §4.6).
@@ -62,8 +63,9 @@ type EnumOption struct {
 type EnumSource struct {
 	Kind  Kind     `json:"kind"`  // entry or document
 	Types []string `json:"types"` // the artifact types offered
-	// Query narrows the options, in the query language. It is stored and
-	// not evaluated yet.
+	// Query narrows the options, in the query language: "folder:products/*
+	// AND NOT finished:true". It must parse; what it names is checked when
+	// the options are listed.
 	Query string `json:"query,omitempty"`
 	// Sort is the order of the options, first level first: a built-in
 	// field ("title", "hid", …) or a field id, with "~" in front for
@@ -95,8 +97,8 @@ func (s *EnumSource) validate(field string) error {
 			return fmt.Errorf("field %q source type: %w", field, err)
 		}
 	}
-	if len(s.Query) > MaxTextLen {
-		return Invalid("field %q source: query too long", field)
+	if _, err := query.Parse(s.Query); err != nil {
+		return Invalid("field %q source: %s", field, err.Error())
 	}
 	if len(s.Sort) > MaxEnumSortLevels {
 		return Invalid("field %q source: at most %d sort levels", field, MaxEnumSortLevels)
