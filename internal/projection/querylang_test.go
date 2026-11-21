@@ -100,7 +100,7 @@ func TestQueryLanguage(t *testing.T) {
 		{"status:done", "t1 t4"}, {"status:(open review)", "t2 t3"}, {"status.transition:approve", "t1"}, {"status.previous:open", "t2"},
 		{"status:<done", "t2 t3"}, {"status:done AND review:done", "t4"},
 		// finished: every workflow field in a final state; never without a workflow field
-		{"finished:true", "t1 t4"}, {"NOT finished:true", "d1 n1 t2 t3"}, {"finished:false", "d1 n1 t2 t3"}, {"type:task AND NOT finished:true", "t2 t3"},
+		{"finished:true", "t1 t4"}, {"finished:True", "t1 t4"}, {"NOT finished:FALSE", "t1 t4"}, {"done:TRUE", "t1"}, {"NOT finished:true", "d1 n1 t2 t3"}, {"finished:false", "d1 n1 t2 t3"}, {"type:task AND NOT finished:true", "t2 t3"},
 		// a dynamic enumeration: the chosen artifact's HID or GUID
 		{"product:PRD-1", "t1"}, {"product:prd-1", "t1"}, {"product:" + guids["d1"], "t1"}, {"product:PRD-2", ""},
 		// built-in fields
@@ -213,7 +213,8 @@ func TestQueryLanguageBase(t *testing.T) {
 			t.Errorf("%s: got %q %v, want %q", c.q, got, res.Warnings, c.want)
 		}
 	}
-	for q, want := range map[string]string{"~title:x": "~ in front is for base only", "base:>P-1": "base cannot be compared"} {
+	// no workflow here marks a final state: finished says so instead of silently finding nothing
+	for q, want := range map[string]string{"~title:x": "~ in front is for base only", "base:>P-1": "base cannot be compared", "finished:true": "no workflow marks a state as final"} {
 		res, err := p.QueryIDs(ctx, Query{Lang: q, Subtree: true}, nil, 0)
 		if err != nil || len(res.IDs) != 0 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0].Message, want) {
 			t.Errorf("%s: %+v %v", q, res, err)

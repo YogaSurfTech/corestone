@@ -59,6 +59,8 @@ type queryEnv struct {
 	dynamic map[string]bool // enumerations whose options are artifacts
 	// links are the link types that are defined at the root or in use.
 	links map[string]bool
+	// final: some workflow in use marks a state as final.
+	final bool
 	cfg   *model.ConfigIndex
 }
 
@@ -107,6 +109,7 @@ func (p *DB) queryEnv(ctx context.Context) (*queryEnv, error) {
 					for _, st := range wf.States {
 						env.options[f.ID][st.ID] = true
 						if st.Final {
+							env.final = true
 							tc.Final[f.ID][st.ID] = true
 						}
 					}
@@ -394,8 +397,13 @@ func (c *compiler) term(n *query.Node, a string) []any {
 		}
 		return ranged(col, cmp, from, to)
 	case "valid", "finished":
-		if n.Null || cmp != "" || (n.Value != "true" && n.Value != "false") {
+		truth := strings.ToLower(n.Value) // True and TRUE are read too
+		if n.Null || cmp != "" || (truth != "true" && truth != "false") {
 			return c.never(n, "%s is true or false", n.Field)
+		}
+		if n.Field == "finished" && !c.env.final {
+			// said once per criterion: without it the empty result looks like a fault of the query
+			c.warnings = append(c.warnings, Warning{Pos: n.Pos, Message: `no workflow marks a state as final ("final": true), so nothing is finished`})
 		}
 		expr := a + ".valid"
 		if n.Field == "finished" {
@@ -404,7 +412,7 @@ func (c *compiler) term(n *query.Node, a string) []any {
 			expr = "(jsonb_array_length(" + wf + ") > 0 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(" + wf + ") w (id) WHERE " +
 				c.conf(a, "'final'", "w.id", "COALESCE("+a+".fields -> w.id ->> 'state', '')") + " IS NULL))"
 		}
-		if n.Value == "false" {
+		if truth == "false" {
 			return c.bind("(NOT " + expr + ")")
 		}
 		return c.bind(expr)
@@ -519,7 +527,7 @@ func (c *compiler) field(n *query.Node, a string) []any {
 	switch {
 	case only(number) && !isNumber:
 		return c.never(n, "%q is no number; %s is a number", n.Value, n.Field)
-	case only(boolean) && (n.Compare != "" || (n.Value != "true" && n.Value != "false")):
+	case only(boolean) && (n.Compare != "" || (strings.ToLower(n.Value) != "true" && strings.ToLower(n.Value) != "false")):
 		return c.never(n, "%s is true or false", n.Field)
 	case only(ranked) && n.Sub != "transition" && !c.env.open[n.Field] && !c.env.options[n.Field][n.Value]:
 		return c.never(n, "%s has no value %q", n.Field, n.Value)
