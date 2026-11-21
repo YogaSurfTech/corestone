@@ -39,7 +39,7 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
-  await page.locator("body").click({ position: { x: 700, y: 60 } });
+  await page.locator(".toolbar .title").click(); // out of the title field, not into the query field
   await page.keyboard.press("Escape");
   await expect(page.locator("corestone-detail")).toHaveCount(0);
   await page.goBack();
@@ -110,11 +110,11 @@ test("overview: kind chips, schema columns, subtree, sorting stability, social c
 test("search: text, HID, results across folders, clearing", async ({ page }) => {
   await page.goto(`/folder/${folder}`);
   await page.locator("[data-test=search]").fill("gamma");
-  await expect(page.locator(".toolbar .title")).toContainText("gamma");
+  await expect(page).toHaveURL(/q=gamma/);
   await expect(page.locator("[data-test=subtree]")).not.toBeChecked();
   await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
   await page.locator("[data-test=subtree]").check();
-  await expect(page.locator(".toolbar .title")).toContainText("gamma");
+  await expect(page).toHaveURL(/q=gamma/);
   await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   const hid = (await (await fetch(`${api}/entries/${guids.b}`)).json()).meta.hid as string;
   await page.locator("[data-test=search]").fill(hid);
