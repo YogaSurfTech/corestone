@@ -75,7 +75,11 @@
 .cs-area .ProseMirror a { color: var(--cs-link); text-decoration: underline; cursor: text; }
 .cs-area .ProseMirror a.cs-item { text-decoration-style: dashed; }
 .cs-editor.readonly .cs-area .ProseMirror a { cursor: pointer; }
-.cs-linkpop, .cs-linkbubble { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
+/* The editor's small dialogs are panels of @corestone/ui (.ui-pop in ui.css: colours, border, corners, shadow);
+   here they get the editor's text size and lose the limits a menu has. Each sets its own width and padding below. */
+.cs-pop { z-index: 20; min-width: 0; max-width: none; max-height: none; overflow: visible; padding: 0; font-size: 13px; }
+/* the bubble under a link is no dialog: it has a frame of its own */
+.cs-linkbubble { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-linkpop { padding: 8px; width: min(440px, 100%); }
 .cs-linkpop .row { display: flex; gap: 4px; align-items: center; }
@@ -90,7 +94,7 @@
 .cs-editor .lb { height: 26px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text); font: inherit; cursor: pointer; white-space: nowrap; }
 .cs-editor .lb:hover { background: var(--cs-hover); }
 .cs-editor .lb.apply { background: var(--cs-pressed); }
-.cs-linkpop[hidden], .cs-linkbubble[hidden], .cs-editor .lb[hidden] { display: none; }
+.cs-linkbubble[hidden], .cs-editor .lb[hidden] { display: none; }
 
 /* tables (prosemirror-tables): grid lines, header row, selected cells, column resizing */
 .cs-area .ProseMirror .tableWrapper { overflow-x: auto; margin: 0 0 .5em; }
@@ -122,8 +126,6 @@
 .cs-editor:not(.readonly) .cs-area .ProseMirror table.cs-b-columns :is(td, th) { border-top: 1px dashed var(--cs-guide); border-bottom: 1px dashed var(--cs-guide); }
 
 /* table panels: the size grid, the context menu, the properties dialog */
-.cs-tablegrid, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
-  border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-tablegrid { padding: 8px; }
 .cs-tablegrid .size { color: var(--cs-muted); margin-bottom: 6px; }
 .cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
@@ -164,7 +166,6 @@
   border-radius: 5px; cursor: pointer; color: var(--cs-text); }
 .cs-tableprops .colorpop .pick:hover { background: var(--cs-hover); }
 .cs-tableprops .colorpop .pick input { position: absolute; width: 0; height: 0; opacity: 0; border: 0; padding: 0; }
-.cs-tablegrid[hidden], .cs-tableprops[hidden] { display: none; }
 
 /* images: inline, at most the text's width; selected ones get an outline and a resize handle */
 .cs-area .ProseMirror .cs-img { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: bottom; }
@@ -188,9 +189,7 @@
 .cs-area .ProseMirror .cs-formula.pending { opacity: .5; }
 .cs-area .ProseMirror .cs-formula.selected { outline: 2px solid var(--cs-link); outline-offset: 2px; }
 .cs-editor:not(.readonly) .cs-area .ProseMirror .cs-formula { cursor: pointer; }
-.cs-formulapop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; padding: 8px 10px 10px; width: min(420px, 100%);
-  display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+.cs-formulapop { padding: 8px 10px 10px; width: min(420px, 100%); display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
 .cs-formulapop .latex { width: 100%; height: auto; min-height: 0; flex: none; box-sizing: border-box; resize: vertical; border: 1px solid var(--cs-border); border-radius: 5px; padding: 6px 8px;
   font: 13px/1.4 ui-monospace, monospace; background: var(--cs-panel); color: inherit; }
 .cs-formulapop .preview { min-height: 40px; max-height: 200px; overflow: auto; display: flex; align-items: center; justify-content: center;
@@ -201,7 +200,6 @@
 .cs-formulapop .msg:empty { display: none; }
 .cs-formulapop .foot { display: flex; align-items: center; justify-content: space-between; }
 .cs-formulapop .choice { display: flex; gap: 2px; }
-.cs-formulapop[hidden] { display: none; }
 
 /* diagrams: shown like images, on white (draw.io draws for a light page); draw.io in a large panel */
 .cs-area .ProseMirror .cs-diagram img { background: #fff; }
@@ -218,8 +216,6 @@
 .cs-diagrampop iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* the file picker, the alternative text, notices */
-.cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-filepop { padding: 8px 10px 10px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
 .cs-filepop .list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
 .cs-filepop .list .none { color: var(--cs-muted); padding: 4px 0; }
@@ -234,7 +230,7 @@
   background: var(--cs-panel); color: inherit; }
 .cs-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 6px 10px; border-radius: 6px; font-size: 13px;
   background: var(--cs-text); color: var(--cs-panel); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-.cs-filepop[hidden], .cs-altpop[hidden], .cs-notice[hidden] { display: none; }
+.cs-notice[hidden] { display: none; }
 
 /* documents: headings by level (Arial, bold; deeper than 6 underlined), their numbers, placed
    entries, cross-references and generated lists */
@@ -265,9 +261,7 @@
 .cs-document .ProseMirror[contenteditable="false"] .cs-toc .toc-row:hover { text-decoration: underline; }
 .cs-xref { color: var(--cs-link); text-decoration: underline dotted; cursor: pointer; }
 .cs-xref.missing { color: var(--cs-error); text-decoration: line-through; }
-.cs-xrefpop { position: absolute; z-index: 20; width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--cs-panel);
-  color: var(--cs-text); border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
-.cs-xrefpop[hidden] { display: none; }
+.cs-xrefpop { width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cs-xrefpop .head { font-weight: 600; }
 .cs-xrefpop .filter { height: 28px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-panel); color: var(--cs-text); }
 .cs-xrefpop .list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }

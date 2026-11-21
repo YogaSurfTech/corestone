@@ -19,7 +19,7 @@ export class DocumentUI {
     private readonly notice: (msg: string) => void) {
     this.overlay = new Overlay({ root, onEscape: () => this.view().focus() });
     this.menu = this.overlay.panel("ui-pop ui-menu cs-menu cs-placementmenu", "menu", "Entry");
-    this.picker = this.overlay.panel("cs-xrefpop", "dialog", "Cross-reference");
+    this.picker = this.overlay.panel("ui-pop cs-pop cs-xrefpop", "dialog", "Cross-reference");
   }
 
   /** Lets the host pick entries and places them at the cursor, in the order picked. */

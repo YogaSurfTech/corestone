@@ -48,7 +48,7 @@ export class LinkUI {
     private readonly pickFile: (chosen: (name: string) => void) => void,
   ) {
     this.overlay = new Overlay({ root, onEscape: () => this.view().focus() });
-    this.pop = this.overlay.panel("cs-linkpop", "dialog", "Link");
+    this.pop = this.overlay.panel("ui-pop cs-pop cs-linkpop", "dialog", "Link");
     this.input = el("input", "addr") as HTMLInputElement;
     this.input.placeholder = "https://…";
     this.input.setAttribute("aria-label", "Address");

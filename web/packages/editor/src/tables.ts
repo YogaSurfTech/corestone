@@ -194,7 +194,7 @@ export class TableUI {
       onEscape: () => this.view().focus(),
       onClose: () => { this.colorPop.hidden = true; },
     });
-    this.grid = this.overlay.panel("cs-tablegrid", "dialog", "Insert table");
+    this.grid = this.overlay.panel("ui-pop cs-pop cs-tablegrid", "dialog", "Insert table");
     const label = el("div", "size");
     const cells = el("div", "cells");
     const R = 8, C = 10;
@@ -225,7 +225,7 @@ export class TableUI {
     this.grid.append(label, cells);
 
     this.menu = this.overlay.panel("ui-pop ui-menu cs-menu cs-tablemenu", "menu", "Table");
-    this.props = this.overlay.panel("cs-tableprops", "dialog", "Table properties");
+    this.props = this.overlay.panel("ui-pop cs-pop cs-tableprops", "dialog", "Table properties");
     this.colorPop = el("div", "colorpop");
   }
 

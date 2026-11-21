@@ -236,7 +236,7 @@ export class FormulaUI {
       onEscape: () => this.view().focus(),
       onClose: () => window.clearTimeout(this.timer),
     });
-    this.dialog = this.overlay.panel("cs-formulapop", "dialog", "Formula");
+    this.dialog = this.overlay.panel("ui-pop cs-pop cs-formulapop", "dialog", "Formula");
     this.menu = this.overlay.panel("ui-pop ui-menu cs-menu cs-formulamenu", "menu", "Formula");
   }
 
