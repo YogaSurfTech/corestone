@@ -26,7 +26,7 @@
 .cs-tb .cw { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; }
 .cs-tb .cw i { display: block; width: 16px; height: 3px; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
 .cs-tb .sz { width: 36px; height: 26px; border: 1px solid var(--cs-border); border-radius: 5px; text-align: center; font: inherit; margin: 0 2px; padding: 0; }
-.cs-tb .sz.bad { border-color: #c62828; color: #c62828; }
+.cs-tb .sz.bad { border-color: var(--cs-error); color: var(--cs-error); }
 .cs-tb .fontsel { justify-content: flex-start; padding: 0 4px; width: 84px; }
 .cs-tb .fn { display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .cs-tb .pop { position: absolute; top: 36px; left: 0; background: var(--cs-panel); border: 1px solid var(--cs-border); border-radius: 10px;
@@ -125,23 +125,16 @@
 .cs-editor:not(.readonly) .cs-area .ProseMirror table.cs-b-columns :is(td, th) { border-top: 1px dashed var(--cs-guide); border-bottom: 1px dashed var(--cs-guide); }
 
 /* table panels: the size grid, the context menu, the properties dialog */
-.cs-tablegrid, .cs-menu, .cs-menu .sub, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
+.cs-tablegrid, .cs-tableprops { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text);
   border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-tablegrid { padding: 8px; }
 .cs-tablegrid .size { color: var(--cs-muted); margin-bottom: 6px; }
 .cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .cs-tablegrid .cells button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--cs-border); border-radius: 3px; background: var(--cs-panel); cursor: pointer; }
 .cs-tablegrid .cells button.on { background: var(--cs-pressed); border-color: var(--cs-link); }
-.cs-menu, .cs-menu .sub { padding: 4px; min-width: 170px; display: flex; flex-direction: column; }
-.cs-menu .has-sub { position: relative; display: flex; flex-direction: column; }
-.cs-menu .sub { left: 100%; top: -5px; min-width: 110px; }
-.cs-menu .mi { display: flex; align-items: center; height: 28px; padding: 0 10px 0 26px; border: 0; border-radius: 5px; background: transparent;
-  color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; position: relative; }
-.cs-menu .mi:hover:not(:disabled), .cs-menu .mi:focus-visible, .cs-menu .mi[aria-expanded="true"] { background: var(--cs-hover); outline: none; }
-.cs-menu .mi:disabled { color: var(--cs-disabled); cursor: default; }
-.cs-menu .mi.danger:not(:disabled) { color: var(--cs-error); }
-.cs-menu .mi[aria-haspopup]::after { content: "▸"; margin-left: auto; padding-left: 16px; color: var(--cs-muted); }
-.cs-menu .mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 9px; }
+/* the menus are those of @corestone/ui (ui.css); here they only get the editor's colours and size */
+.cs-menu { --ui-panel: var(--cs-panel); --ui-text: var(--cs-text); --ui-border: var(--cs-border); --ui-hover: var(--cs-hover); --ui-muted: var(--cs-muted);
+  --ui-accent: var(--cs-link); --ui-error: var(--cs-error); font-size: 13px; }
 .cs-tableprops { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; width: 262px; }
 /* The head of the small dialogs (dialogHead): title on the left, close button on the right. */
 .cs-tableprops .head, .cs-formulapop .head, .cs-filepop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
@@ -176,7 +169,7 @@
   border-radius: 5px; cursor: pointer; color: var(--cs-text); }
 .cs-tableprops .colorpop .pick:hover { background: var(--cs-hover); }
 .cs-tableprops .colorpop .pick input { position: absolute; width: 0; height: 0; opacity: 0; border: 0; padding: 0; }
-.cs-tablegrid[hidden], .cs-menu[hidden], .cs-menu .sub[hidden], .cs-tableprops[hidden] { display: none; }
+.cs-tablegrid[hidden], .cs-tableprops[hidden] { display: none; }
 
 /* images: inline, at most the text's width; selected ones get an outline and a resize handle */
 .cs-area .ProseMirror .cs-img { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: bottom; }
@@ -214,7 +207,7 @@
   border: 1px dashed var(--cs-border); border-radius: 5px; padding: 6px; }
 .cs-formulapop .preview img { max-width: none; }
 .cs-formulapop .lb.apply[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.cs-formulapop .msg { color: #c62828; min-height: 1em; }
+.cs-formulapop .msg { color: var(--cs-error); min-height: 1em; }
 .cs-formulapop .msg:empty { display: none; }
 .cs-formulapop .foot { display: flex; align-items: center; justify-content: space-between; }
 .cs-formulapop .choice { display: flex; gap: 2px; }
@@ -231,7 +224,7 @@
 .cs-diagrampop .title { font-weight: 600; flex: 1; }
 .cs-diagrampop .ask { display: inline-flex; align-items: center; gap: 6px; }
 .cs-diagrampop .ask[hidden] { display: none; }
-.cs-diagrampop .lb.danger { color: #c62828; }
+.cs-diagrampop .lb.danger { color: var(--cs-error); }
 .cs-diagrampop button.x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
   border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
 .cs-diagrampop button.x:hover { background: var(--cs-hover); }
@@ -287,7 +280,7 @@
 .cs-document .ProseMirror[contenteditable="false"] .cs-toc .toc-row { cursor: pointer; }
 .cs-document .ProseMirror[contenteditable="false"] .cs-toc .toc-row:hover { text-decoration: underline; }
 .cs-xref { color: var(--cs-link); text-decoration: underline dotted; cursor: pointer; }
-.cs-xref.missing { color: var(--cs-error, #c62828); text-decoration: line-through; }
+.cs-xref.missing { color: var(--cs-error); text-decoration: line-through; }
 .cs-xrefpop { position: absolute; z-index: 20; width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--cs-panel);
   color: var(--cs-text); border: 1px solid var(--cs-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-xrefpop[hidden] { display: none; }

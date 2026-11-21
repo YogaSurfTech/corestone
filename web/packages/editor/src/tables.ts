@@ -225,7 +225,7 @@ export class TableUI {
     mark(0, 0);
     this.grid.append(label, cells);
 
-    this.menu = this.overlay.panel("cs-menu cs-tablemenu", "menu", "Table");
+    this.menu = this.overlay.panel("ui-pop ui-menu cs-menu cs-tablemenu", "menu", "Table");
     this.props = this.overlay.panel("cs-tableprops", "dialog", "Table properties");
     this.colorPop = el("div", "colorpop");
   }
