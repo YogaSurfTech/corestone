@@ -82,14 +82,16 @@ test("overview: kind menu, schema columns, subtree, sorting stability, social co
   const kind = page.locator("[data-test=kind]");
   const menu = page.locator("[data-test=kind-menu]");
   const show = async (k: string) => { await kind.click(); await menu.locator(`.mi[data-kind=${k}]`).click(); await expect(menu).toBeHidden(); await expect(kind).toHaveAttribute("data-kind", k); };
-  await expect(kind.locator(".kind-icon")).toHaveText(["E", "D"]);
+  await expect(kind.locator(".kind-icon")).toHaveClass([/entry/, /document/]);
   await kind.click();
-  await expect(menu.locator(".mi")).toHaveText(["EDEntries + Docs", "EEntries", "DDocuments", "LLinks", "CComments"]);
-  await expect(menu.locator(".mi[aria-checked=true]")).toHaveText("EDEntries + Docs");
+  await expect(menu.locator(".mi")).toHaveText(["Entries + Docs", "Entries", "Documents", "Links", "Comments"]);
+  await expect(menu.locator(".mi[data-kind=all] .kind-icon svg")).toHaveCount(2); // each with its pictogram
+  await expect(menu.locator(".mi[data-kind=link] .kind-icon.link svg")).toBeVisible();
+  await expect(menu.locator(".mi[aria-checked=true]")).toHaveText("Entries + Docs");
   await kind.click(); // a second click closes it
   await expect(menu).toBeHidden();
   await show("document");
-  await expect(kind.locator(".kind-icon")).toHaveText(["D"]);
+  await expect(kind.locator(".kind-icon")).toHaveClass([/document/]);
   await expect(kind).toHaveAttribute("title", "Showing: Documents");
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(table.locator("tbody tr .kind-icon.document")).toBeVisible();

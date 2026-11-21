@@ -1,8 +1,9 @@
 import { html } from "lit";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { customElement, property } from "lit/decorators.js";
 import { LightElement, Overlay, buildMenu } from "@corestone/ui";
 import type { Kind } from "./types";
-import { kindLetter } from "./util";
+import { kindMark } from "./util";
 
 /** What the overview can show: "" is entries and documents together. */
 const VIEWS: { kind: "" | Kind; name: string; icons: Kind[] }[] = [
@@ -13,7 +14,7 @@ const VIEWS: { kind: "" | Kind; name: string; icons: Kind[] }[] = [
   { kind: "comment", name: "Comments", icons: ["comment"] },
 ];
 
-const icons = (kinds: Kind[]) => kinds.map((k) => `<span class="kind-icon ${k}">${kindLetter[k]}</span>`).join("");
+const icons = (kinds: Kind[]) => kinds.map(kindMark).join("");
 
 /**
  * The overview's choice of what it shows, as one small button: it shows the
@@ -74,6 +75,6 @@ export class KindMenu extends LightElement {
     return html`<button type="button" class="btn sm kind-button" data-test="kind" data-kind=${v.kind || "all"} title=${"Showing: " + v.name}
       aria-label=${"Showing: " + v.name} aria-haspopup="menu" aria-expanded="false" @click=${this.toggle}
       @keydown=${(e: KeyboardEvent) => { if (e.key === "ArrowDown" && !this.overlay?.isOpen) { e.preventDefault(); this.toggle(); } }}>
-      ${v.icons.map((k) => html`<span class="kind-icon ${k}">${kindLetter[k]}</span>`)}<span class="caret">▾</span></button>`;
+      ${unsafeHTML(icons(v.icons))}<span class="caret">▾</span></button>`;
   }
 }

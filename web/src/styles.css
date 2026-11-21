@@ -186,8 +186,9 @@ th[aria-sort="descending"] .th-sort::after { content: " ▼"; font-size: 9px; co
 .pill.state { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
 corestone-type-icon { display: inline-flex; align-items: center; vertical-align: middle; flex: none; }
 .type-icon { display: block; width: 16px; height: 16px; margin: 0 7px 0 1px; }
-.kind-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; font-size: 10px; font-weight: 700; margin-right: 6px; background: var(--accent-soft); color: var(--accent); }
+.kind-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; margin-right: 6px; background: var(--accent-soft); color: var(--accent); }
 .kind-icon.document { background: var(--warn-soft); color: var(--warn); }
+.kind-icon svg { display: block; }
 .kind-icon.comment { border: 0; padding: 0; margin: 0 6px 0 0; } /* not a thread .comment */
 .social { color: var(--muted); font-size: 12px; }
 .empty-state { padding: 30px; text-align: center; color: var(--muted); }
