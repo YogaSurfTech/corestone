@@ -4,7 +4,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
 import { api, server } from "./api";
-import { store } from "./store";
+import { pickArtifact, store } from "./store";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
 import { hasSource, knownOptions, withMissing } from "./options";
@@ -57,9 +57,7 @@ export class FieldEditor extends LightElement {
   private refCache = new Map<string, Summary | null>();
   /** Links in rich text to items: chosen with the item picker, opened like references. */
   private readonly itemLinks: ItemLinks = {
-    pick: () => new Promise((resolve) => {
-      store.set({ picker: { kind: "pick", title: "Link to an item", onPick: (s: Summary) => resolve({ ref: s.guid, label: label(s) }) } });
-    }),
+    pick: () => pickArtifact({ title: "Link to an item" }).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
     label: (g) => api.get(g).then((v) => label(v.meta)).catch(() => "Missing item"),
     open: (g, newTab) => {
       if (newTab) window.open(`/artifact/${g}`, "_blank", "noopener");
@@ -219,12 +217,9 @@ export class FieldEditor extends LightElement {
         api.get(g).then((v) => { this.refCache.set(g, v.meta); this.requestUpdate(); }).catch(() => { this.refCache.set(g, null); });
       }
     }
-    const pick = () => {
-      store.set({ picker: { kind: "pick", title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes, onPick: (s: Summary) => {
-        if (multiple) this.emit([...new Set([...cur, s.guid])]);
-        else this.emit(s.guid);
-      } } });
-    };
+    const pick = () => void pickArtifact({ title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes }).then((s) => {
+      if (s) this.emit(multiple ? [...new Set([...cur, s.guid])] : s.guid);
+    });
     const remove = (g: string) => (multiple ? this.emit(cur.filter((x) => x !== g).length ? cur.filter((x) => x !== g) : null) : this.emit(null));
     return html`<div>
       ${cur.map((g) => html`<span class="ref-chip"><a href=${"/artifact/" + g} @click=${(e: Event) => { e.preventDefault(); this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true })); }}>${label(this.refCache.get(g)) === "(missing)" ? g.slice(0, 8) + "…" : label(this.refCache.get(g))}</a>

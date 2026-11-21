@@ -6,8 +6,8 @@ import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { store, type State, toastError } from "./store";
-import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
+import { pickArtifact, store, type State, toastError } from "./store";
+import type { CommentView, Field, LogEntry, Relationships, Schema, View } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./util";
 import { MAX_ATTACHMENT, freeFileName } from "./detail";
@@ -508,9 +508,7 @@ export class DocumentView extends LightElement {
 
   /** Links in the text to items: chosen with the item picker, opened like references. */
   private readonly itemLinks: ItemLinks = {
-    pick: () => new Promise((resolve) => {
-      store.set({ picker: { kind: "pick", title: "Link to an item", onPick: (s: Summary) => resolve({ ref: s.guid, label: label(s) }), onCancel: () => resolve(null) } });
-    }),
+    pick: () => pickArtifact({ title: "Link to an item" }).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
     label: (g) => api.get(g.split("#")[0]).then((v) => label(v.meta)).catch(() => "Missing item"),
     open: (g, newTab) => {
       const guid = g.split("#")[0];

@@ -520,3 +520,41 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
   await expect(rows).toHaveCount(1);
 });
+
+test("query builder: based on and base of are chosen in the artifact picker", async ({ page }) => {
+  const own = `${folder}/overlays`;
+  const base = await post("/entries", { path: own, type: "req", title: `Base ${id}`, fields: { priority: "high" } });
+  const overlay = await post("/entries", { path: own, type: "req", title: `Overlay ${id}`, base: base.meta.guid, fields: {} });
+  await post("/entries", { path: own, type: "req", title: `Alone ${id}`, fields: { priority: "low" } });
+  await page.goto(`/folder/${own}`);
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  await expect(rows).toHaveCount(3);
+  // based on: the picker offers only entries something is based on
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  const offered = page.locator("corestone-picker table.grid tbody tr");
+  await page.locator("corestone-picker input[type=search]").fill(id);
+  await expect(offered).toHaveCount(1);
+  await offered.first().click();
+  await expect(page.locator("[data-test=query-clause]")).toHaveText([`Based on: ${base.meta.hid}`]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Overlay ${id}`);
+  // base of: only entries that have a base; closing the picker without a choice changes nothing
+  await page.locator("[data-test=query-clear]").click();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="~base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("corestone-picker")).toHaveCount(0);
+  await expect(page.locator("[data-test=query-clause]")).toHaveCount(0);
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="~base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  await page.locator("corestone-picker input[type=search]").fill(id);
+  await expect(offered).toHaveCount(1);
+  await offered.first().click();
+  await expect(page.locator("[data-test=query-clause]")).toHaveText([`Base of: ${overlay.meta.hid}`]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Base ${id}`);
+});

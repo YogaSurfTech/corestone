@@ -6,7 +6,7 @@ import { html, nothing, render, svg, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { api } from "./api";
-import { store } from "./store";
+import { pickArtifact, store } from "./store";
 import type { EnumOption, QueryWarning, Schema, Summary } from "./types";
 import { hidLabel } from "./util";
 import "./enum-control";
@@ -302,7 +302,7 @@ export class QueryFieldElement extends LightElement {
     const p = field.picker;
     if (!p) return;
     const target = this.open; // the picker is a dialog of its own: a click in it closes this editor
-    store.set({ picker: { kind: "pick", ...p, onPick: (s: Summary) => this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target) } });
+    void pickArtifact(p).then((s) => { if (s) this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target); });
   }
 
   private editor(field: QueryField) {

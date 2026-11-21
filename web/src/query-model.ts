@@ -1,6 +1,7 @@
 // The query builder's model: a query as a row of criteria, and the query
 // text it stands for. The text is what runs and what the server reads; the
 // builder only writes it (a text is never turned back into criteria).
+import type { PickOptions } from "./store";
 import type { EnumOption } from "./types";
 
 /** How two criteria are joined. NOT binds strongest, then AND, then XOR, then OR. */
@@ -24,7 +25,7 @@ export interface QueryField {
   options?: EnumOption[];
   load?: () => Promise<EnumOption[]>;
   /** artifact: what the picker offers. */
-  picker?: { title: string; kinds: string[]; types?: string[]; query?: string };
+  picker?: PickOptions;
 }
 
 export type Value =

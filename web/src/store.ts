@@ -1,4 +1,4 @@
-import type { RepoStatus, View } from "./types";
+import type { Kind, RepoStatus, Summary, View } from "./types";
 import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
@@ -166,4 +166,23 @@ function narrowScreen(): boolean {
 export const store = new Store();
 
 /** Shows something that was thrown as an error toast. */
+/** What the artifact picker offers when one artifact is to be chosen. */
+export interface PickOptions {
+  title: string;
+  kinds?: Kind[];
+  /** Type ids; "<kind>/*" allows every type of a kind. */
+  types?: string[];
+  /** Narrows what is offered, in the query language. */
+  query?: string;
+  /** An artifact that is not offered (its GUID). */
+  exclude?: string;
+}
+
+/** Opens the artifact picker for one artifact: the chosen one, or null when the picker is closed without. */
+export function pickArtifact(options: PickOptions): Promise<Summary | null> {
+  return new Promise((resolve) => {
+    store.set({ picker: { kind: "pick", ...options, onPick: (s: Summary) => resolve(s), onCancel: () => resolve(null) } });
+  });
+}
+
 export const toastError = (e: unknown) => store.toast(errorText(e), "error");
