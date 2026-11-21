@@ -32,6 +32,14 @@ export const services: Services = {
     notify: (text, level) => store.toast(text, level),
     diagramsUrl: () => server.diagrams || undefined,
   },
+  table: {
+    query: (q, signal) => api.query(q, signal),
+    details: (ids, columns, signal) => api.details(ids, columns, signal),
+    changed: (listener) => {
+      let tick = store.state.refreshTick;
+      return store.subscribe((s) => { if (s.refreshTick !== tick) { tick = s.refreshTick; listener(); } });
+    },
+  },
   folders: {
     children: (path) => api.tree(path, false, 1).then((t) => t.folders),
   },

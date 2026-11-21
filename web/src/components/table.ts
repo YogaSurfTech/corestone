@@ -2,8 +2,7 @@ import { html, nothing, type PropertyValues } from "lit";
 import { LightElement, drag, errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
-import { api } from "../api";
-import { store } from "../store";
+import { servicesFor, type TableSource } from "./services";
 import type { SortValue } from "./sorting";
 import { BATCH, batchesFor, promoteSort, sortLocal } from "./table-model";
 import type { SortLevel, Summary, TableFilter } from "../types";
@@ -94,7 +93,7 @@ export class Table extends LightElement {
   private generation = 0;
   private abort?: AbortController;
   private queryKey = "";
-  private tick = -1;
+  private source?: TableSource;
   private frame = 0;
   private filler = false;
   private unsub?: () => void;
@@ -104,14 +103,9 @@ export class Table extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    this.tick = store.state.refreshTick;
-    // Commits (own or remote) bump the tick: reload in place.
-    this.unsub = store.subscribe((s) => {
-      if (s.refreshTick !== this.tick) {
-        this.tick = s.refreshTick;
-        if (!this.local) this.reload(true);
-      }
-    });
+    // The rows come from the page (services.ts). When they change there (a commit, own or remote): reload in place.
+    this.source = servicesFor(this).table;
+    this.unsub = this.source?.changed(() => { if (!this.local) this.reload(true); });
   }
 
   override disconnectedCallback() {
@@ -173,7 +167,8 @@ export class Table extends LightElement {
     this.loading = true;
     this.error = "";
     try {
-      const res = await api.query({ filter: this.filter, sort: this.sort }, abort.signal);
+      if (!this.source) throw new Error("This table has nowhere to load its rows from.");
+      const res = await this.source.query({ filter: this.filter, sort: this.sort }, abort.signal);
       if (generation !== this.generation) return;
       const skip = new Set(this.exclude);
       const ids = skip.size ? res.ids.filter((id) => !skip.has(id)) : res.ids;
@@ -227,7 +222,7 @@ export class Table extends LightElement {
     const signal = this.abort?.signal;
     this.requested.add(b);
     try {
-      const res = await api.details(this.ids.slice(b * BATCH, (b + 1) * BATCH), this.allFields ? undefined : this.fieldColumns(), signal);
+      const res = await this.source!.details(this.ids.slice(b * BATCH, (b + 1) * BATCH), this.allFields ? undefined : this.fieldColumns(), signal);
       if (generation !== this.generation) return;
       for (const row of res.artifacts) this.rows.set(row.guid, row);
       this.ctx = { ...this.ctx, related: { ...this.ctx.related, ...res.related } };

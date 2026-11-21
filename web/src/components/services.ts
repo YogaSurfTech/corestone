@@ -1,4 +1,4 @@
-import type { FolderInfo, PickOptions, Schema, Summary } from "../types";
+import type { FolderInfo, PickOptions, Schema, SortLevel, Summary, TableFilter, TableRows } from "../types";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with
@@ -37,12 +37,23 @@ export interface FieldServices {
   diagramsUrl?(): string | undefined;
 }
 
+/** The rows of a table that shows artifacts of the repository. */
+export interface TableSource {
+  /** The GUIDs of the artifacts a filter lets through, in the order of the sort; truncated: there are more than were given. */
+  query(q: { filter?: TableFilter; sort?: SortLevel[] }, signal?: AbortSignal): Promise<{ total: number; ids: string[]; truncated: boolean }>;
+  /** The rows of some of them; columns: the fields wanted, all without. */
+  details(ids: string[], columns?: string[], signal?: AbortSignal): Promise<TableRows>;
+  /** Has a function called whenever the artifacts may have changed; returns what ends that. */
+  changed(listener: () => void): () => void;
+}
+
 /** The providers a component may ask for. */
 export interface Services {
   types: TypeSource;
   folders: FolderSource;
   options: OptionSource;
   fields: FieldServices;
+  table: TableSource;
 }
 
 const ASK = "cs-services";
