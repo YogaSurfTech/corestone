@@ -34,12 +34,12 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await expect(page.locator("header .crumbs")).toContainText("alpha");
   await page.locator("header .crumbs a", { hasText: folder }).click();
-  await expect(page.locator(".toolbar .title")).toHaveText(folder);
+  await expect(page.locator("header .crumbs")).toContainText(folder);
   // open an artifact, Escape closes it, back reopens it
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
-  await page.locator(".toolbar .title").click(); // out of the title field, not into the query field
+  await page.locator(".toolbar .hint").click(); // out of the title field, not into the query field
   await page.keyboard.press("Escape");
   await expect(page.locator("corestone-detail")).toHaveCount(0);
   await page.goBack();
@@ -50,7 +50,7 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   // the header brand goes home
   await page.locator("header .brand").click();
-  await expect(page.locator(".toolbar .title")).toHaveText("Repository");
+  await expect(page.locator("header .crumbs")).toContainText("Repository");
 });
 
 test("deep links: section tab, expanded layout, folder context", async ({ page }) => {
@@ -98,7 +98,7 @@ test("overview: kind chips, schema columns, subtree, sorting stability, social c
   await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
   await page.locator("[data-test=subtree]").check();
   await expect(table.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator(".toolbar .title")).toContainText("Test case");
+  await expect(page.locator(".toolbar .hint")).toContainText("Test case");
   await page.locator(".tree .row[data-type=req]").click();
   await expect(page.locator("[data-test=subtree]")).toBeChecked();
   await expect(table.locator("tbody tr")).toHaveCount(2);
@@ -134,7 +134,7 @@ test("search: text, HID, results across folders, clearing", async ({ page }) => 
   await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   await page.locator("[data-test=search]").fill("");
   await expect(page.locator("[data-test=query-warning]")).toHaveCount(0);
-  await expect(page.locator(".toolbar .title")).toHaveText(folder);
+  await expect(page.locator("header .crumbs")).toContainText(folder);
   await expect(page).not.toHaveURL(/q=/);
 });
 
@@ -254,7 +254,7 @@ test("status indicator, user name and reindex", async ({ page }) => {
   const many = Array.from({ length: 120 }, (_, i) => post("/entries", { path: `${folder}/bulk`, type: "req", title: `Bulk ${i} ${id}`, fields: { priority: "low", effort: i } }));
   await Promise.all(many);
   await page.locator(`.tree .row[data-folder="${folder}/bulk"]`).click();
-  await expect(page.locator(".toolbar .hint")).toContainText("120 artifacts");
+  await expect(page.locator(".toolbar .hint")).toContainText("120 entries and docs");
   // rows are loaded lazily: the table knows all of them but renders the visible ones
   await expect(page.locator("corestone-overview table.grid")).toHaveAttribute("aria-rowcount", "120");
   expect(await page.locator("corestone-overview table.grid tbody tr").count()).toBeLessThan(120);
@@ -395,7 +395,7 @@ test("opening an artifact keeps the folder, the navigation and the table as they
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Beta two ${id}`);
   await expect(page).not.toHaveURL(/folder=/);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
-  await expect(page.locator(".toolbar .title")).toHaveText("Repository");
+  await expect(page.locator("header .crumbs")).toContainText("Repository");
   await (await scrollToRow(page, `Alpha one ${id}`)).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");

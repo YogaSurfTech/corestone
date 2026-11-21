@@ -314,10 +314,14 @@ export class Overview extends LightElement {
     prefs.setJson("corestone.table", layout);
   }
 
-  private context(): string {
+  /** What the count counts: "Task entries", "entries and docs", "links". */
+  private counted(n: number): string {
     const r = this.s.route;
-    if (r.type) return `${this.schemas[r.type]?.displayName ?? r.type} · all ${r.kind === "document" ? "documents" : "entries"}`;
-    return r.folder ? r.folder.split("/").pop()! : "Repository";
+    const one = n === 1;
+    const kind = r.kind === "document" ? (one ? "document" : "documents") : r.kind === "link" ? (one ? "link" : "links")
+      : r.kind === "comment" ? (one ? "comment" : "comments") : r.kind === "entry" || r.type ? (one ? "entry" : "entries")
+      : one ? "entry or doc" : "entries and docs";
+    return r.type ? `${this.schemas[r.type]?.displayName ?? r.type} ${kind}` : kind;
   }
 
   override render() {
@@ -334,10 +338,9 @@ export class Overview extends LightElement {
           <button class="btn primary" data-test="new" @click=${(e: Event) => { e.stopPropagation(); this.menu = !this.menu; }}>＋ New</button>
           ${this.menu ? this.newMenu() : nothing}
         </div>
-        <span class="title">${this.context()}</span>
-        <span class="hint">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} artifact${total === 1 ? "" : "s"}${r.subtree ? " incl. subfolders"
-          : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
         ${this.queryField()}
+        <span class="hint" data-test="count">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} ${this.counted(total)}${r.subtree ? " incl. subfolders"
+          : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
         <div class="chips">
           ${[["", "Entries + Docs"], ["entry", "Entries"], ["document", "Documents"], ["link", "Links"], ["comment", "Comments"]].map(([k, name]) => html`
             <button class="chip ${r.kind === k ? "on" : ""}" @click=${() => navigate({ kind: k, type: r.type })}>${name}</button>`)}

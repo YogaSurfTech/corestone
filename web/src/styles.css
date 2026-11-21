@@ -78,7 +78,7 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .nav-search { padding: 12px 12px 6px; display: flex; flex-direction: column; gap: 8px; }
 /* The query field fills the toolbar between its left and right ends; what
    the server says about the query hangs below it, over the table. */
-.query-field { flex: 1; min-width: 160px; position: relative; }
+.query-field { flex: 1; min-width: 160px; position: relative; margin-left: 8px; } /* 16px after "New", with the toolbar's gap */
 .query-field input { width: 100%; }
 .query-field input.invalid { border-color: var(--danger); }
 .query-notes { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.14); }
