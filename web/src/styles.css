@@ -91,6 +91,9 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .qb-not { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; color: var(--muted); opacity: 0.45; border-right: 1px solid var(--border) !important; }
 .qb-not.on { opacity: 1; color: var(--danger); }
+.qb-head { justify-content: space-between; }
+.qb-not.standalone { border: 1px solid var(--border) !important; border-radius: 6px; background: none; cursor: pointer; padding: 2px 7px; }
+.qb-not.standalone.on { border-color: var(--danger) !important; }
 .qb-remove { color: var(--muted); }
 .qb-remove:hover, .qb-label:hover { color: var(--accent); }
 /* what binds closer stands closer: AND, then XOR, then OR */

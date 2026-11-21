@@ -464,8 +464,22 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.locator("[data-test=query-add]").click();
   const kept = page.locator("[data-test=query-history-item]");
   await expect(kept).toHaveText(["NOT Priority: low, high", "Effort: 2 – 5", "Priority: high"]);
-  await page.locator("[data-test=query-pin]").nth(2).click();
-  await expect(kept).toHaveText(["Priority: high", "NOT Priority: low, high", "Effort: 2 – 5"]);
+  // NOT is also set in the editor, so a criterion with NOT can be made in one go, and pinned
+  await page.locator("[data-test=query-fields] .item[data-field=priority]").click();
+  await page.locator("[data-test=query-editor-not]").click();
+  await page.locator("[data-test=query-editor] input[data-value=low]").check();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Priority: low"]);
+  await expect(page.locator("[data-test=query-not]")).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(3);
+  await clauses.first().click();
+  await expect(page.locator("[data-test=query-editor-not]")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.locator("[data-test=query-clear]").click();
+  await page.locator("[data-test=query-add]").click();
+  await expect(kept.first()).toHaveText("NOT Priority: low");
+  await page.locator("[data-test=query-pin]").nth(3).click();
+  await expect(kept).toHaveText(["Priority: high", "NOT Priority: low", "NOT Priority: low, high", "Effort: 2 – 5"]);
   await kept.first().click();
   await expect(clauses).toHaveText(["Priority: high"]);
   await expect(rows).toHaveCount(1);

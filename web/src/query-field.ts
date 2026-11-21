@@ -82,12 +82,12 @@ export class QueryFieldElement extends LightElement {
   @state() private history: Remembered[] = [];
   // the editor's draft
   @state() private options: EnumOption[] | null = null;
-  @state() private draft: { empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
+  @state() private draft: { not: boolean; empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
   private timer = 0;
   private checks = 0;
   private checked: string | null = null;
 
-  private blank() { return { empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "" }; }
+  private blank() { return { not: false, empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "" }; }
 
   override connectedCallback() {
     super.connectedCallback();
@@ -171,6 +171,7 @@ export class QueryFieldElement extends LightElement {
   private edit(field: QueryField, index: number | null) {
     const d = this.blank();
     const v = index === null ? null : this.clauses[index].value;
+    d.not = index !== null && this.clauses[index].not;
     if (v?.kind === "empty") d.empty = true;
     else if (v?.kind === "text") d.text = v.text;
     else if (v?.kind === "enum") d.values = new Set(v.values.map((o) => o.value));
@@ -183,7 +184,7 @@ export class QueryFieldElement extends LightElement {
       field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
         (e) => { this.options = []; store.toast(errorText(e), "error"); });
     }
-    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".qb-editor :is(input, select, button)")?.focus());
+    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".qb-editor :is(input, select, button):not(.qb-not)")?.focus());
   }
 
   /** The field of a criterion, as offered here; a field that is gone keeps what the criterion knows. */
@@ -211,8 +212,8 @@ export class QueryFieldElement extends LightElement {
     if (this.open?.kind !== "editor" || !value) return;
     const { field, index } = this.open;
     const clause: Clause = index === null
-      ? { field: { id: field.id, name: field.name, input: field.input }, not: false, join: "AND", value }
-      : { ...this.clauses[index], value };
+      ? { field: { id: field.id, name: field.name, input: field.input }, not: this.draft.not, join: "AND", value }
+      : { ...this.clauses[index], not: this.draft.not, value };
     this.remember(clause);
     this.place(clause, index);
   }
@@ -239,7 +240,7 @@ export class QueryFieldElement extends LightElement {
     const d = this.draft;
     const set = (patch: Partial<typeof d>) => { this.draft = { ...d, ...patch }; };
     const value = this.draftValue(field);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); this.apply(this.draftValue(field)); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); this.apply(this.draftValue(field)); } };
     const input = (key: "a" | "b", label: string) => field.input === "number"
       ? html`<input type="number" step="any" aria-label=${label} data-test="query-value" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />`
       : html`<span class="qb-date"><input type="text" aria-label=${label} data-test="query-value" placeholder="2026-11-17, 2026-11 or 2026" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />
@@ -271,7 +272,9 @@ export class QueryFieldElement extends LightElement {
     }
     const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty";
     return html`<div class="qb-pop qb-editor" data-test="query-editor" @click=${(e: Event) => e.stopPropagation()} @keydown=${onKey}>
-      <div class="qb-title">${field.name}</div>
+      <div class="qb-row qb-head"><span class="qb-title">${field.name}</span>
+        <button class="qb-not standalone ${d.not ? "on" : ""}" data-test="query-editor-not" aria-pressed=${d.not ? "true" : "false"}
+          title=${d.not ? "Not: switched on. The criterion finds what does not match." : "Not: switched off"} @click=${() => set({ not: !d.not })}>NOT</button></div>
       ${body}
       ${canBeEmpty ? html`<label class="qb-option"><input type="checkbox" data-test="query-empty" .checked=${d.empty} @change=${(e: Event) => set({ empty: (e.target as HTMLInputElement).checked })} />is empty</label>` : nothing}
       ${field.input === "empty" ? html`<div class="muted small">This field can only be asked for being empty.</div>` : nothing}
