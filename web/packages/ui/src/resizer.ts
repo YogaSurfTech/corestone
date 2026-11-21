@@ -66,3 +66,52 @@ export function splitter(r: Resizer, cls: string, test: string): TemplateResult 
     aria-valuemin=${r.o.min} aria-valuemax=${r.o.max} aria-valuenow=${Math.round(r.value)}
     @pointerdown=${r.pointerdown} @keydown=${r.keydown} @dblclick=${r.reset}></div>`;
 }
+
+/** The size a box was last dragged to with its grip (boxGrip), if any. */
+function boxSize(key: string): { w: number; h: number } | null {
+  try {
+    const v = prefs.json<{ w: number; h: number } | null>(key, null);
+    return v && v.w > 0 && v.h > 0 ? v : null;
+  } catch { return null; }
+}
+
+/** The style that gives a box the size it was last dragged to; empty when it has its own size. */
+export function boxSizeStyle(key: string): string {
+  const size = boxSize(key);
+  return size ? `width:${size.w}px;height:${size.h}px` : "";
+}
+
+/**
+ * The grip in the corner of a box that is centred in the window and stands
+ * on its top edge (a dialog): dragging it sets the box's width and height,
+ * a double click gives the box its own size again. The size is remembered
+ * under the key. The box is the grip's parent; its width changes twice as
+ * fast as the pointer moves, so the corner stays under the pointer.
+ */
+export function boxGrip(key: string, cls: string, test: string, min: { w: number; h: number }): TemplateResult {
+  const start = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const box = (e.currentTarget as HTMLElement).parentElement!;
+    const r = box.getBoundingClientRect();
+    const x0 = e.clientX, y0 = e.clientY;
+    let size = { w: r.width, h: r.height };
+    drag(e, {
+      move: (m) => {
+        size = {
+          w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), min.w), window.innerWidth * 0.96)),
+          h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), min.h), window.innerHeight - r.top - 12)),
+        };
+        box.style.width = size.w + "px";
+        box.style.height = size.h + "px";
+      },
+      end: () => prefs.setJson(key, size),
+    });
+  };
+  const reset = (e: Event) => {
+    const box = (e.currentTarget as HTMLElement).parentElement!;
+    box.style.width = box.style.height = "";
+    prefs.remove(key);
+  };
+  return html`<div class=${cls} data-test=${test} title="Drag to resize, double-click to reset" @pointerdown=${start} @dblclick=${reset}></div>`;
+}

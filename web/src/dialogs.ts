@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { LightElement, drag, errorText, prefs } from "@corestone/ui";
+import { LightElement, boxGrip, boxSizeStyle, errorText, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { api } from "./api";
@@ -19,15 +19,8 @@ import { StoreController } from "./store-controller";
 
 /** Where the size a dialog was last dragged to is kept: the picker, or a dialog by its resizable name. */
 const sizeKey = (name: string) => name === "picker" ? "corestone.pickerSize" : `corestone.dialogSize.${name}`;
-
-/** The size the user last dragged a dialog to, if any. */
-function savedSize(name: string): { w: number; h: number } | null {
-  try {
-    const v = prefs.json<{ w: number; h: number } | null>(sizeKey(name), null);
-    return v && v.w > 0 && v.h > 0 ? v : null;
-  } catch { return null; }
-}
-const sizeStyle = (name: string) => { const sz = savedSize(name); return sz ? `width:${sz.w}px;height:${sz.h}px` : ""; };
+/** No dialog is dragged smaller than this. */
+const MIN_SIZE = { w: 360, h: 260 };
 
 // Modal dialogs: the "+ New" flow (choose a type → empty schema-generated
 // form → create), the artifact picker, and confirmations.
@@ -54,37 +47,6 @@ export class Dialogs extends LightElement {
     (d?.onCancel as (() => void) | undefined)?.();
   }
 
-  /** Drags a dialog's corner (the picker, or one opened with resizable). The dialog is centered
-   *  horizontally and top-anchored, so its width changes twice as fast to keep the corner under the pointer. */
-  private startResize = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const grip = e.currentTarget as HTMLElement;
-    const box = grip.parentElement!;
-    const r = box.getBoundingClientRect();
-    const x0 = e.clientX, y0 = e.clientY;
-    let size = { w: r.width, h: r.height };
-    drag(e, {
-      move: (m) => {
-        size = {
-          w: Math.round(Math.min(Math.max(r.width + 2 * (m.clientX - x0), 360), window.innerWidth * 0.96)),
-          h: Math.round(Math.min(Math.max(r.height + (m.clientY - y0), 260), window.innerHeight - r.top - 12)),
-        };
-        box.style.width = size.w + "px";
-        box.style.height = size.h + "px";
-      },
-      end: () => prefs.setJson(sizeKey(grip.dataset.size ?? "picker"), size),
-    });
-  };
-
-  /** Double-clicking the grip goes back to the default size. */
-  private resetSize = (e: Event) => {
-    const grip = e.currentTarget as HTMLElement;
-    const box = grip.parentElement!;
-    box.style.width = box.style.height = "";
-    prefs.remove(sizeKey(grip.dataset.size ?? "picker"));
-  };
-
   override updated() {
     // A freshly opened prompt gets the keyboard, with its suggestion selected.
     const input = this.querySelector<HTMLInputElement>(".dialog input[data-test=prompt]");
@@ -104,13 +66,12 @@ export class Dialogs extends LightElement {
     }
     return html`${d ? html`<div class="backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.dismiss(); }}>
         <div class="dialog ${d.kind === "prompt" || d.kind === "account" ? d.kind : ""} ${d.resizable ? "resizable" : ""}" role="dialog" aria-modal="true"
-          style=${d.resizable ? sizeStyle(d.resizable as string) : ""}>${body}
-          ${d.resizable ? html`<div class="resize-grip" data-test="dialog-resize" data-size=${d.resizable as string} title="Drag to resize, double-click to reset"
-            @pointerdown=${this.startResize} @dblclick=${this.resetSize}></div>` : nothing}</div></div>` : nothing}
+          style=${d.resizable ? boxSizeStyle(sizeKey(d.resizable as string)) : ""}>${body}
+          ${d.resizable ? boxGrip(sizeKey(d.resizable as string), "resize-grip", "dialog-resize", MIN_SIZE) : nothing}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) { const c = p.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); } }}>
-        <div class="dialog picker" role="dialog" aria-modal="true" style=${sizeStyle("picker")}>
+        <div class="dialog picker" role="dialog" aria-modal="true" style=${boxSizeStyle(sizeKey("picker"))}>
           <corestone-picker .dialog=${p}></corestone-picker>
-          <div class="resize-grip" data-test="picker-resize" title="Drag to resize, double-click to reset" @pointerdown=${this.startResize} @dblclick=${this.resetSize}></div></div></div>` : nothing}`;
+          ${boxGrip(sizeKey("picker"), "resize-grip", "picker-resize", MIN_SIZE)}</div></div>` : nothing}`;
   }
 
   private prompt(d: Dialog) {
