@@ -76,11 +76,43 @@ corestone-sidebar, .nav-scrim { grid-column: 1; grid-row: 2; }
 /* ---- sidebar ---- */
 corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border-right: 1px solid var(--border); }
 .nav-search { padding: 12px 12px 6px; display: flex; flex-direction: column; gap: 8px; }
-/* The query field fills the toolbar between its left and right ends; what
-   the server says about the query hangs below it, over the table. */
-.query-field { flex: 1; min-width: 160px; position: relative; margin-left: 8px; } /* 16px after "New", with the toolbar's gap */
-.query-field input { width: 100%; }
-.query-field input.invalid { border-color: var(--danger); }
+/* The query field fills the toolbar between "New" and the count; its
+   menus and what the server says about the query hang below it, over the table. */
+.query-field { flex: 1; min-width: 200px; position: relative; margin-left: 8px; } /* 16px after "New", with the toolbar's gap */
+.qf-box { display: flex; align-items: center; gap: 2px; min-height: 32px; padding: 1px 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.qf-box:focus-within { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.qf-box.invalid { border-color: var(--danger); }
+.qf-box input[type=search] { flex: 1; min-width: 60px; border: none; outline: none; background: transparent; padding: 4px; }
+.qf-btn { border: none; background: none; border-radius: 6px; padding: 2px 7px; cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.qf-btn:hover { background: var(--panel-2); color: inherit; }
+.qb-clauses { flex: 1; display: flex; flex-wrap: wrap; align-items: center; row-gap: 3px; min-width: 0; }
+.qb-clause { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); font-size: 12.5px; max-width: 100%; }
+.qb-clause button { border: none; background: none; cursor: pointer; padding: 2px 6px; }
+.qb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.qb-not { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; color: var(--muted); opacity: 0.45; border-right: 1px solid var(--border) !important; }
+.qb-not.on { opacity: 1; color: var(--danger); }
+.qb-remove { color: var(--muted); }
+.qb-remove:hover, .qb-label:hover { color: var(--accent); }
+/* what binds closer stands closer: AND, then XOR, then OR */
+.qb-join { border: none; background: none; cursor: pointer; font-size: 10.5px; font-weight: 700; color: var(--accent); padding: 2px 3px; border-radius: 5px; }
+.qb-join:hover { background: var(--accent-soft); }
+.qb-join.and { margin: 0 1px; }
+.qb-join.xor { margin: 0 6px; }
+.qb-join.or { margin: 0 12px; }
+.qb-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+.qb-pop.menu-like { gap: 0; padding: 6px; }
+.qb-pop .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
+.qb-pop .item:hover { background: var(--panel-2); }
+.qb-pop .item.on { font-weight: 700; color: var(--accent); }
+.qb-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
+.qb-title { font-weight: 600; }
+.qb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qb-row.end { justify-content: flex-end; }
+.qb-options { display: flex; flex-direction: column; max-height: 240px; overflow: auto; }
+.qb-option { display: flex; align-items: center; gap: 6px; padding: 3px 2px; font-size: 13px; cursor: pointer; }
+.qb-date { display: inline-flex; gap: 4px; }
+.qb-date input[type=text] { width: 190px; }
+.qb-date input[type=date] { width: 34px; padding-left: 4px; padding-right: 0; color: transparent; }
 .query-notes { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.14); }
 .query-note { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .query-note.error { color: var(--danger); }

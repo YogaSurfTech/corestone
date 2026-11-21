@@ -1,0 +1,301 @@
+// The query field of the overview: a query typed as text, or built from
+// criteria. "+" offers the fields; a criterion is a button that opens its
+// editor, with NOT to switch on and off and the operator between two
+// criteria to choose. The builder writes the query text, which is what runs.
+import { html, nothing, type PropertyValues } from "lit";
+import { LightElement, errorText, prefs } from "@corestone/ui";
+import { customElement, property, state } from "lit/decorators.js";
+import { api } from "./api";
+import { store } from "./store";
+import type { EnumOption, QueryWarning, Schema, Summary } from "./types";
+import { hidLabel } from "./util";
+import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type Value } from "./query-model";
+
+const INPUT: Record<string, Input> = {
+  enum: "enum", workflow: "enum", boolean: "bool", integer: "number", float: "number", currency: "number",
+  date: "date", datetime: "date", reference: "artifact", references: "artifact", attachment: "empty", json: "empty",
+};
+
+/** The fields a query can name here: the general ones and those of the types given. */
+export function queryFields(schemas: Schema[], folder: string, type: string): QueryField[] {
+  const general = (id: string, name: string, input: Input, more: Partial<QueryField> = {}): QueryField => ({ id, name, input, group: "General", ...more });
+  const out: QueryField[] = [
+    general("", "Text", "text"),
+    ...(type ? [] : [general("type", "Type", "enum", { options: schemas.filter((s) => s.kind === "entry" || s.kind === "document").map((s) => ({ value: s.type, label: s.displayName ?? s.type })) })]),
+    general("title", "Title", "text"), general("hid", "ID", "text"), general("folder", "Folder", "text"),
+    general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text"),
+    general("finished", "Finished", "bool"),
+    general("base", "Based on", "artifact", { picker: { title: "Based on: choose the base", kinds: ["entry"], query: "NOT ~base:NULL" } }),
+    general("~base", "Base of", "artifact", { picker: { title: "Base of: choose an entry that has a base", kinds: ["entry"], query: "NOT base:NULL" } }),
+  ];
+  const taken = new Set(out.map((f) => f.id).concat("type", "kind", "guid", "valid"));
+  for (const s of schemas) {
+    if (type && s.type !== type) continue;
+    for (const f of s.fields ?? []) {
+      if (taken.has(f.id)) continue;
+      taken.add(f.id);
+      const field: QueryField = { id: f.id, name: f.name || f.id, input: INPUT[f.type] ?? "text", group: "Fields" };
+      if (f.type === "enum" && f.source) {
+        // a dynamic enumeration is written as the chosen artifact's HID
+        field.load = () => api.options(s.type, f.id, folder).then((r) => r.options.map((o: Summary) => ({ value: o.hid ?? o.guid, label: hidLabel(o) })));
+      } else if (f.type === "enum") {
+        field.options = f.options ?? [];
+      } else if (f.type === "workflow") {
+        field.load = () => api.workflowDef(f.workflow ?? "", s.type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id })));
+      } else if (field.input === "artifact") {
+        field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes };
+      }
+      out.push(field);
+    }
+  }
+  return out;
+}
+
+type Open =
+  | { kind: "fields" }
+  | { kind: "join"; index: number }
+  | { kind: "editor"; field: QueryField; index: number | null };
+
+const STORE = "corestone.query";
+
+@customElement("corestone-query-field")
+export class QueryFieldElement extends LightElement {
+  /** The query that runs (the route's). */
+  @property() value = "";
+  @property({ attribute: false }) fields: QueryField[] = [];
+
+  @state() private text = "";
+  @state() private clauses: Clause[] = [];
+  @state() private error = "";
+  @state() private warnings: QueryWarning[] = [];
+  @state() private open: Open | null = null;
+  // the editor's draft
+  @state() private options: EnumOption[] | null = null;
+  @state() private draft: { empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
+  private timer = 0;
+  private checks = 0;
+  private checked: string | null = null;
+
+  private blank() { return { empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "" }; }
+
+  override connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener("click", this.close);
+  }
+  override disconnectedCallback() {
+    document.removeEventListener("click", this.close);
+    window.clearTimeout(this.timer);
+    super.disconnectedCallback();
+  }
+  private close = () => { if (this.open) this.open = null; };
+
+  override willUpdate(changed: PropertyValues) {
+    if (!changed.has("value")) return;
+    if (this.clauses.length && toText(this.clauses) === this.value) return; // our own query came back
+    // the criteria of a built query survive a reload; any other text is text
+    const kept = prefs.json<{ text: string; clauses: Clause[] } | null>(STORE, null);
+    this.clauses = this.value && kept?.text === this.value && Array.isArray(kept.clauses) ? kept.clauses : [];
+    if (this.text !== this.value || this.clauses.length) this.text = this.value; // never wipe text being typed
+    if (this.value !== this.checked) void this.check(this.value);
+  }
+
+  /** Have the server read the query: its problems show below the field. False if it cannot be read. */
+  private async check(text: string): Promise<boolean | null> {
+    const check = ++this.checks;
+    let error = "";
+    let warnings: QueryWarning[] = [];
+    if (text.trim()) {
+      try {
+        warnings = (await api.parseQuery(text)).warnings;
+      } catch (e) {
+        error = errorText(e);
+      }
+    }
+    if (check !== this.checks) return null; // changed meanwhile
+    this.checked = text;
+    this.error = error;
+    this.warnings = warnings;
+    return !error;
+  }
+
+  /** Run the query once it can be read; a half-typed one leaves the table as it is. */
+  private async run(replace: boolean) {
+    window.clearTimeout(this.timer);
+    const text = this.text;
+    if (await this.check(text)) this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace } }));
+  }
+
+  /** The criteria changed: write the text and run it. */
+  private built(clauses: Clause[]) {
+    this.clauses = clauses;
+    this.text = toText(clauses);
+    prefs.setJson(STORE, { text: this.text, clauses });
+    this.open = null;
+    void this.run(false);
+  }
+
+  private asText = () => {
+    this.clauses = [];
+    prefs.setJson(STORE, null);
+    void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=search]")?.focus());
+  };
+
+  // --- the editor of one criterion
+
+  private edit(field: QueryField, index: number | null) {
+    const d = this.blank();
+    const v = index === null ? null : this.clauses[index].value;
+    if (v?.kind === "empty") d.empty = true;
+    else if (v?.kind === "text") d.text = v.text;
+    else if (v?.kind === "enum") d.values = new Set(v.values.map((o) => o.value));
+    else if (v?.kind === "bool") d.values = new Set([String(v.value)]);
+    else if (v?.kind === "range") { d.compare = v.compare; d.a = v.a; d.b = v.b; }
+    this.draft = d;
+    this.options = field.options ?? null;
+    this.open = { kind: "editor", field, index };
+    if (field.input === "enum" && !field.options && field.load) {
+      field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
+        (e) => { this.options = []; store.toast(errorText(e), "error"); });
+    }
+    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".qb-editor :is(input, select, button)")?.focus());
+  }
+
+  /** The field of a criterion, as offered here; a field that is gone keeps what the criterion knows. */
+  private fieldOf(c: Clause): QueryField {
+    return this.fields.find((f) => f.id === c.field.id) ?? { ...c.field, group: "Fields" };
+  }
+
+  private draftValue(field: QueryField): Value | null {
+    const d = this.draft;
+    if (d.empty || field.input === "empty") return { kind: "empty" };
+    switch (field.input) {
+      case "text": return d.text.trim() ? { kind: "text", text: d.text.trim() } : null;
+      case "enum": {
+        const values = (this.options ?? []).filter((o) => d.values.has(o.value)).map((o) => ({ value: o.value, label: o.label ?? o.value }));
+        return values.length ? { kind: "enum", values } : null;
+      }
+      case "number": case "date":
+        if (!d.a.trim() || (d.compare === "between" && !d.b.trim())) return null;
+        return { kind: "range", compare: d.compare, a: d.a.trim(), b: d.compare === "between" ? d.b.trim() : "" };
+    }
+    return null;
+  }
+
+  private apply(value: Value | null) {
+    if (this.open?.kind !== "editor" || !value) return;
+    const { field, index } = this.open;
+    const clause: Clause = index === null
+      ? { field: { id: field.id, name: field.name, input: field.input }, not: false, join: "AND", value }
+      : { ...this.clauses[index], value };
+    if (!this.clauses.length && this.text.trim()) {
+      // text is being typed: the criterion joins it as text
+      this.text = `${this.text.trim()} AND ${toText([clause])}`;
+      this.open = null;
+      void this.run(false);
+      return;
+    }
+    this.built(index === null ? [...this.clauses, clause] : this.clauses.map((c, i) => (i === index ? clause : c)));
+  }
+
+  private pick(field: QueryField) {
+    const p = field.picker;
+    if (!p) return;
+    store.set({ picker: { kind: "pick", ...p, onPick: (s: Summary) => this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }) } });
+  }
+
+  private editor(field: QueryField) {
+    const d = this.draft;
+    const set = (patch: Partial<typeof d>) => { this.draft = { ...d, ...patch }; };
+    const value = this.draftValue(field);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); this.apply(this.draftValue(field)); } };
+    const input = (key: "a" | "b", label: string) => field.input === "number"
+      ? html`<input type="number" step="any" aria-label=${label} data-test="query-value" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />`
+      : html`<span class="qb-date"><input type="text" aria-label=${label} data-test="query-value" placeholder="2026-11-17, 2026-11 or 2026" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />
+          <input type="date" aria-label="${label}: pick a day" title="Pick a day" .value=${/^\d{4}-\d\d-\d\d$/.test(d[key]) ? d[key] : ""} @change=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} /></span>`;
+    let body;
+    switch (field.input) {
+      case "text":
+        body = html`<input type="text" data-test="query-value" aria-label=${field.name} placeholder=${field.id ? "Text or words" : "Words in title, ID or text"} .value=${d.text} ?disabled=${d.empty}
+          @input=${(e: Event) => set({ text: (e.target as HTMLInputElement).value })} />`;
+        break;
+      case "enum":
+        body = this.options === null ? html`<div class="muted small">Loading…</div>` : !this.options.length ? html`<div class="muted small">No values.</div>`
+          : html`<div class="qb-options">${this.options.map((o) => html`<label class="qb-option"><input type="checkbox" data-value=${o.value} .checked=${d.values.has(o.value)} ?disabled=${d.empty}
+              @change=${(e: Event) => { const values = new Set(d.values); if ((e.target as HTMLInputElement).checked) values.add(o.value); else values.delete(o.value); set({ values }); }} />${o.label ?? o.value}</label>`)}</div>`;
+        break;
+      case "bool":
+        body = html`<div class="qb-row">${[true, false].map((b) => html`<button class="btn sm" data-test=${b ? "query-yes" : "query-no"} @click=${() => this.apply({ kind: "bool", value: b })}>${b ? "Yes" : "No"}</button>`)}</div>`;
+        break;
+      case "number": case "date":
+        body = html`<div class="qb-row"><select aria-label="Comparison" data-test="query-compare" ?disabled=${d.empty} @change=${(e: Event) => set({ compare: (e.target as HTMLSelectElement).value as Compare })}>
+            ${COMPARES.map(([c, name]) => html`<option value=${c} ?selected=${c === d.compare}>${name}</option>`)}</select>
+          ${input("a", d.compare === "between" ? "From" : "Value")}${d.compare === "between" ? html`<span class="muted">and</span>${input("b", "To")}` : nothing}</div>`;
+        break;
+      case "artifact":
+        body = html`<div class="qb-row"><button class="btn sm" data-test="query-pick" @click=${() => this.pick(field)}>Choose…</button></div>`;
+        break;
+      default:
+        body = nothing;
+    }
+    const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty";
+    return html`<div class="qb-pop qb-editor" data-test="query-editor" @click=${(e: Event) => e.stopPropagation()} @keydown=${onKey}>
+      <div class="qb-title">${field.name}</div>
+      ${body}
+      ${canBeEmpty ? html`<label class="qb-option"><input type="checkbox" data-test="query-empty" .checked=${d.empty} @change=${(e: Event) => set({ empty: (e.target as HTMLInputElement).checked })} />is empty</label>` : nothing}
+      ${field.input === "empty" ? html`<div class="muted small">This field can only be asked for being empty.</div>` : nothing}
+      ${field.input === "bool" || (field.input === "artifact" && !d.empty) ? nothing
+        : html`<div class="qb-row end"><button class="btn sm primary" data-test="query-apply" ?disabled=${!value} @click=${() => this.apply(value)}>${this.open?.kind === "editor" && this.open.index !== null ? "Change" : "Add"}</button></div>`}
+    </div>`;
+  }
+
+  // --- render
+
+  private below() {
+    const o = this.open;
+    if (!o) return nothing;
+    if (o.kind === "editor") return this.editor(o.field);
+    if (o.kind === "join") {
+      return html`<div class="qb-pop menu-like" @click=${(e: Event) => e.stopPropagation()}>
+        ${JOINS.map((j) => html`<button class="item ${this.clauses[o.index]?.join === j ? "on" : ""}" data-test="query-join-${j.toLowerCase()}"
+          @click=${() => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c)))}>${j}</button>`)}
+      </div>`;
+    }
+    return html`<div class="qb-pop menu-like" data-test="query-fields" @click=${(e: Event) => e.stopPropagation()}>
+      ${(["General", "Fields"] as const).map((g) => {
+        const fields = this.fields.filter((f) => f.group === g);
+        return fields.length ? html`<div class="group">${g}</div>${fields.map((f) => html`<button class="item" data-field=${f.id} @click=${() => this.edit(f, null)}>${f.name}</button>`)}` : nothing;
+      })}
+    </div>`;
+  }
+
+  override render() {
+    const built = this.clauses.length > 0;
+    const stop = (e: Event) => e.stopPropagation();
+    return html`
+      <div class="qf-box ${this.error ? "invalid" : ""}" @keydown=${(e: KeyboardEvent) => { if (e.key === "Escape" && this.open) { e.stopPropagation(); this.open = null; } }}>
+        <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
+          @click=${(e: Event) => { stop(e); this.open = this.open?.kind === "fields" ? null : { kind: "fields" }; }}>＋</button>
+        ${built ? html`<div class="qb-clauses" data-test="query-clauses">${this.clauses.map((c, i) => html`
+            ${i ? html`<button class="qb-join ${c.join.toLowerCase()}" data-test="query-join" title="How the two criteria are joined"
+              @click=${(e: Event) => { stop(e); this.open = { kind: "join", index: i }; }}>${c.join}</button>` : nothing}
+            <span class="qb-clause">
+              <button class="qb-not ${c.not ? "on" : ""}" data-test="query-not" aria-pressed=${c.not ? "true" : "false"} title=${c.not ? "Not: switched on" : "Not: switched off"}
+                @click=${() => this.built(this.clauses.map((x, j) => (j === i ? { ...x, not: !x.not } : x)))}>NOT</button>
+              <button class="qb-label" data-test="query-clause" title="Change" @click=${(e: Event) => { stop(e); this.edit(this.fieldOf(c), i); }}>${clauseLabel(c)}</button>
+              <button class="qb-remove" data-test="query-remove" aria-label="Remove the criterion" title="Remove" @click=${() => this.built(this.clauses.filter((_, j) => j !== i))}>×</button>
+            </span>`)}</div>
+          <button class="qf-btn" data-test="query-as-text" title="Edit as text. A text cannot be turned back into criteria." @click=${this.asText}>Aa</button>
+          <button class="qf-btn" data-test="query-clear" title="Clear" aria-label="Clear the query" @click=${() => this.built([])}>×</button>`
+        : html`<input type="search" placeholder="Search or query: priority:high  /" .value=${this.text} data-test="search" aria-label="Search or query"
+            aria-invalid=${this.error ? "true" : "false"}
+            title="Words find title, ID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
+            @input=${(e: Event) => { this.text = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.run(true), 250); }}
+            @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.run(false); }} />`}
+      </div>
+      ${this.below()}
+      ${!this.open && (this.error || this.warnings.length) ? html`<div class="query-notes">
+        ${this.error ? html`<div class="query-note error" role="alert" data-test="query-error">${this.error}</div>` : nothing}
+        ${this.warnings.map((w) => html`<div class="query-note" data-test="query-warning">${w.message}</div>`)}
+      </div>` : nothing}`;
+  }
+}

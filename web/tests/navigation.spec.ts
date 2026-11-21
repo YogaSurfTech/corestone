@@ -401,3 +401,62 @@ test("opening an artifact keeps the folder, the navigation and the table as they
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   expect(searches).toBe(0);
 });
+
+test("query builder: criteria as buttons, NOT, the operator between them, a range, as text", async ({ page }) => {
+  const own = `${folder}/builder`;
+  await post("/entries", { path: own, type: "req", title: `Alpha one ${id}`, fields: { priority: "high", effort: 1 } });
+  await post("/entries", { path: own, type: "req", title: `Beta two ${id}`, fields: { priority: "low", effort: 2 } });
+  await post("/entries", { path: own, type: "tc", title: `Gamma test ${id}` });
+  await post("/documents", { path: own, type: "spec", title: `Delta doc ${id}` });
+  await page.goto(`/folder/${own}`);
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  const clauses = page.locator("[data-test=query-clause]");
+  await expect(rows).toHaveCount(4);
+  // "+" offers the fields; an enumeration offers its values
+  await page.locator("[data-test=query-add]").click();
+  await expect(page.locator("[data-test=query-fields] .item[data-field=finished]")).toBeVisible();
+  await page.locator("[data-test=query-fields] .item[data-field=priority]").click();
+  await page.locator("[data-test=query-editor] input[data-value=high]").check();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await expect(page).toHaveURL(/q=priority%3Ahigh/);
+  // a number between two values is one criterion
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-fields] .item[data-field=effort]").click();
+  await page.locator("[data-test=query-compare]").selectOption("between");
+  await page.locator("[data-test=query-editor] [data-test=query-value]").nth(0).fill("2");
+  await page.locator("[data-test=query-editor] [data-test=query-value]").nth(1).fill("5");
+  await page.keyboard.press("Enter");
+  await expect(clauses).toHaveText(["Priority: high", "Effort: 2 – 5"]);
+  await expect(page.locator(".toolbar .hint")).toContainText("0 entries and docs");
+  // the operator between two criteria is chosen from its alternatives
+  await expect(page.locator("[data-test=query-join]")).toHaveText("AND");
+  await page.locator("[data-test=query-join]").click();
+  await page.locator("[data-test=query-join-or]").click();
+  await expect(page.locator("[data-test=query-join]")).toHaveText("OR");
+  await expect(rows).toHaveCount(2);
+  // NOT is switched on and off per criterion
+  await page.locator("[data-test=query-not]").first().click();
+  await expect(page.locator("[data-test=query-not]").first()).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(3);
+  // a criterion opens its editor again; the criteria survive a reload
+  await clauses.first().click();
+  await page.locator("[data-test=query-editor] input[data-value=low]").check();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses.first()).toHaveText("Priority: low, high");
+  await page.reload();
+  await expect(clauses).toHaveCount(2);
+  await expect(rows).toHaveCount(3);
+  // the whole query as text
+  await page.locator("[data-test=query-as-text]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("NOT priority:(low high) OR (effort:>=2 AND effort:<=5)");
+  await expect(clauses).toHaveCount(0);
+  // with text in the field, a criterion joins it as text
+  await page.locator("[data-test=search]").fill("title:beta");
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-fields] .item[data-field=finished]").click();
+  await page.locator("[data-test=query-no]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
+  await expect(rows).toHaveCount(1);
+});
