@@ -6,10 +6,10 @@ at the top of `scripts/check-layers.mjs`.
 
 | Layer | Where | Contains | May import |
 |---|---|---|---|
-| 1 | `packages/ui/src/lib/` | Helpers without a user interface of their own: `el`, `button`, `prefs`, `errorText`, `drag`, formatting, `LightElement` | Lit |
+| 1 | `packages/ui/src/lib/` | Helpers without a user interface of their own: `el`, `button`, `prefs`, `errorText`, `drag`, formatting, `LightElement`, `iconSet` (how every line icon is drawn) | Lit |
 | 2 | `packages/ui/src/` | Controls built on layer 1: `Overlay` and `dialogHead`, menus (`buildMenu`, `DropMenu`, `popupMenu`), `Resizer` and `splitter`, and their look in `ui.css` | Lit, layer 1 |
 | 3 | `packages/editor/src/` | The rich-text and document editor | `@corestone/ui`, ProseMirror, MathJax |
-| 3 | `src/components/` | The application's components, which show Corestone's data: table, field editor, enum control, folder field, type icon, query field, kind menu, and the helpers for artifacts (`util.ts`) | `@corestone/ui`, `@corestone/editor`, Lit, the types of `src/types.ts` |
+| 3 | `src/components/` | The application's components, which show Corestone's data: table, field editor, enum control, folder field, type icon, query field, kind menu, the application's icons (`icons.ts`), and the helpers for artifacts (`util.ts`) | `@corestone/ui`, `@corestone/editor`, Lit, the types of `src/types.ts` |
 | 4 | `src/` | The application: server access (`api.ts`, `ws.ts`), state (`store.ts`, `router.ts`), the views, and the shell that puts them together (`app.ts`, `main.ts`) | Everything above |
 
 ## Rules

@@ -9,6 +9,7 @@ export { errorText } from "./lib/errors";
 export { drag, type DragOptions } from "./lib/drag";
 export { deepEqual, fmtSize, fmtTime, relTime } from "./lib/format";
 export { dataUrlToBlob } from "./lib/data-url";
+export { iconSet, type IconStyle } from "./lib/icons";
 export { LightElement } from "./lib/light-element";
 export { buildMenu, DropMenu, popupMenu, type DropMenuOptions, type MenuEntry } from "./menu";
 export { Resizer, splitter, type ResizerOptions } from "./resizer";

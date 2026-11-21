@@ -2,10 +2,11 @@
 // criteria. "+" offers the fields; a criterion is a button that opens its
 // editor, with NOT to switch on and off and the operator between two
 // criteria to choose. The builder writes the query text, which is what runs.
-import { html, nothing, render, svg, type PropertyValues } from "lit";
+import { html, nothing, render, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EnumOption, QueryWarning, Schema } from "../types";
+import { markIcon } from "./icons";
 import { hidLabel } from "./util";
 import "./enum-control";
 import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
@@ -49,10 +50,6 @@ export function queryFields(schemas: Schema[], folder: string, type: string, sou
   }
   return out;
 }
-
-const pinIcon = html`<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">${svg`<path d="M10.2 1.6 14.4 5.8l-1.1 1.1-.9-.2-2.3 2.3.3 2.4-1.2 1.2-2.6-2.6-3.5 3.5-.9.2.2-.9 3.5-3.5L3.3 6.7l1.2-1.2 2.4.3 2.3-2.3-.2-.9z" fill="currentColor"/>`}</svg>`;
-
-const calendarIcon = html`<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">${svg`<path d="M4.5 1.5v2M11.5 1.5v2M2 6.5h12M3.5 3h9A1.5 1.5 0 0 1 14 4.5v8A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-8A1.5 1.5 0 0 1 3.5 3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`}</svg>`;
 
 type Open =
   | { kind: "fields" }
@@ -309,7 +306,7 @@ export class QueryFieldElement extends LightElement {
               // the browser's own date picker, opened from a button that looks the same everywhere
               const day = (e.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement;
               try { day.showPicker(); } catch { day.focus(); }
-            }}>${calendarIcon}</button>
+            }}>${markIcon("calendar")}</button>
           <input type="date" class="qb-day" tabindex="-1" aria-hidden="true" .value=${/^\d{4}-\d\d-\d\d$/.test(d[key]) ? d[key] : ""} @change=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} /></span>`;
     let body;
     switch (field.input) {
@@ -383,7 +380,7 @@ export class QueryFieldElement extends LightElement {
         <button class="item" data-test="query-history-item" title="Add this criterion again" @click=${() => { this.remember(h.clause); this.place({ ...h.clause, join: "AND" }, null); }}>${h.clause.not ? "NOT " : ""}${clauseLabel(h.clause)}</button>
         <button class="qb-pin ${h.pinned ? "on" : ""}" data-test="query-pin" aria-pressed=${h.pinned ? "true" : "false"}
           title=${h.pinned ? "Pinned: it is kept. Click to let it go with the others." : "Pin: keep it, however many follow"} aria-label="Pin"
-          @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${pinIcon}</button>
+          @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${markIcon("pin", 13)}</button>
       </div>`)}
      </div>` : nothing}`;
   }

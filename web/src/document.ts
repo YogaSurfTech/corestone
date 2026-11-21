@@ -12,7 +12,7 @@ import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/util";
 import { MAX_ATTACHMENT, freeFileName } from "./files";
 import "./components/type-icon";
-import { appIcon, type AppIcon } from "./icons";
+import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 
 // Document view (design guide §7.6, §9.5; docs/design/Corestone documents.md): one editor for
