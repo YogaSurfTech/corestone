@@ -1,6 +1,6 @@
-import { api } from "./api";
+import { api, server } from "./api";
 import type { Services } from "./components/services";
-import { store } from "./store";
+import { pickArtifact, store } from "./store";
 import type { Schema } from "./types";
 
 // The providers the components get in the application: they ask the server.
@@ -24,6 +24,13 @@ export const services: Services = {
   },
   options: {
     options: (type, field, folder) => api.options(type, field, folder).then((r) => r.options),
+  },
+  fields: {
+    resolve: (guid) => api.get(guid).then((v) => v.meta),
+    values: (type, field, folder) => api.values(type, field, folder).then((r) => r.values.map((v) => v.value)),
+    pick: pickArtifact,
+    notify: (text, level) => store.toast(text, level),
+    diagramsUrl: () => server.diagrams || undefined,
   },
   folders: {
     children: (path) => api.tree(path, false, 1).then((t) => t.folders),

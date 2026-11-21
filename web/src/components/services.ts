@@ -1,4 +1,4 @@
-import type { FolderInfo, Schema, Summary } from "../types";
+import type { FolderInfo, PickOptions, Schema, Summary } from "../types";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with
@@ -23,11 +23,26 @@ export interface OptionSource {
   options(type: string, field: string, folder: string): Promise<Summary[]>;
 }
 
+/** What a field editor needs beyond its field and its value. */
+export interface FieldServices {
+  /** The artifact with a GUID, to show a reference by its name; rejects when there is none. */
+  resolve(guid: string): Promise<Summary>;
+  /** The values artifacts of a type have in a field, in a folder and below ("" is everywhere). */
+  values(type: string, field: string, folder: string): Promise<string[]>;
+  /** Lets the user pick an artifact; null when they pick none. */
+  pick(options: PickOptions): Promise<Summary | null>;
+  /** Tells the user something, as a passing notice. */
+  notify(text: string, level: "info" | "error"): void;
+  /** Where the diagram editor is served; nothing when there is none. */
+  diagramsUrl?(): string | undefined;
+}
+
 /** The providers a component may ask for. */
 export interface Services {
   types: TypeSource;
   folders: FolderSource;
   options: OptionSource;
+  fields: FieldServices;
 }
 
 const ASK = "cs-services";
