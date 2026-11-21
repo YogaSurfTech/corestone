@@ -102,13 +102,17 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-join.and { margin: 0 1px; }
 .qb-join.xor { margin: 0 6px; }
 .qb-join.or { margin: 0 12px; }
-.qb-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
-.qb-pop.menu-like { gap: 0; padding: 6px; }
-.qb-pop .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
-.qb-pop .item:hover { background: var(--panel-2); }
-.qb-pop .item.on { font-weight: 700; color: var(--accent); }
+.qb-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.qb-pop[hidden] { display: none; }
+.qb-pop.menu-like { min-width: 96px; padding: 6px; display: flex; flex-direction: column; }
+.qb-editor { display: flex; flex-direction: column; gap: 8px; }
+.menu-like { display: flex; flex-direction: column; }
+/* the items of a menu built by @corestone/ui, and the history's */
+.qb-pop :is(.mi, .item) { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; position: relative; }
+.qb-pop :is(.mi, .item):is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
+.qb-pop .mi[aria-checked=true] { font-weight: 700; color: var(--accent); }
 .qb-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
-.qb-pop.qb-two { flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
+.qb-pop.qb-two:not([hidden]) { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
 .qb-col { display: flex; flex-direction: column; min-width: 200px; }
 .qb-history { border-left: 1px solid var(--border); padding-left: 8px; min-width: 220px; max-width: 320px; }
 .qb-kept { display: flex; align-items: center; }

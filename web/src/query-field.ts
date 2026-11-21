@@ -2,8 +2,8 @@
 // criteria. "+" offers the fields; a criterion is a button that opens its
 // editor, with NOT to switch on and off and the operator between two
 // criteria to choose. The builder writes the query text, which is what runs.
-import { html, nothing, svg, type PropertyValues } from "lit";
-import { LightElement, errorText, prefs } from "@corestone/ui";
+import { html, nothing, render, svg, type PropertyValues } from "lit";
+import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { api } from "./api";
 import { store } from "./store";
@@ -96,7 +96,7 @@ export class QueryFieldElement extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    document.addEventListener("click", this.close);
+    document.addEventListener("mousedown", this.pressed, true); // before the overlay's own listener
     const kept = prefs.json<Remembered[]>(HISTORY, []);
     this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
   }
@@ -114,16 +114,69 @@ export class QueryFieldElement extends LightElement {
     this.keep([{ clause: { ...clause, join: "AND" }, pinned: !!old?.pinned }, ...this.history.filter((h) => h !== old)]);
   }
   override disconnectedCallback() {
-    document.removeEventListener("click", this.close);
+    this.overlay?.close();
+    document.removeEventListener("mousedown", this.pressed, true);
     window.clearTimeout(this.timer);
     super.disconnectedCallback();
   }
-  /** A click outside the field, or in it beside its menus and controls, closes what is open. */
-  private close = (e: Event) => {
-    if (!this.open) return;
-    const inside = e.composedPath().includes(this);
-    if (!inside || !(e.target as Element).closest?.(".qb-pop, button, input, select, label")) this.open = null;
+
+  // --- what opens below the field: one panel (the fields with the history, or a criterion's
+  // editor) and the menu of operators, both panels of one overlay of @corestone/ui
+
+  private overlay?: Overlay;
+  private panel!: HTMLElement;
+  private menu!: HTMLElement;
+  /** The control a panel opens below. */
+  private anchor: HTMLElement | null = null;
+  private opening = false;
+  /** The press on "+" found the list of fields open (the overlay closes it on that press): the click must not open it again. */
+  private pressedOpen = false;
+  private pressed = (e: MouseEvent) => {
+    this.pressedOpen = this.open?.kind === "fields" && !!(e.target as Element).closest?.("[data-test=query-add]") && this.contains(e.target as Node);
   };
+  /** The built list of fields, kept while it holds the same fields: its items keep the focus. */
+  private fieldMenu: { key: string; items: HTMLElement[] } | null = null;
+
+  private show(open: Open, anchor: HTMLElement | null) {
+    this.anchor = anchor ?? this.anchor;
+    this.open = open;
+  }
+
+  override updated() {
+    if (!this.overlay) {
+      this.overlay = new Overlay({
+        root: this,
+        onClose: () => { if (!this.opening && this.open) this.open = null; },
+        onEscape: () => this.querySelector<HTMLElement>("[data-test=query-add]")?.focus(),
+      });
+      this.panel = this.overlay.panel("qb-pop", "dialog", "Criterion");
+      this.menu = this.overlay.panel("qb-pop menu-like", "menu", "Operator");
+    }
+    const o = this.open;
+    if (!o) {
+      if (this.overlay.isOpen) this.overlay.close();
+      return;
+    }
+    const target = o.kind === "join" ? this.menu : this.panel;
+    if (o.kind === "join") {
+      const items = buildMenu(JOINS.map((j) => ({
+        label: j, checked: this.clauses[o.index]?.join === j,
+        run: () => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c))),
+      })));
+      items.forEach((b, i) => { b.dataset.test = "query-join-" + JOINS[i].toLowerCase(); });
+      this.menu.replaceChildren(...items);
+    } else {
+      this.panel.classList.toggle("qb-two", o.kind === "fields");
+      render(o.kind === "editor" ? this.editor(o.field) : this.fieldList(), this.panel);
+    }
+    if (target.hidden) {
+      const r = (this.anchor?.isConnected ? this.anchor : this).getBoundingClientRect();
+      this.opening = true;
+      this.overlay.open(target, { x: r.left, y: r.bottom + 4 });
+      this.opening = false;
+      if (o.kind === "join") (this.menu.querySelector("[aria-checked=true]") as HTMLElement | null)?.focus();
+    }
+  }
 
   override willUpdate(changed: PropertyValues) {
     if (!changed.has("value")) return;
@@ -181,7 +234,7 @@ export class QueryFieldElement extends LightElement {
 
   // --- the editor of one criterion
 
-  private edit(field: QueryField, index: number | null) {
+  private edit(field: QueryField, index: number | null, anchor: HTMLElement | null = null) {
     const d = this.blank();
     const v = index === null ? null : this.clauses[index].value;
     d.not = index !== null && this.clauses[index].not;
@@ -192,7 +245,7 @@ export class QueryFieldElement extends LightElement {
     else if (v?.kind === "range") { d.compare = v.compare; d.a = v.a; d.b = v.b; }
     this.draft = d;
     this.options = field.options ?? null;
-    this.open = { kind: "editor", field, index };
+    this.show({ kind: "editor", field, index }, anchor);
     if (field.input === "enum" && !field.options && field.load) {
       field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
         (e) => { this.options = []; store.toast(errorText(e), "error"); });
@@ -293,7 +346,7 @@ export class QueryFieldElement extends LightElement {
         body = nothing;
     }
     const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty";
-    return html`<div class="qb-pop qb-editor" data-test="query-editor" @keydown=${onKey}>
+    return html`<div class="qb-editor" data-test="query-editor" @keydown=${onKey}>
       <div class="qb-row qb-head"><span class="qb-title">${field.name}</span>
         <button class="qb-not standalone ${d.not ? "on" : ""}" data-test="query-editor-not" aria-pressed=${d.not ? "true" : "false"}
           title=${d.not ? "Not: switched on. The criterion finds what does not match." : "Not: switched off"} @click=${() => set({ not: !d.not })}>NOT</button></div>
@@ -307,28 +360,30 @@ export class QueryFieldElement extends LightElement {
 
   // --- render
 
-  private below() {
-    const o = this.open;
-    if (!o) return nothing;
-    if (o.kind === "editor") return this.editor(o.field);
-    if (o.kind === "join") {
-      return html`<div class="qb-pop menu-like">
-        ${JOINS.map((j) => html`<button class="item ${this.clauses[o.index]?.join === j ? "on" : ""}" data-test="query-join-${j.toLowerCase()}"
-          @click=${() => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c)))}>${j}</button>`)}
-      </div>`;
-    }
+  private fieldList() {
     // a field stays if its name holds what is typed, anywhere in it
     const find = this.find.trim().toLowerCase();
     const found = this.fields.filter((f) => f.name.toLowerCase().includes(find));
-    return html`<div class="qb-pop qb-two">
-     <div class="menu-like qb-col" data-test="query-fields">
+    // the list is a menu of @corestone/ui: the arrow keys move through it
+    const key = found.map((f) => f.id).join("\n");
+    if (this.fieldMenu?.key !== key) {
+      const items = buildMenu(found.map((f) => ({ label: f.name, run: () => this.edit(f, null) })));
+      items.forEach((b, i) => { b.dataset.field = found[i].id; b.dataset.group = found[i].group; });
+      this.fieldMenu = { key, items };
+    }
+    const items = this.fieldMenu.items;
+    return html`
+     <div class="menu-like qb-col" data-test="query-fields" role="menu" aria-label="Fields">
       <input type="search" class="qb-find" data-test="query-find" placeholder="Find a field…" aria-label="Find a field" .value=${this.find}
         @input=${(e: Event) => { this.find = (e.target as HTMLInputElement).value; }}
-        @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter" && found.length) { e.preventDefault(); this.edit(found[0], null); } }} />
+        @keydown=${(e: KeyboardEvent) => {
+          if (e.key === "Enter" && found.length) { e.preventDefault(); this.edit(found[0], null); }
+          if (e.key === "ArrowDown") { e.preventDefault(); items[0]?.focus(); }
+        }} />
       ${found.length ? nothing : html`<div class="muted small qb-none">No field with this name.</div>`}
       ${(["General", "Fields"] as const).map((g) => {
-        const fields = found.filter((f) => f.group === g);
-        return fields.length ? html`<div class="group">${g}</div>${fields.map((f) => html`<button class="item" data-field=${f.id} @click=${() => this.edit(f, null)}>${f.name}</button>`)}` : nothing;
+        const group = items.filter((b) => b.dataset.group === g);
+        return group.length ? html`<div class="group">${g}</div>${group}` : nothing;
       })}
      </div>
      ${this.history.length ? html`<div class="menu-like qb-col qb-history" data-test="query-history">
@@ -339,29 +394,28 @@ export class QueryFieldElement extends LightElement {
           title=${h.pinned ? "Pinned: it is kept. Click to let it go with the others." : "Pin: keep it, however many follow"} aria-label="Pin"
           @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${pinIcon}</button>
       </div>`)}
-     </div>` : nothing}
-    </div>`;
+     </div>` : nothing}`;
   }
 
   override render() {
     const built = this.clauses.length > 0;
-    const stop = (e: Event) => e.stopPropagation();
     return html`
-      <div class="qf-box ${this.error ? "invalid" : ""}" @keydown=${(e: KeyboardEvent) => { if (e.key === "Escape" && this.open) { e.stopPropagation(); this.open = null; } }}>
+      <div class="qf-box ${this.error ? "invalid" : ""}">
         <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
           @click=${(e: Event) => {
-            stop(e);
+            // a second click closes the list: the press already closed it, so it is not opened again
+            if (this.pressedOpen) { this.pressedOpen = false; return; }
             this.find = "";
-            this.open = this.open?.kind === "fields" ? null : { kind: "fields" };
+            this.show({ kind: "fields" }, e.currentTarget as HTMLElement);
             void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=query-find]")?.focus());
           }}>＋</button>
         ${built ? html`<div class="qb-clauses" data-test="query-clauses">${this.clauses.map((c, i) => html`
             ${i ? html`<button class="qb-join ${c.join.toLowerCase()}" data-test="query-join" title="How the two criteria are joined"
-              @click=${(e: Event) => { stop(e); this.open = { kind: "join", index: i }; }}>${c.join}</button>` : nothing}
+              @click=${(e: Event) => this.show({ kind: "join", index: i }, e.currentTarget as HTMLElement)}>${c.join}</button>` : nothing}
             <span class="qb-clause">
               <button class="qb-not ${c.not ? "on" : ""}" data-test="query-not" aria-pressed=${c.not ? "true" : "false"} title=${c.not ? "Not: switched on" : "Not: switched off"}
                 @click=${() => this.built(this.clauses.map((x, j) => (j === i ? { ...x, not: !x.not } : x)))}>NOT</button>
-              <button class="qb-label" data-test="query-clause" title="Change" @click=${(e: Event) => { stop(e); this.edit(this.fieldOf(c), i); }}>${clauseLabel(c)}</button>
+              <button class="qb-label" data-test="query-clause" title="Change" @click=${(e: Event) => this.edit(this.fieldOf(c), i, (e.currentTarget as HTMLElement).parentElement)}>${clauseLabel(c)}</button>
               <button class="qb-remove" data-test="query-remove" aria-label="Remove the criterion" title="Remove" @click=${() => this.built(this.clauses.filter((_, j) => j !== i))}>×</button>
             </span>`)}</div>
           <button class="qf-btn" data-test="query-as-text" title="Edit as text. A text cannot be turned back into criteria." @click=${this.asText}>Aa</button>
@@ -372,7 +426,6 @@ export class QueryFieldElement extends LightElement {
             @input=${(e: Event) => { this.text = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.run(true), 250); }}
             @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.run(false); }} />`}
       </div>
-      ${this.below()}
       ${!this.open && (this.error || this.warnings.length) ? html`<div class="query-notes">
         ${this.error ? html`<div class="query-note error" role="alert" data-test="query-error">${this.error}</div>` : nothing}
         ${this.warnings.map((w) => html`<div class="query-note" data-test="query-warning">${w.message}</div>`)}

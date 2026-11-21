@@ -85,6 +85,7 @@ export class EnumControl extends LightElement {
   }
   private keydown(e: KeyboardEvent) {
     if (this.readonly) return;
+    if (e.key === "Escape" && !this.open) return; // nothing of its own to close: the panel around it takes the key
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.close(false); this.querySelector<HTMLButtonElement>(".enum-trigger")?.focus(); }
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();

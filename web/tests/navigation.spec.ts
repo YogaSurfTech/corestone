@@ -414,11 +414,11 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(4);
   // "+" offers the fields; an enumeration offers its values
   await page.locator("[data-test=query-add]").click();
-  await expect(page.locator("[data-test=query-fields] .item[data-field=finished]")).toBeVisible();
+  await expect(page.locator("[data-test=query-fields] .mi[data-field=finished]")).toBeVisible();
   // the list is narrowed by a part of the name, anywhere in it
   await expect(page.locator("[data-test=query-find]")).toBeFocused();
   await page.locator("[data-test=query-find]").fill("IT");
-  await expect(page.locator("[data-test=query-fields] .item")).toHaveText(["Title", "Priority"]);
+  await expect(page.locator("[data-test=query-fields] .mi")).toHaveText(["Title", "Priority"]);
   await page.locator("[data-test=query-find]").fill("nosuch");
   await expect(page.locator("[data-test=query-fields]")).toContainText("No field with this name");
   await page.locator("[data-test=query-find]").fill("prio");
@@ -430,7 +430,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(page).toHaveURL(/q=priority%3Ahigh/);
   // a number between two values is one criterion
   await page.locator("[data-test=query-add]").click();
-  await page.locator("[data-test=query-fields] .item[data-field=effort]").click();
+  await page.locator("[data-test=query-fields] .mi[data-field=effort]").click();
   await page.locator("[data-test=query-compare]").selectOption("between");
   await page.locator("[data-test=query-editor] [data-test=query-value]").nth(0).fill("2");
   await page.locator("[data-test=query-editor] [data-test=query-value]").nth(1).fill("5");
@@ -466,7 +466,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   const kept = page.locator("[data-test=query-history-item]");
   await expect(kept).toHaveText(["NOT Priority: low, high", "Effort: 2 – 5", "Priority: high"]);
   // NOT is also set in the editor, so a criterion with NOT can be made in one go, and pinned
-  await page.locator("[data-test=query-fields] .item[data-field=priority]").click();
+  await page.locator("[data-test=query-fields] .mi[data-field=priority]").click();
   await page.locator("[data-test=query-editor-not]").click();
   await page.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
   await page.locator("[data-test=query-apply]").click();
@@ -488,7 +488,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(4);
   // a date: typed, or a day from the browser's picker behind the calendar button
   await page.locator("[data-test=query-add]").click();
-  await page.locator("[data-test=query-fields] .item[data-field=created]").click();
+  await page.locator("[data-test=query-fields] .mi[data-field=created]").click();
   await expect(page.locator("[data-test=query-calendar] svg")).toBeVisible();
   await page.locator("[data-test=query-editor] .qb-day").evaluate((el: HTMLInputElement) => { el.value = "2020-02-03"; el.dispatchEvent(new Event("change", { bubbles: true })); });
   await expect(page.locator("[data-test=query-editor] [data-test=query-value]")).toHaveValue("2020-02-03");
@@ -500,8 +500,22 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(page.locator("[data-test=search]")).toHaveValue("created:>=2020-02-03");
   // with text in the field, a criterion joins it as text
   await page.locator("[data-test=search]").fill("title:beta");
+  // the list of fields is a menu: the arrow keys move through it, Escape closes it
   await page.locator("[data-test=query-add]").click();
-  await page.locator("[data-test=query-fields] .item[data-field=finished]").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-test=query-fields]")).toBeHidden();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-add]").click(); // a second click closes it too
+  await expect(page.locator("[data-test=query-fields]")).toBeHidden();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-find]").fill("i");
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("[data-test=query-fields] .mi").first()).toBeFocused();
+  await page.keyboard.press("ArrowUp"); // round to the last one
+  await expect(page.locator("[data-test=query-fields] .mi").last()).toBeFocused();
+  await page.locator("[data-test=query-find]").fill("finished");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
   await page.locator("[data-test=query-no]").click();
   await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
   await expect(rows).toHaveCount(1);
