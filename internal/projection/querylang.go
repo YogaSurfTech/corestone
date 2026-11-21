@@ -218,24 +218,42 @@ func (c *compiler) link(n *query.Node, a string) []any {
 	return append(out, ")")
 }
 
-// allWords joins values without a field that stand side by side by AND:
-// "table view" finds artifacts with both words, as the search always did.
-// Criteria with a field side by side stay joined by OR.
+// allWords joins values without a field that stand side by side into one
+// search, exactly as the search box always worked: "table view" finds the
+// artifacts that have both words, or the whole text in their title or HID.
+// Quoted values stay criteria of their own, joined by AND. Criteria with a
+// field side by side stay joined by OR.
 func allWords(children []*query.Node) []*query.Node {
+	bare := func(n *query.Node) bool { return n.Op == query.Term && n.Field == "" }
 	var out []*query.Node
 	for i := 0; i < len(children); {
 		j := i
-		for j < len(children) && children[j].Op == query.Term && children[j].Field == "" {
+		for j < len(children) && bare(children[j]) {
 			j++
 		}
-		switch {
-		case j-i > 1:
-			out = append(out, &query.Node{Op: query.And, Children: children[i:j], Pos: children[i].Pos})
-			i = j
-		default:
+		if j-i < 2 {
 			out = append(out, children[i])
 			i++
+			continue
 		}
+		var words []string
+		var all []*query.Node
+		for _, n := range children[i:j] {
+			if n.Quoted || n.Null {
+				all = append(all, n)
+			} else {
+				words = append(words, n.Value)
+			}
+		}
+		if len(words) > 0 {
+			all = append([]*query.Node{{Op: query.Term, Value: strings.Join(words, " "), Pos: children[i].Pos}}, all...)
+		}
+		if len(all) == 1 {
+			out = append(out, all[0])
+		} else {
+			out = append(out, &query.Node{Op: query.And, Children: all, Pos: children[i].Pos})
+		}
+		i = j
 	}
 	return out
 }

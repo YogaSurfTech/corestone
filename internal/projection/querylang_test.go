@@ -81,7 +81,7 @@ func TestQueryLanguage(t *testing.T) {
 	for _, c := range []struct{ q, want string }{
 		{"", all},
 		// values without a field: all words; fields side by side: either
-		{"corestone", "n1 t1"}, {"table view", "t1 t3"}, {"table corestone", "t1"}, {"TSK-10", "t2 t3"}, {`"view of"`, "t1 t3"},
+		{"corestone", "n1 t1"}, {"table view", "t1"}, {"table corestone", "t1"}, {`view "of tables"`, "t3"}, {"TSK-1", "t2 t3"}, {"view TSK-1", ""}, {"TSK-10", "t2 t3"}, {`"view of"`, "t1 t3"},
 		{"type:note priority:high", "n1 t1"}, {"type:task AND priority:high", "t1"},
 		// text: a word, a phrase, the whole text of a field; case is ignored
 		{"description:corestone", "t1"}, {"description:(corestone claude)", "n1 t1"}, {"description:NEEDLE", "t2"},
