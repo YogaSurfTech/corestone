@@ -59,13 +59,13 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	ctx := context.Background()
 	g1, g2, l1, c1 := model.NewGUID(), model.NewGUID(), model.NewGUID(), model.NewGUID()
 
-	commit(t, repo, "config", gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"REQ"},"fields":["prio"],"workflows":["dev"]}]}`)},
-		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"text"}]}`)},
-		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","done"],"transitions":[{"from":"open","to":"done"}]}`)},
+	commit(t, repo, "config", gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"REQ"},"fields":["prio","status"]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"prio","type":"text"},{"id":"status","type":"workflow","workflow":"dev"}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"states":["open","done"],"transitions":[{"id":"finish","from":"open","to":"done"}]}`)},
 		gitx.Op{Path: ".corestone/config/links/types.json", Content: []byte(`{"types":[{"id":"refines"}]}`)},
 		gitx.Op{Path: ".corestone/config/comments/types.json", Content: []byte(`{"types":[{"id":"comment"}]}`)},
 		gitx.Op{Path: "README.md", Content: []byte("ignored")})
-	commit(t, repo, "e1", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-1", `"fields":{"prio":"high","n":2},"workflows":{"dev":"open"}`)},
+	commit(t, repo, "e1", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-1", `"fields":{"prio":"high","n":2,"status":{"state":"open"}}`)},
 		gitx.Op{Path: "specs/a/" + g1 + "/notes.txt", Content: []byte("attachment")})
 	commit(t, repo, "e2", gitx.Op{Path: "specs/b/" + g2 + "/.corestone.json", Content: entryJSON(g2, "req", "Show progress", "REQ-2", `"base":"`+g1+`"`)})
 	commit(t, repo, "link+comment",
@@ -82,7 +82,7 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	snap1 := snapshot(t, p)
 
 	// incremental: hid change + move + delete + attachment change
-	commit(t, repo, "rename hid", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-100", `"fields":{"prio":"high"},"workflows":{"dev":"done"}`)})
+	commit(t, repo, "rename hid", gitx.Op{Path: "specs/a/" + g1 + "/.corestone.json", Content: entryJSON(g1, "req", "Boot fast", "REQ-100", `"fields":{"prio":"high","status":{"state":"done","transition":"finish","previous":"open"}}`)})
 	commit(t, repo, "move", gitx.Op{Path: "specs/b/" + g2 + "/.corestone.json", Delete: true},
 		gitx.Op{Path: "archive/" + g2 + "/.corestone.json", Content: entryJSON(g2, "req", "Show progress", "REQ-2", `"base":"`+g1+`"`)})
 	commit(t, repo, "delete comment", gitx.Op{Path: "specs/.corestone/comments/" + c1 + ".json", Delete: true},
@@ -138,7 +138,7 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 		t.Fatalf("next hid %d", n)
 	}
 	s, _ := p.Get(ctx, g1)
-	if s.Workflows["dev"] != "done" || s.Links != 1 || s.Comments != 0 || s.CreatedAt == nil || s.ModifiedAt == nil || s.CreatedAt.After(*s.ModifiedAt) {
+	if model.WorkflowStateOf(s.Fields["status"]) != "done" || s.Links != 1 || s.Comments != 0 || s.CreatedAt == nil || s.ModifiedAt == nil || s.CreatedAt.After(*s.ModifiedAt) {
 		t.Fatalf("summary %+v", s)
 	}
 	att, _ := p.Attachments(ctx, g1)
@@ -181,9 +181,15 @@ func TestSyncReplayAndRebuildAgree(t *testing.T) {
 	if len(res) != 1 {
 		t.Fatal("field filter")
 	}
-	res, _, _ = p.Search(ctx, Query{States: map[string]string{"dev": "done"}, Folder: "specs", Subtree: true})
-	if len(res) != 1 {
-		t.Fatal("state filter")
+	// a workflow field is found by its state, like an enumeration, and by how it got there
+	for field, value := range map[string]string{"status": "done", "status.transition": "finish", "status.previous": "open"} {
+		res, _, _ = p.Search(ctx, Query{Fields: map[string]string{field: value}, Folder: "specs", Subtree: true})
+		if len(res) != 1 {
+			t.Fatalf("workflow filter %s:%s found %d", field, value, len(res))
+		}
+	}
+	if res, _, _ = p.Search(ctx, Query{Fields: map[string]string{"status": "open"}, Subtree: true}); len(res) != 0 {
+		t.Fatal("workflow filter matches a state the artifact has left")
 	}
 	res, _, _ = p.Search(ctx, Query{Folder: "specs", Subtree: false})
 	if len(res) != 1 || res[0].Kind != model.KindLink { // only the link lives directly in specs
@@ -347,7 +353,7 @@ func snapshot(t *testing.T, p *DB) string {
 			t.Fatal(err)
 		}
 	}
-	dump(`SELECT concat_ws('|', guid, kind, type, title, hid, folder, path::text, file_path, blob_sha, base, source, target, subject, parent, author, created, states::text, fields::text, md5(search_text), valid, error, created_commit, modified_commit) FROM artifacts ORDER BY guid`)
+	dump(`SELECT concat_ws('|', guid, kind, type, title, hid, folder, path::text, file_path, blob_sha, base, source, target, subject, parent, author, created, fields::text, md5(search_text), valid, error, created_commit, modified_commit) FROM artifacts ORDER BY guid`)
 	dump(`SELECT concat_ws('|', guid, field, value) FROM artifact_fields ORDER BY 1`)
 	dump(`SELECT concat_ws('|', guid, name, path, blob_sha) FROM artifact_files ORDER BY 1`)
 	dump(`SELECT concat_ws('|', path, scope, category, name, blob_sha, valid, error, data::text) FROM config_files ORDER BY 1`)
@@ -365,7 +371,8 @@ func TestConfigCacheSurvivesCancelledRequest(t *testing.T) {
 	p, repo := testDB(t)
 	ctx := context.Background()
 	commit(t, repo, "config",
-		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"R"},"workflows":["dev"]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"req","hid":{"prefix":"R"},"fields":[{"id":"status"}]}]}`)},
+		gitx.Op{Path: ".corestone/config/entries/fields.json", Content: []byte(`{"fields":[{"id":"status","type":"workflow","workflow":"dev"}]}`)},
 		gitx.Op{Path: ".corestone/config/entries/workflows/dev-workflow.json", Content: []byte(`{"initial":"open","states":["open"]}`)})
 	if err := p.Sync(ctx); err != nil {
 		t.Fatal(err)

@@ -15,10 +15,21 @@ import (
 // Generic tables (TSK-34): the server sorts the complete filtered set and
 // returns its GUIDs; clients fetch the rows they show in batches (Details).
 
-// SortLevel is one level of a multi-level table sort.
-type SortLevel struct {
-	Col string `json:"col"`
-	Dir string `json:"dir"` // "asc" (default) or "desc"
+// A sort level of a table is written as everywhere in the project: the
+// column or field, with "~" in front for descending ("~$hid", "~priority").
+// Columns start with "$"; a built-in field may be named without it
+// ("title" is "$title"); any other name is a field id.
+
+// builtinSort are the built-in fields that are sorted by their column.
+var builtinSort = map[string]bool{"title": true, "hid": true, "type": true, "folder": true, "author": true, "created": true, "modified": true}
+
+// sortLevel resolves a written sort level to its column and direction.
+func sortLevel(level string) (col string, descending bool) {
+	col, descending = model.SortOrder(level)
+	if builtinSort[col] {
+		col = "$" + col
+	}
+	return col, descending
 }
 
 const (
@@ -112,11 +123,11 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 	case "$type", "$role":
 		return textKeys("COALESCE(" + confPath("a", "'label'") + " #>> '{}', a.type)"), nil, nil
 	case "$state":
-		// One rank per workflow the type declares, in declaration order;
+		// One rank per workflow field of the type, in the fields' order;
 		// arrays compare element by element. Direction is folded into the
 		// ranks so empty and unlisted states stay last.
-		return []sortKey{{expr: `ARRAY(SELECT CASE WHEN COALESCE(a.states ->> w.id, '') = '' THEN ` + strconv.Itoa(rankEmpty) +
-			` ELSE COALESCE((` + confPath("a", "'states'", "w.id", "a.states ->> w.id") + ` #>> '{}')::int * $dir, ` + strconv.Itoa(rankUnlisted) + `) END
+		return []sortKey{{expr: `ARRAY(SELECT CASE WHEN COALESCE(a.fields -> w.id ->> 'state', '') = '' THEN ` + strconv.Itoa(rankEmpty) +
+			` ELSE COALESCE((` + confPath("a", "'fields'", "w.id", "a.fields -> w.id ->> 'state'") + ` #>> '{}')::int * $dir, ` + strconv.Itoa(rankUnlisted) + `) END
 			FROM jsonb_array_elements_text(COALESCE(` + confPath("a", "'workflows'") + `, '[]')) WITH ORDINALITY w (id, n)
 			ORDER BY w.n) || ` + strconv.Itoa(rankEmpty), fixed: true}}, nil, nil
 	case "$folder":
@@ -148,26 +159,31 @@ func sortColumn(col string, arg func(any) string) ([]sortKey, []string, error) {
 		return nil, nil, fmt.Errorf("%w: column %q cannot be sorted", model.ErrValidation, col)
 	}
 	id := arg(col) + "::text"
-	j := "(a.fields -> " + id + ")"
+	// a workflow field sorts by its state (its value is an object holding it)
+	j := "COALESCE(a.fields -> " + id + " -> 'state', a.fields -> " + id + ")"
 	// Enum and workflow fields rank by configuration; a multi-valued
 	// field ranks by its highest value. Other fields are all unlisted.
 	r := "(" + confPath("a", "'fields'", id, "v") + " #>> '{}')::int"
 	rank := `(SELECT CASE WHEN count(*) = 0 THEN ` + strconv.Itoa(rankEmpty) + ` WHEN bool_or(` + r + ` IS NULL) THEN ` + strconv.Itoa(rankUnlisted) + ` ELSE max(` + r + `) END
 		FROM jsonb_array_elements_text(CASE jsonb_typeof(` + j + `) WHEN 'array' THEN ` + j + ` WHEN 'null' THEN '[]'::jsonb ELSE jsonb_build_array(` + j + `) END) v
 		WHERE v <> '')`
-	keys := rankedKeys(rank, "NULLIF("+fieldText(j)+", '')")
+	// A dynamic enumeration holds an artifact's GUID: it sorts by that
+	// artifact's title, as the table shows it.
+	text := `COALESCE((SELECT COALESCE(NULLIF(o.title, ''), o.hid) FROM artifacts o
+		WHERE jsonb_typeof(` + j + `) = 'string' AND length(` + j + ` #>> '{}') = 36 AND o.guid = ` + j + ` #>> '{}'), ` + fieldText(j) + `)`
+	keys := rankedKeys(rank, "NULLIF("+text+", '')")
 	// Numbers compare numerically before the text fallback.
 	keys = append(keys[:3], sortKey{expr: "CASE WHEN jsonb_typeof(" + j + ") = 'number' THEN (" + j + ")::text::numeric END"}, keys[3])
 	return keys, nil, nil
 }
 
 // typeConfig is the configuration of one (folder, type) pair a sort
-// needs: display name, declared workflows in order, state ranks per
-// workflow and value ranks of enum and workflow fields.
+// needs: display name, the ids of its workflow fields in order, and the
+// value ranks of enum and workflow fields (a workflow's states in the
+// order of its definition).
 type typeConfig struct {
 	Label     string                    `json:"label,omitempty"`
 	Workflows []string                  `json:"workflows"`
-	States    map[string]map[string]int `json:"states"`
 	Fields    map[string]map[string]int `json:"fields"`
 }
 
@@ -186,15 +202,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 	if schema == nil {
 		return nil
 	}
-	tc := &typeConfig{Label: schema.DisplayName, Workflows: schema.Workflows, States: map[string]map[string]int{}, Fields: map[string]map[string]int{}}
-	if tc.Workflows == nil {
-		tc.Workflows = []string{}
-	}
-	for _, id := range schema.Workflows {
-		if wf := cfg.Workflow(typ, id, folder); wf != nil {
-			tc.States[id] = ranks(wf.States)
-		}
-	}
+	tc := &typeConfig{Label: schema.DisplayName, Workflows: []string{}, Fields: map[string]map[string]int{}}
 	for _, f := range schema.Fields {
 		switch f.Type {
 		case model.FieldEnum:
@@ -206,6 +214,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 			}
 			tc.Fields[f.ID] = m
 		case model.FieldWorkflow:
+			tc.Workflows = append(tc.Workflows, f.ID)
 			if wf := cfg.Workflow(typ, f.Workflow, folder); wf != nil {
 				tc.Fields[f.ID] = ranks(wf.States)
 			}
@@ -218,7 +227,7 @@ func newTypeConfig(cfg *model.ConfigIndex, folder, typ string) *typeConfig {
 // of the sort levels (design: TSK-34). Without levels the order is the
 // one of Search (relevance for text, else most recently modified).
 // Ties fall back to that order and finally the file path.
-func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit int) (*TableResult, error) {
+func (p *DB) QueryIDs(ctx context.Context, q Query, levels []string, limit int) (*TableResult, error) {
 	if q.Text != "" && !p.Status().Capabilities.Search {
 		return nil, fmt.Errorf("%w: full-text search is being rebuilt", model.ErrUnavailable)
 	}
@@ -244,16 +253,15 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit in
 	seen := map[string]bool{}
 	needCfg, needSubjects := false, false
 	for _, l := range levels {
-		var dir string
-		switch strings.ToLower(l.Dir) {
-		case "", "asc":
-			dir = "ASC"
-		case "desc":
-			dir = "DESC"
-		default:
-			return nil, fmt.Errorf("%w: sort direction %q", model.ErrValidation, l.Dir)
+		col, descending := sortLevel(l)
+		if strings.Contains(col, "~") {
+			return nil, fmt.Errorf("%w: sort level %q", model.ErrValidation, l)
 		}
-		keys, js, err := sortColumn(l.Col, arg)
+		dir := "ASC"
+		if descending {
+			dir = "DESC"
+		}
+		keys, js, err := sortColumn(col, arg)
 		if err != nil {
 			return nil, err
 		}
@@ -275,8 +283,8 @@ func (p *DB) QueryIDs(ctx context.Context, q Query, levels []SortLevel, limit in
 				joins = append(joins, j)
 			}
 		}
-		needCfg = needCfg || !strings.HasPrefix(l.Col, "$") || l.Col == "$type" || l.Col == "$role" || l.Col == "$state" || l.Col == "$subject"
-		needSubjects = needSubjects || l.Col == "$subject"
+		needCfg = needCfg || !strings.HasPrefix(col, "$") || col == "$type" || col == "$role" || col == "$state" || col == "$subject"
+		needSubjects = needSubjects || col == "$subject"
 	}
 	if q.Text != "" {
 		order = append(order, "ts_rank(a.tsv, plainto_tsquery('simple', "+arg(q.Text)+")) DESC")

@@ -19,7 +19,6 @@ const (
 type record struct {
 	model.Summary
 	BlobSHA string
-	States  string // jsonb
 	FieldsJ string // jsonb
 	Search  string
 	Valid   bool
@@ -45,7 +44,7 @@ const RefText = "text"
 // malformed file becomes a row with valid=false so the projection can
 // always be rebuilt from whatever Git contains (direct pushes are supported).
 func extract(m scanner.Match, sha string, content []byte) *record {
-	r := &record{BlobSHA: sha, Valid: true, States: "{}", FieldsJ: "{}"}
+	r := &record{BlobSHA: sha, Valid: true, FieldsJ: "{}"}
 	r.Path = m.Path
 	r.Folder = m.Folder
 	switch m.Category {
@@ -85,15 +84,6 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 	if a.Kind == model.KindComment {
 		r.Excerpt = clean(model.Excerpt(a.Text))
 	}
-	if a.Workflows != nil {
-		r.Workflows = a.Workflows
-		if b, err := json.Marshal(a.Workflows); err == nil {
-			r.States = clean(string(b))
-		}
-		for k, v := range a.Workflows {
-			r.Index = append(r.Index, fieldKV{"workflow:" + k, trunc(v)})
-		}
-	}
 	if a.Fields != nil {
 		plain := ojson.ToPlain(a.Fields)
 		if b, err := json.Marshal(plain); err == nil {
@@ -104,6 +94,19 @@ func extract(m scanner.Match, sha string, content []byte) *record {
 		}
 		for _, k := range a.Fields.Keys() {
 			v, _ := a.Fields.Get(k)
+			// a workflow field is found by its state, like an enumeration; the
+			// transition that led there and the state before it by <id>.transition
+			// and <id>.previous
+			if wv, ok := model.ParseWorkflowValue(v); ok {
+				r.Index = append(r.Index, fieldKV{k, trunc(wv.State)})
+				if wv.Transition != "" {
+					r.Index = append(r.Index, fieldKV{k + ".transition", trunc(wv.Transition)})
+				}
+				if wv.Previous != "" {
+					r.Index = append(r.Index, fieldKV{k + ".previous", trunc(wv.Previous)})
+				}
+				continue
+			}
 			for _, s := range scalarStrings(v) {
 				r.Index = append(r.Index, fieldKV{k, trunc(s)})
 			}

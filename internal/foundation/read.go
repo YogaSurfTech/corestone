@@ -155,6 +155,43 @@ func (f *Foundation) FieldValues(ctx context.Context, typ, field, folder string)
 	return f.DB.FieldValues(ctx, typ, field, folder, 200)
 }
 
+// MaxEnumOptions caps the options of a dynamic enumeration.
+const MaxEnumOptions = 1000
+
+// FieldOptions lists the options of a dynamic enumeration: the artifacts
+// its source names, from the whole repository, in the source's order (by
+// title when it names none). The source's query is not evaluated yet.
+func (f *Foundation) FieldOptions(ctx context.Context, typ, field, folder string) ([]*model.Summary, error) {
+	schema, err := f.EffectiveSchema(ctx, typ, folder)
+	if err != nil {
+		return nil, err
+	}
+	def := schema.Field(field)
+	if def == nil || def.Source == nil {
+		return nil, fmt.Errorf("%w: type %q has no field %q with a source", model.ErrNotFound, typ, field)
+	}
+	levels := def.Source.Sort
+	if len(levels) == 0 {
+		levels = []string{"title"}
+	}
+	res, err := f.DB.QueryIDs(ctx, projection.Query{Kinds: []model.Kind{def.Source.Kind}, Types: def.Source.Types, Subtree: true}, levels, MaxEnumOptions)
+	if err != nil {
+		return nil, err
+	}
+	out := []*model.Summary{}
+	for start := 0; start < len(res.IDs); start += projection.MaxDetails {
+		rows, err := f.DB.Details(ctx, res.IDs[start:min(start+projection.MaxDetails, len(res.IDs))])
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range rows {
+			s.Fields = nil
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 // SchemaOf resolves the effective schema of an existing artifact.
 func (f *Foundation) SchemaOf(ctx context.Context, guid string) (*model.Schema, *projection.Located, error) {
 	loc, err := f.DB.Locate(ctx, guid)
@@ -211,6 +248,11 @@ func (f *Foundation) Overlay(ctx context.Context, guid string) (*OverlayView, er
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := f.DB.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ov.WithoutWorkflows(cfg.Effective(v.Meta.Type, v.Meta.Folder))
 	overlays, err := f.DB.Overlays(ctx, guid)
 	if err != nil {
 		return nil, err
@@ -229,15 +271,37 @@ func (f *Foundation) UsedInDocuments(ctx context.Context, guid string) ([]*model
 	return f.DB.ReferencingDocuments(ctx, guid)
 }
 
-// WorkflowState is the workflow evaluation of one assigned workflow.
+// WorkflowState is the evaluation of one workflow field of an artifact: the
+// state it is in and the transitions allowed from there.
 type WorkflowState struct {
-	ID         string             `json:"id"`
+	ID         string             `json:"id"`   // the field's id
+	Name       string             `json:"name"` // the field's name
 	Definition *model.Workflow    `json:"definition"`
 	State      string             `json:"state"`
+	Transition string             `json:"transition,omitempty"` // the transition that led to the state
+	Previous   string             `json:"previous,omitempty"`   // the state before it
 	Available  []model.Transition `json:"available"`
 }
 
-// Workflows evaluates every workflow assigned to an artifact.
+// workflowState evaluates a workflow field from its stored value; without
+// one the artifact counts as being in the initial state.
+func workflowState(f model.Field, def *model.Workflow, value any, available bool) WorkflowState {
+	ws := WorkflowState{ID: f.ID, Name: f.Name, Definition: def, State: def.Initial, Available: []model.Transition{}}
+	if ws.Name == "" {
+		ws.Name = f.ID
+	}
+	if v, ok := model.ParseWorkflowValue(value); ok {
+		ws.State, ws.Transition, ws.Previous = v.State, v.Transition, v.Previous
+	}
+	if available {
+		if av := def.Available(ws.State); av != nil {
+			ws.Available = av
+		}
+	}
+	return ws
+}
+
+// Workflows evaluates every workflow field of an artifact.
 func (f *Foundation) Workflows(ctx context.Context, guid string) ([]WorkflowState, error) {
 	v, err := f.Get(ctx, guid)
 	if err != nil {
@@ -252,20 +316,14 @@ func (f *Foundation) Workflows(ctx context.Context, guid string) ([]WorkflowStat
 	if eff == nil {
 		return out, nil
 	}
-	for _, wid := range eff.AllWorkflows() {
-		def := cfg.Workflow(v.Meta.Type, wid, v.Meta.Folder)
+	fields := model.FieldsObject(v.Data)
+	for _, fd := range eff.WorkflowFields() {
+		def := cfg.Workflow(v.Meta.Type, fd.Workflow, v.Meta.Folder)
 		if def == nil {
 			continue
 		}
-		state := v.Meta.Workflows[wid]
-		if state == "" {
-			state = def.Initial
-		}
-		av := def.Available(state)
-		if av == nil {
-			av = []model.Transition{}
-		}
-		out = append(out, WorkflowState{ID: wid, Definition: def, State: state, Available: av})
+		value, _ := fields.Get(fd.ID)
+		out = append(out, workflowState(fd, def, value, true))
 	}
 	return out, nil
 }
@@ -431,7 +489,7 @@ func (f *Foundation) Search(ctx context.Context, q projection.Query) ([]*model.S
 
 // TableQuery returns the sorted GUIDs of every artifact matching q
 // (generic tables, TSK-34).
-func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []projection.SortLevel, limit int) (*projection.TableResult, error) {
+func (f *Foundation) TableQuery(ctx context.Context, q projection.Query, sort []string, limit int) (*projection.TableResult, error) {
 	if q.Folder != "" {
 		folder, err := model.CleanFolder(q.Folder)
 		if err != nil {
@@ -470,10 +528,12 @@ func (f *Foundation) Details(ctx context.Context, guids, columns []string) (*Tab
 			keep[c] = true
 		}
 		for _, s := range rows {
-			for id := range s.Fields {
-				if !keep[id] {
-					delete(s.Fields, id)
+			for id, v := range s.Fields {
+				// the State column shows every workflow field of the row
+				if _, state := model.ParseWorkflowValue(v); keep[id] || (state && keep["$state"]) {
+					continue
 				}
+				delete(s.Fields, id)
 			}
 		}
 	}

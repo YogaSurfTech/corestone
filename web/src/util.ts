@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from "lit";
-import type { Field, Kind, Schema, Summary } from "./types";
+import type { Field, Kind, Schema, Summary, WorkflowValue } from "./types";
 import { plainText, type RichText } from "@corestone/editor/model";
 
 export const kindLabel: Record<Kind, string> = { entry: "Entry", document: "Document", link: "Link", comment: "Comment" };
@@ -39,10 +39,22 @@ export function isRichText(v: unknown): v is RichText {
   return Array.isArray(v) && v.length > 0 && v.every((b) => !!b && typeof b === "object" && ("text" in b || "table" in b));
 }
 
-/** A field value as one text: rich text as it reads, other objects as JSON. */
+/** Whether a field value is a workflow field's: an object holding the state. */
+export function isWorkflowValue(v: unknown): v is WorkflowValue {
+  return !!v && typeof v === "object" && !Array.isArray(v) && typeof (v as WorkflowValue).state === "string"
+    && Object.keys(v).every((k) => k === "state" || k === "transition" || k === "previous");
+}
+
+/** The workflow fields among field values: field id and state. */
+export function workflowStates(fields: Record<string, unknown> | undefined | null): [string, string][] {
+  return Object.entries(fields ?? {}).flatMap(([id, v]) => (isWorkflowValue(v) ? [[id, v.state] as [string, string]] : []));
+}
+
+/** A field value as one text: rich text as it reads, a workflow as its state, other objects as JSON. */
 export function showValue(v: unknown): string {
   if (v === undefined || v === null) return "";
   if (isRichText(v)) return plainText(v);
+  if (isWorkflowValue(v)) return v.state;
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 

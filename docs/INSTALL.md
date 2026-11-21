@@ -146,7 +146,7 @@ to define or refine types for a subtree only.
 cfg() { curl -sfS -X PUT "http://127.0.0.1:8080/api/config?scope=$1&path=$2" -H 'Content-Type: application/json' -d "$3"; }
 ```
 
-**A workflow** — a state machine that entry types can reference:
+**A workflow** — a state machine; a field of type `workflow` puts it to use:
 
 ```sh
 cfg "" entries/workflows/dev-workflow.json '{
@@ -166,22 +166,24 @@ cfg "" entries/enums/priority-enum.json '{"options": [{"value": "low"}, {"value"
 cfg "" entries/fields.json '{"fields": [
   {"id": "priority",  "name": "Priority",  "type": "enum", "enum": "priority"},
   {"id": "rationale", "name": "Rationale", "type": "multiline"},
-  {"id": "due",       "name": "Due",       "type": "date"}]}'
+  {"id": "due",       "name": "Due",       "type": "date"},
+  {"id": "status",    "name": "Status",    "type": "workflow", "workflow": "dev"}]}'
 ```
 
 Field types: `hid`, `boolean`, `integer`, `float`, `currency`, `date`, `time`, `datetime`, `text`,
 `multiline`, `richtext`, `enum` (options inline or `"enum": "<id>"`; single or `"multiple": true`;
 `"extendable": true` allows other values, which are stored in the artifact only), `hyperlink`,
-`reference`, `references`, `attachment`, `json`, `workflow`.
+`reference`, `references`, `attachment`, `json`, `workflow` (`"workflow": "<id>"`; the value is
+the state, changed by transitions only).
 
-**Entry types** — HID generation, workflows, the fields they use (order and `required` per type),
+**Entry types** — HID generation, the fields they use (order and `required` per type),
 presentation:
 
 ```sh
 cfg "" entries/types.json '{"types": [
-  {"id": "requirement", "displayName": "Requirement", "hid": {"prefix": "REQ"}, "workflows": ["dev"],
-   "fields": [{"id": "priority", "required": true}, "rationale", "due"],
-   "presentation": {"columns": ["priority", "due"]}},
+  {"id": "requirement", "displayName": "Requirement", "hid": {"prefix": "REQ"},
+   "fields": [{"id": "priority", "required": true}, "rationale", "due", "status"],
+   "presentation": {"columns": ["priority", "due", "status"]}},
   {"id": "testcase", "displayName": "Test case", "hid": {"prefix": "TC"}}]}'
 ```
 

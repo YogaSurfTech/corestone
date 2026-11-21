@@ -34,9 +34,8 @@ type Artifact struct {
 	Created string        `json:"created,omitempty"`
 	Anchor  *ojson.Object `json:"anchor,omitempty"`
 
-	Fields    *ojson.Object     `json:"fields,omitempty"`
-	Workflows map[string]string `json:"workflows,omitempty"`
-	Content   []any             `json:"content,omitempty"` // document blocks
+	Fields  *ojson.Object `json:"fields,omitempty"`
+	Content []any         `json:"content,omitempty"` // document blocks
 }
 
 // ParseArtifact decodes an artifact file. The kind is taken from the
@@ -79,12 +78,6 @@ func ArtifactFromDoc(doc *ojson.Object, defaultKind Kind) (*Artifact, error) {
 	a.Created = doc.String("created")
 	a.Anchor = doc.Object("anchor")
 	a.Fields = doc.Object("fields")
-	if wf := doc.Object("workflows"); wf != nil {
-		a.Workflows = map[string]string{}
-		for _, k := range wf.Keys() {
-			a.Workflows[k] = wf.String(k)
-		}
-	}
 	a.Content = doc.Array("content")
 	return a, nil
 }
@@ -183,18 +176,22 @@ func NewDoc(kind Kind, guid, typ string) *ojson.Object {
 	return doc
 }
 
-// SetWorkflowState records a state in the document.
-func (a *Artifact) SetWorkflowState(id, state string) {
-	wf := a.Doc.Object("workflows")
-	if wf == nil {
-		wf = ojson.NewObject()
-		a.Doc.Set("workflows", wf)
+// WorkflowValue returns the value of a workflow field, if it has one.
+func (a *Artifact) WorkflowValue(field string) (WorkflowValue, bool) {
+	if a.Fields == nil {
+		return WorkflowValue{}, false
 	}
-	wf.Set(id, state)
-	if a.Workflows == nil {
-		a.Workflows = map[string]string{}
+	v, _ := a.Fields.Get(field)
+	return ParseWorkflowValue(v)
+}
+
+// SetWorkflowValue writes the value of a workflow field into the document.
+func (a *Artifact) SetWorkflowValue(field string, v WorkflowValue) {
+	if a.Fields == nil {
+		a.Fields = ojson.NewObject()
+		a.Doc.Set("fields", a.Fields)
 	}
-	a.Workflows[id] = state
+	a.Fields.Set(field, v.Object())
 }
 
 // MaxExcerptRunes bounds a comment excerpt in listings.
@@ -221,26 +218,25 @@ func Now() string { return time.Now().UTC().Format("2006-01-02T15:04:05.00000000
 
 // Summary is the projected metadata of an artifact (what listings show).
 type Summary struct {
-	GUID       string            `json:"guid"`
-	Kind       Kind              `json:"kind"`
-	Type       string            `json:"type"`
-	Title      string            `json:"title,omitempty"`
-	HID        string            `json:"hid,omitempty"`
-	Folder     string            `json:"folder"`
-	Path       string            `json:"path"` // repository file path
-	Base       string            `json:"base,omitempty"`
-	Source     string            `json:"source,omitempty"`
-	Target     string            `json:"target,omitempty"`
-	Subject    string            `json:"subject,omitempty"`
-	Parent     string            `json:"parent,omitempty"`
-	Author     string            `json:"author,omitempty"`
-	Excerpt    string            `json:"excerpt,omitempty"` // comments: first line of the text
-	Created    string            `json:"created,omitempty"`
-	Workflows  map[string]string `json:"workflows,omitempty"`
-	Fields     map[string]any    `json:"fields,omitempty"`
-	ETag       string            `json:"etag,omitempty"`
-	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
-	ModifiedAt *time.Time        `json:"modifiedAt,omitempty"`
-	Links      int               `json:"links"`
-	Comments   int               `json:"comments"`
+	GUID       string         `json:"guid"`
+	Kind       Kind           `json:"kind"`
+	Type       string         `json:"type"`
+	Title      string         `json:"title,omitempty"`
+	HID        string         `json:"hid,omitempty"`
+	Folder     string         `json:"folder"`
+	Path       string         `json:"path"` // repository file path
+	Base       string         `json:"base,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	Target     string         `json:"target,omitempty"`
+	Subject    string         `json:"subject,omitempty"`
+	Parent     string         `json:"parent,omitempty"`
+	Author     string         `json:"author,omitempty"`
+	Excerpt    string         `json:"excerpt,omitempty"` // comments: first line of the text
+	Created    string         `json:"created,omitempty"`
+	Fields     map[string]any `json:"fields,omitempty"`
+	ETag       string         `json:"etag,omitempty"`
+	CreatedAt  *time.Time     `json:"createdAt,omitempty"`
+	ModifiedAt *time.Time     `json:"modifiedAt,omitempty"`
+	Links      int            `json:"links"`
+	Comments   int            `json:"comments"`
 }

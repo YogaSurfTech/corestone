@@ -45,11 +45,13 @@ cfg "" entries/enums/tags-enum.json '{"name":"Tags","extendable":true,"options":
 cfg "" entries/fields.json '{"fields":[
   {"id":"priority","name":"Priority","type":"enum","enum":"priority"},
   {"id":"effort","name":"Effort (days)","type":"integer"},
-  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true}]}'
+  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true},
+  {"id":"status","name":"Status","type":"workflow","workflow":"dev"}]}'
 cfg "" entries/requirement-fields.json '{"fields":[
   {"id":"rationale","name":"Rationale","type":"multiline"},
   {"id":"due","name":"Due","type":"date"},
-  {"id":"spec","name":"Spec link","type":"hyperlink"}]}'
+  {"id":"spec","name":"Spec link","type":"hyperlink"},
+  {"id":"publication","name":"Publication","type":"workflow","workflow":"publish"}]}'
 cfg "" entries/testcase-fields.json '{"fields":[
   {"id":"steps","name":"Steps","type":"multiline"},{"id":"automated","name":"Automated","type":"boolean"},
   {"id":"owner","name":"Owner","type":"text"}]}'
@@ -58,14 +60,15 @@ cfg "" entries/component-fields.json '{"fields":[
   {"id":"parts","name":"Sub-components","type":"references","targetTypes":["component"]}]}'
 cfg "" entries/types.json '{"types":[
   {"id":"requirement","displayName":"Requirement","description":"A single verifiable statement of need",
-   "hid":{"prefix":"REQ"},"workflows":["dev","publish"],
-   "fields":[{"id":"priority","required":true},"rationale","effort","due","tags","spec"],
-   "presentation":{"columns":["priority","effort","due"],"icon":"requirement"}},
-  {"id":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"workflows":["dev"],"presentation":{"icon":"testcase"}},
+   "hid":{"prefix":"REQ"},
+   "fields":[{"id":"priority","required":true},"rationale","effort","due","tags","spec","status","publication"],
+   "presentation":{"columns":["priority","effort","due","status"],"icon":"requirement"}},
+  {"id":"testcase","displayName":"Test case","hid":{"prefix":"TC","digits":3},"fields":["status"],"presentation":{"icon":"testcase"}},
   {"id":"component","displayName":"Component","hid":{"prefix":"CMP"},"presentation":{"icon":"component"}}]}'
 
-cfg "" documents/spec-fields.json '{"fields":[{"id":"audience","name":"Audience","type":"enum","options":[{"value":"internal"},{"value":"customer"}]}]}'
-cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification","hid":{"prefix":"SPEC"},"workflows":["publish"],"presentation":{"icon":"doc-spec"}}]}'
+cfg "" documents/spec-fields.json '{"fields":[{"id":"audience","name":"Audience","type":"enum","options":[{"value":"internal"},{"value":"customer"}]},
+  {"id":"publication","name":"Publication","type":"workflow","workflow":"publish"}]}'
+cfg "" documents/types.json '{"types":[{"id":"spec","displayName":"Specification","hid":{"prefix":"SPEC"},"presentation":{"icon":"doc-spec"}}]}'
 
 cfg "" links/verifies-fields.json '{"fields":[{"id":"coverage","name":"Coverage","type":"enum","options":[{"value":"full"},{"value":"partial"}]}]}'
 cfg "" links/types.json '{"types":[
@@ -102,11 +105,12 @@ cfg $T entries/fields.json '{"fields":[
   {"id":"priority","name":"Priority","type":"enum","enum":"priority"},
   {"id":"effort","name":"Effort (days)","type":"integer"},
   {"id":"description","name":"Description","type":"multiline"},
-  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true}]}'
+  {"id":"tags","name":"Tags","type":"enum","enum":"tags","multiple":true},
+  {"id":"status","name":"Status","type":"workflow","workflow":"task"}]}'
 cfg $T entries/types.json '{"inheritance":"off","types":[
-  {"id":"task","displayName":"Task","hid":{"prefix":"TSK"},"workflows":["task"],
-   "fields":[{"id":"priority","required":true},"effort","description","tags"],
-   "presentation":{"columns":["priority","effort"],"icon":"task"}}]}'
+  {"id":"task","displayName":"Task","hid":{"prefix":"TSK"},
+   "fields":[{"id":"priority","required":true},"effort","description","tags","status"],
+   "presentation":{"columns":["priority","effort","status"],"icon":"task"}}]}'
 
 # ---- requirements domain content ---------------------------------------------
 
@@ -140,15 +144,15 @@ D1=$(post documents "{\"path\":\"docs\",\"type\":\"spec\",\"title\":\"Boot Speci
     {\"text\":\"Safety requirements are owned by the safety team and refined under specs/safety.\"},
     {\"entry\":\"$R3\"},
     {\"text\":\"Evidence: watchdog test report\",\"list\":\"ul\"},{\"text\":\"Evidence: FMEA sheet\",\"list\":\"ul\"}]}]}" | guid)
-post "artifacts/$R1/transition" '{"workflow":"dev","to":"submit"}' >/dev/null
-post "artifacts/$R3/transition" '{"workflow":"dev","to":"submit"}' >/dev/null
-post "artifacts/$R3/transition" '{"workflow":"dev","to":"approve"}' >/dev/null
-post "artifacts/$D1/transition" '{"workflow":"publish","to":"release"}' >/dev/null
+post "artifacts/$R1/transition" '{"field":"status","transition":"submit"}' >/dev/null
+post "artifacts/$R3/transition" '{"field":"status","transition":"submit"}' >/dev/null
+post "artifacts/$R3/transition" '{"field":"status","transition":"approve"}' >/dev/null
+post "artifacts/$D1/transition" '{"field":"publication","transition":"release"}' >/dev/null
 
 # ---- task tracker content: the configuration layout work itself --------------
 
 task() { post entries "{\"path\":\"$T\",\"type\":\"task\",\"title\":\"$1\",\"fields\":$2}" | guid; }
-step() { for to in "${@:2}"; do post "artifacts/$1/transition" "{\"workflow\":\"task\",\"to\":\"$to\"}" >/dev/null; done; }
+step() { for tr in "${@:2}"; do post "artifacts/$1/transition" "{\"field\":\"status\",\"transition\":\"$tr\"}" >/dev/null; done; }
 K1=$(task "Specify the configuration layout" '{"priority":"high","effort":1,"tags":["docs"],"description":"docs/CONFIGURATION.md"}')
 K2=$(task "Model for the configuration layout" '{"priority":"high","effort":2,"tags":["server"]}')
 K3=$(task "Configuration API and indexing" '{"priority":"high","effort":2,"tags":["server"]}')

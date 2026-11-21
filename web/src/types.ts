@@ -19,7 +19,6 @@ export interface Summary {
   author?: string;
   excerpt?: string;
   created?: string;
-  workflows?: Record<string, string>;
   fields?: Record<string, unknown>;
   etag?: string;
   createdAt?: string;
@@ -58,6 +57,8 @@ export interface Field {
   required?: boolean;
   options?: EnumOption[];
   extendable?: boolean;
+  /** A dynamic enumeration: the options are artifacts, a value is the chosen artifact's GUID. */
+  source?: { kind: "entry" | "document"; types: string[]; query?: string; sort?: string[] };
   currency?: string;
   workflow?: string;
   targetTypes?: string[];
@@ -73,7 +74,6 @@ export interface Schema {
   description?: string;
   hid?: { prefix: string; separator?: string; digits?: number };
   fields?: Field[];
-  workflows?: string[];
   sourceTypes?: string[];
   targetTypes?: string[];
   cardinality?: string;
@@ -86,7 +86,8 @@ export interface Schema {
 }
 
 export interface WorkflowState { id: string; name?: string; presentation?: IconPresentation; final?: boolean }
-export interface Transition { id?: string; name?: string; from: string[]; to: string }
+/** A transition is named by its id: it is what a save sends; the server runs it. */
+export interface Transition { id: string; name?: string; from: string[]; to: string }
 export interface Workflow {
   id: string;
   name?: string;
@@ -97,7 +98,11 @@ export interface Workflow {
   scope?: string;
 }
 
-export interface WorkflowEval { id: string; definition: Workflow; state: string; available: Transition[] }
+/** The value of a workflow field, written by the server: the state, the transition that led to it, the state before. */
+export interface WorkflowValue { state: string; transition?: string; previous?: string }
+
+/** A workflow field of an artifact evaluated: id and name are the field's; available are the transitions allowed now. */
+export interface WorkflowEval { id: string; name: string; definition: Workflow; state: string; transition?: string; previous?: string; available: Transition[] }
 
 /** A link seen from one endpoint; role is the display name, or the reverse name when incoming. */
 export interface LinkView { link: Summary; other: Summary; role?: string }
@@ -157,7 +162,7 @@ export interface VersionView extends View {
 export interface VersionChange {
   created?: boolean;
   restored?: boolean; // brought back after a deletion
-  changed: string[];  // title, hid, text, …, fields.<id>, workflows.<id>
+  changed: string[];  // title, hid, text, …, fields.<id>
   added: string[];    // links and comments that came to point here
   removedLinks?: number;
   removedComments?: number;

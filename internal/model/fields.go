@@ -56,6 +56,73 @@ type EnumOption struct {
 	Presentation map[string]any `json:"presentation,omitempty"`
 }
 
+// EnumSource makes an enumeration dynamic: its options are the artifacts
+// of one kind and of the given types, anywhere in the repository. A value
+// is the GUID of the chosen artifact.
+type EnumSource struct {
+	Kind  Kind     `json:"kind"`  // entry or document
+	Types []string `json:"types"` // the artifact types offered
+	// Query narrows the options, in the query language. It is stored and
+	// not evaluated yet.
+	Query string `json:"query,omitempty"`
+	// Sort is the order of the options, first level first: a built-in
+	// field ("title", "hid", …) or a field id, with "~" in front for
+	// descending ("~title" is Z to A). Empty: by title.
+	Sort []string `json:"sort,omitempty"`
+}
+
+// SortOrder splits a sort level into the field and its direction: "~" in
+// front means descending.
+func SortOrder(level string) (field string, descending bool) {
+	if strings.HasPrefix(level, "~") {
+		return level[1:], true
+	}
+	return level, false
+}
+
+// MaxEnumSortLevels caps the sort levels of a dynamic enumeration.
+const MaxEnumSortLevels = 3
+
+func (s *EnumSource) validate(field string) error {
+	if s.Kind != KindEntry && s.Kind != KindDocument {
+		return Invalid("field %q source: kind must be \"entry\" or \"document\"", field)
+	}
+	if len(s.Types) == 0 {
+		return Invalid("field %q source: name at least one type", field)
+	}
+	for _, t := range s.Types {
+		if err := ValidateTypeID(t); err != nil {
+			return fmt.Errorf("field %q source type: %w", field, err)
+		}
+	}
+	if len(s.Query) > MaxTextLen {
+		return Invalid("field %q source: query too long", field)
+	}
+	if len(s.Sort) > MaxEnumSortLevels {
+		return Invalid("field %q source: at most %d sort levels", field, MaxEnumSortLevels)
+	}
+	for _, l := range s.Sort {
+		id, _ := SortOrder(l)
+		if id == "" || len(id) > 64 || strings.ContainsAny(id, " \t\n/.~$") {
+			return Invalid("field %q source: sort level %q is no field (\"title\", or \"~title\" for descending)", field, l)
+		}
+	}
+	return nil
+}
+
+// Allows reports whether an artifact of this kind and type is an option.
+func (s *EnumSource) Allows(kind Kind, typ string) bool {
+	if s.Kind != kind {
+		return false
+	}
+	for _, t := range s.Types {
+		if t == typ {
+			return true
+		}
+	}
+	return false
+}
+
 // Field is a schema field definition.
 type Field struct {
 	ID           string         `json:"id"`
@@ -66,6 +133,7 @@ type Field struct {
 	Options      []EnumOption   `json:"options,omitempty"`
 	Extendable   bool           `json:"extendable,omitempty"`  // enum: values outside options allowed
 	Enum         string         `json:"enum,omitempty"`        // enum: enumeration id (configuration layout); resolved into Options
+	Source       *EnumSource    `json:"source,omitempty"`      // enum: the options are artifacts (dynamic enumeration)
 	Currency     string         `json:"currency,omitempty"`    // currency: ISO code
 	Workflow     string         `json:"workflow,omitempty"`    // workflow: definition id
 	TargetTypes  []string       `json:"targetTypes,omitempty"` // reference(s): allowed artifact types
@@ -83,8 +151,18 @@ func (f *Field) ValidateDefinition() error {
 	if !IsFieldType(f.Type) {
 		return Invalid("field %q has unknown type %q", f.ID, f.Type)
 	}
-	if f.Type == FieldWorkflow && f.Workflow == "" {
-		return Invalid("workflow field %q needs a workflow id", f.ID)
+	if f.Type == FieldWorkflow {
+		if f.Workflow == "" {
+			return Invalid("workflow field %q needs a workflow id", f.ID)
+		}
+		if err := ValidateTypeID(f.Workflow); err != nil {
+			return fmt.Errorf("field %q workflow: %w", f.ID, err)
+		}
+		if f.Multiple || f.Default != nil {
+			return Invalid("workflow field %q: a workflow field has one state, starting with the workflow's initial state", f.ID)
+		}
+	} else if f.Workflow != "" {
+		return Invalid("field %q: only workflow fields name a workflow", f.ID)
 	}
 	if f.Enum != "" {
 		if f.Type != FieldEnum {
@@ -94,7 +172,21 @@ func (f *Field) ValidateDefinition() error {
 			return fmt.Errorf("field %q enumeration: %w", f.ID, err)
 		}
 	}
-	if f.Type == FieldEnum && f.Enum == "" && len(f.Options) == 0 && !f.Extendable {
+	if f.Source != nil {
+		if f.Type != FieldEnum {
+			return Invalid("field %q: only enum fields have a source", f.ID)
+		}
+		if f.Enum != "" || len(f.Options) > 0 || f.Extendable {
+			return Invalid("enum field %q: a source replaces options, an enumeration and extendable", f.ID)
+		}
+		if f.Default != nil {
+			return Invalid("enum field %q: a field with a source has no default", f.ID)
+		}
+		if err := f.Source.validate(f.ID); err != nil {
+			return err
+		}
+	}
+	if f.Type == FieldEnum && f.Enum == "" && len(f.Options) == 0 && !f.Extendable && f.Source == nil {
 		return Invalid("enum field %q has no options", f.ID)
 	}
 	for _, option := range f.Options {
@@ -192,6 +284,13 @@ func (f *Field) validateSingle(v any) error {
 		if !ok {
 			return bad("an enumeration value")
 		}
+		if f.Source != nil {
+			// that the artifact exists and is an option is checked when the value is set
+			if !IsGUID(s) {
+				return bad("the GUID of an artifact")
+			}
+			return nil
+		}
 		if !f.Extendable {
 			for _, o := range f.Options {
 				if o.Value == s {
@@ -224,8 +323,8 @@ func (f *Field) validateSingle(v any) error {
 			}
 		}
 	case FieldWorkflow:
-		if _, ok := v.(string); !ok {
-			return bad("a workflow state")
+		if _, ok := ParseWorkflowValue(v); !ok {
+			return bad("a workflow state (written by the server)")
 		}
 	case FieldJSON:
 		// anything goes
@@ -264,6 +363,20 @@ func (f *Field) ReferencedGUIDs(v any) []string {
 		}
 	case FieldRichText:
 		return RichTextRefs(v)
+	}
+	return nil
+}
+
+// SourceGUIDs are the artifacts a dynamic enumeration's value names.
+func (f *Field) SourceGUIDs(v any) []string {
+	if f.Type != FieldEnum || f.Source == nil {
+		return nil
+	}
+	if s, ok := v.(string); ok {
+		return []string{s}
+	}
+	if arr, ok := v.([]any); ok {
+		return stringsOf(arr)
 	}
 	return nil
 }

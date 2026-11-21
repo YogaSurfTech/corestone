@@ -105,6 +105,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/artifacts/details", s.details)
 	m.HandleFunc("GET /api/repository/types", s.types)
 	m.HandleFunc("GET /api/repository/values", s.values)
+	m.HandleFunc("GET /api/repository/options", s.options)
 	m.HandleFunc("GET /api/repository/validate", s.validate)
 	m.HandleFunc("POST /api/repository/reindex", s.reindex)
 	m.HandleFunc("POST /api/repository/folders/move", s.moveFolder)
@@ -491,7 +492,7 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := s.F.Transition(r.Context(), guid, body.String("workflow"), body.String("to"), ifMatch(r))
+	v, err := s.F.Transition(r.Context(), guid, body.String("field"), body.String("transition"), ifMatch(r))
 	if err != nil {
 		fail(w, err)
 		return
@@ -570,7 +571,7 @@ func (s *Server) save(w http.ResponseWriter, r *http.Request) {
 	req := &foundation.SaveRequest{Patch: body.Object("patch"), PutFiles: files}
 	for _, v := range body.Array("transitions") {
 		if o, ok := v.(*ojson.Object); ok {
-			req.Transitions = append(req.Transitions, foundation.SaveTransition{Workflow: o.String("workflow"), To: o.String("to")})
+			req.Transitions = append(req.Transitions, foundation.SaveTransition{Field: o.String("field"), Transition: o.String("transition")})
 		}
 	}
 	for _, v := range body.Array("addLinks") {
@@ -880,11 +881,6 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 				q.Fields = map[string]string{}
 			}
 			q.Fields[strings.TrimPrefix(key, "field.")] = vals[0]
-		case strings.HasPrefix(key, "state."):
-			if q.States == nil {
-				q.States = map[string]string{}
-			}
-			q.States[strings.TrimPrefix(key, "state.")] = vals[0]
 		}
 	}
 	if v := qs.Get("valid"); v != "" {
@@ -932,11 +928,10 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 			Types   []string          `json:"types"`
 			HID     string            `json:"hid"`
 			Fields  map[string]string `json:"fields"`
-			States  map[string]string `json:"states"`
 			Valid   *bool             `json:"valid"`
 		} `json:"filter"`
-		Sort  []projection.SortLevel `json:"sort"`
-		Limit int                    `json:"limit"`
+		Sort  []string `json:"sort"` // "~" in front: descending
+		Limit int      `json:"limit"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -951,7 +946,7 @@ func (s *Server) tableQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := projection.Query{Text: f.Q, Type: f.Type, Types: f.Types, Folder: f.Path, Subtree: f.Subtree == nil || *f.Subtree,
-		HID: f.HID, Fields: f.Fields, States: f.States, Valid: f.Valid}
+		HID: f.HID, Fields: f.Fields, Valid: f.Valid}
 	for _, k := range f.Kind {
 		kind, err := model.ParseKind(k)
 		if err != nil {
@@ -1004,6 +999,17 @@ func (s *Server) values(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"values": vals})
+}
+
+// options lists the options of a dynamic enumeration field.
+func (s *Server) options(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	opts, err := s.F.FieldOptions(r.Context(), q.Get("type"), q.Get("field"), q.Get("path"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"options": opts})
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {

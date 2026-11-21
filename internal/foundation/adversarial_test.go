@@ -210,8 +210,8 @@ func TestValidationRaces(t *testing.T) {
 	// Concurrent transitions with the same precondition: one wins.
 	cur, _ = f.Get(ctx, c.Meta.GUID)
 	errs = race("transition",
-		func() error { _, err := f.Transition(ctx, c.Meta.GUID, "dev", "submit", cur.ETag); return err },
-		func() error { _, err := f.Transition(ctx, c.Meta.GUID, "dev", "submit", cur.ETag); return err })
+		func() error { _, err := f.Transition(ctx, c.Meta.GUID, "status", "submit", cur.ETag); return err },
+		func() error { _, err := f.Transition(ctx, c.Meta.GUID, "status", "submit", cur.ETag); return err })
 	if ok, _ := count(errs); ok != 1 {
 		t.Fatalf("transition race: %v", errs)
 	}

@@ -156,8 +156,7 @@ type VersionChange struct {
 	Created  bool `json:"created,omitempty"`  // the commit created the artifact
 	Restored bool `json:"restored,omitempty"` // the commit brought back the deleted artifact
 	// Changed lists the stored properties that changed: top-level names
-	// (title, hid, text, …), fields and workflows as fields.<id> and
-	// workflows.<id>.
+	// (title, hid, text, …) and fields as fields.<id>.
 	Changed []string `json:"changed"`
 	// Added are the links and comments that came to point to the artifact.
 	Added           []string `json:"added"`
@@ -302,7 +301,7 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		return nil, err
 	}
 	lookup := f.historicLookup(ctx, sc, pt.seq)
-	if v.Overlay, err = historicOverlay(a, lookup); err != nil {
+	if v.Overlay, err = historicOverlay(a, lookup, v.Schema); err != nil {
 		return nil, err
 	}
 	if a.Base != "" && v.Overlay != nil {
@@ -310,21 +309,18 @@ func (f *Foundation) Version(ctx context.Context, guid, blob, commit string) (*V
 		if err != nil {
 			return nil, err
 		}
-		if v.BaseOverlay, err = historicOverlay(base, lookup); err != nil {
+		if v.BaseOverlay, err = historicOverlay(base, lookup, v.Schema); err != nil {
 			return nil, err
 		}
 	}
 	if v.Schema != nil {
-		for _, wid := range v.Schema.AllWorkflows() {
-			def := cfg.Workflow(a.Type, wid, folder)
+		for _, fd := range v.Schema.WorkflowFields() {
+			def := cfg.Workflow(a.Type, fd.Workflow, folder)
 			if def == nil {
 				continue
 			}
-			state := a.Workflows[wid]
-			if state == "" {
-				state = def.Initial
-			}
-			v.Workflows = append(v.Workflows, WorkflowState{ID: wid, Definition: def, State: state, Available: []model.Transition{}})
+			value, _ := model.FieldsObject(a.Doc).Get(fd.ID)
+			v.Workflows = append(v.Workflows, workflowState(fd, def, value, false))
 		}
 	}
 	if err := f.historicSurroundings(ctx, sc, cfg, v, guid, pt.seq); err != nil {
@@ -363,7 +359,7 @@ func (f *Foundation) ownChange(ctx context.Context, c *VersionChange, guid strin
 }
 
 // changedProperties lists the properties that differ between two versions
-// of a file; fields and workflows are compared one by one.
+// of a file; fields are compared one by one.
 func changedProperties(old, cur *ojson.Object) []string {
 	out := []string{}
 	diff := func(prefix string, a, b *ojson.Object) {
@@ -394,12 +390,10 @@ func changedProperties(old, cur *ojson.Object) []string {
 	top := func(o *ojson.Object) *ojson.Object {
 		t := o.Clone()
 		t.Delete("fields")
-		t.Delete("workflows")
 		return t
 	}
 	diff("", top(old), top(cur))
 	diff("fields.", old.Object("fields"), cur.Object("fields"))
-	diff("workflows.", old.Object("workflows"), cur.Object("workflows"))
 	sort.Strings(out)
 	return out
 }
@@ -449,7 +443,7 @@ func (f *Foundation) historicLookup(ctx context.Context, sc *scanner.Scanner, se
 
 // historicOverlay resolves a base chain with every base as it was then; a
 // base that did not exist then leaves the chain unresolved (nil).
-func historicOverlay(a *model.Artifact, l *lookupAt) (*model.Overlay, error) {
+func historicOverlay(a *model.Artifact, l *lookupAt, schema *model.Schema) (*model.Overlay, error) {
 	ov, err := model.ResolveOverlay(a, l.get)
 	if l.failed != nil {
 		return nil, l.failed
@@ -457,7 +451,7 @@ func historicOverlay(a *model.Artifact, l *lookupAt) (*model.Overlay, error) {
 	if err != nil {
 		return nil, nil //nolint:nilerr // a broken chain then is shown without overlay, not as an error
 	}
-	return ov, nil
+	return ov.WithoutWorkflows(schema), nil
 }
 
 // historicSurroundings fills what surrounded the artifact at seq, everything

@@ -7,6 +7,7 @@ import { api, server } from "./api";
 import { store } from "./store";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
 import type { Attachment, Field, Summary } from "./types";
+import { hasSource, knownOptions, withMissing } from "./options";
 import { label, safeHref, showValue } from "./util";
 
 // Schema-driven field editor (design guide §4.6, §7.10): one element per
@@ -194,6 +195,13 @@ export class FieldEditor extends LightElement {
 
   private enumInput(): TemplateResult {
     const f = this.field;
+    if (hasSource(f)) {
+      // a dynamic enumeration: the options are artifacts; without the type they cannot be loaded
+      const options = this.typeId ? knownOptions(this.typeId, f.id, this.folder, () => this.requestUpdate()) : [];
+      return html`<corestone-enum .options=${withMissing(options ?? [], options ? this.value : null)} .value=${this.value}
+        .folder=${this.folder} .label=${f.name || f.id} .multiple=${!!f.multiple} .readonly=${!!this.disabled || !options}
+        @enum-change=${(e: CustomEvent<FieldValue>) => this.emit(e.detail)}></corestone-enum>`;
+    }
     const query = this.suggestionQuery.trim().toLowerCase();
     const suggestions = [...new Set([...this.used, ...this.globalUsed.filter((v) => query.length >= 2 && v.toLowerCase().includes(query))])];
     return html`<corestone-enum .options=${f.options ?? []} .suggestions=${suggestions} .value=${this.value}

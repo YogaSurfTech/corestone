@@ -88,10 +88,10 @@ func meta(r resp, key string) string {
 }
 
 func (a *api) seed() {
-	a.ok("PUT", "/api/config?path=entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"from":"review","to":"done"}]}`, 200)
-	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/workflows/dev-workflow.json", `{"initial":"open","states":["open","review","done"],"transitions":[{"id":"submit","from":"open","to":"review"},{"id":"approve","from":"review","to":"done"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/fields.json", `{"fields":[{"id":"priority","type":"enum","options":[{"value":"low"},{"value":"high"}]},{"id":"rationale","type":"multiline"},{"id":"status","type":"workflow","workflow":"dev"}]}`, 200)
 	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
-		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"workflows":["dev"],"fields":[{"id":"priority","required":true},"rationale"]},
+		{"id":"requirement","displayName":"Requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
 		{"id":"testcase","hid":{"prefix":"TC"}}]}`, 200)
 	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec"}]}`, 200)
 	a.ok("PUT", "/api/config?path=links/types.json", `{"types":[{"id":"verifies","sourceTypes":["testcase"],"targetTypes":["requirement"],"cardinality":"many-to-many"}]}`, 200)
@@ -204,12 +204,18 @@ func TestRESTLifecycle(t *testing.T) {
 	if !strings.Contains(string(ws.raw), `"state":"open"`) {
 		t.Fatalf("workflows %s", ws.raw)
 	}
-	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"done"}`, 400)
-	tr := a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"review"}`, 200)
-	if !strings.Contains(string(tr.raw), `"dev":"review"`) {
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"approve"}`, 400) // not from this state
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"review"}`, 400)  // a state is no transition
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"review"}`, 400)          // the old form
+	tr := a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"submit"}`, 200)
+	if !strings.Contains(string(tr.raw), `"status":{"state":"review","transition":"submit","previous":"open"}`) {
 		t.Fatalf("transition %s", tr.raw)
 	}
-	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"workflow":"dev","to":"done"}`, 412, "If-Match", etag)
+	a.ok("POST", "/api/artifacts/"+g1+"/transition", `{"field":"status","transition":"approve"}`, 412, "If-Match", etag)
+	// a workflow field is searched by its state
+	if found := a.ok("GET", "/api/repository/search?field.status=review", "", 200); !strings.Contains(string(found.raw), g1) {
+		t.Fatalf("search by state %s", found.raw)
+	}
 
 	// overlay analysis
 	ov := a.ok("POST", "/api/entries", `{"path":"specs/boot","type":"requirement","title":"Variant","base":"`+g1+`","fields":{"priority":"low"}}`, 201)
@@ -235,7 +241,7 @@ func TestRESTLifecycle(t *testing.T) {
 	if s.body["total"].(float64) != 2 {
 		t.Fatalf("search %s", s.raw)
 	}
-	s = a.ok("GET", "/api/repository/search?state.dev=review", "", 200)
+	s = a.ok("GET", "/api/repository/search?field.status=review", "", 200)
 	if s.body["total"].(float64) != 1 {
 		t.Fatalf("state search %s", s.raw)
 	}
@@ -538,7 +544,7 @@ func TestTableQueryAndDetails(t *testing.T) {
 	}
 	// REQ-1 high, REQ-2 low, REQ-3 high: low before high, then ID descending
 	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"type":"requirement"},
-		"sort":[{"col":"priority"},{"col":"$hid","dir":"desc"}]}`, 200)
+		"sort":["priority","~$hid"]}`, 200)
 	if got := ids(r); !slices.Equal(got, []string{reqs[1], reqs[2], reqs[0]}) || r.body["total"] != float64(3) || r.body["truncated"] != false {
 		t.Fatalf("query: %s", r.raw)
 	}
@@ -555,7 +561,8 @@ func TestTableQueryAndDetails(t *testing.T) {
 	if r = a.ok("POST", "/api/repository/query", `{"filter":{"kind":["entry"],"types":["*"]}}`, 200); r.body["total"] != float64(4) {
 		t.Fatalf("types wildcard: %s", r.raw)
 	}
-	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$nope"}]}`, 400)
+	a.ok("POST", "/api/repository/query", `{"sort":["$nope"]}`, 400)
+	a.ok("POST", "/api/repository/query", `{"sort":[{"col":"$hid","dir":"desc"}]}`, 400) // the old form
 	a.ok("POST", "/api/repository/query", `{"filter":{"kind":["nope"]}}`, 400)
 	a.ok("POST", "/api/repository/query", `{"filter":{"path":"../x"}}`, 400)
 	a.ok("POST", "/api/repository/query", `[`, 400)
@@ -579,8 +586,13 @@ func TestTableQueryAndDetails(t *testing.T) {
 			t.Fatalf("related %s missing: %s", g, d.raw)
 		}
 	}
+	// the State column brings the workflow fields along
+	st := a.ok("POST", "/api/artifacts/details", `{"ids":["`+reqs[1]+`"],"columns":["$state"]}`, 200)
+	if f := st.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 1 || f["status"].(map[string]any)["state"] != "open" {
+		t.Fatalf("details for the State column: %s", st.raw)
+	}
 	all := a.ok("POST", "/api/artifacts/details", `{"ids":["`+reqs[1]+`"]}`, 200)
-	if f := all.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 2 {
+	if f := all.body["artifacts"].([]any)[0].(map[string]any)["fields"].(map[string]any); len(f) != 3 { // priority, rationale, status
 		t.Fatalf("details without columns: %s", all.raw)
 	}
 	many := `"` + strings.Repeat(reqs[0]+`","`, 500) + reqs[0] + `"`
@@ -595,11 +607,11 @@ func TestSaveEndpoint(t *testing.T) {
 	tc := meta(a.ok("POST", "/api/entries", `{"path":"tests","type":"testcase","title":"T"}`, 201), "guid")
 
 	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"}}`, 412, "If-Match", `"stale"`)
-	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"},"transitions":[{"workflow":"dev","to":"done"}]}`, 400, "If-Match", etag)
+	a.ok("POST", "/api/artifacts/"+g+"/save", `{"patch":{"title":"x"},"transitions":[{"field":"status","transition":"approve"}]}`, 400, "If-Match", etag)
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	_ = mw.WriteField("changes", `{"patch":{"title":"Saved"},"transitions":[{"workflow":"dev","to":"submit"}],
+	_ = mw.WriteField("changes", `{"patch":{"title":"Saved"},"transitions":[{"field":"status","transition":"submit"}],
 		"addLinks":[{"type":"verifies","source":"`+tc+`","target":"`+g+`"}],"addComments":[{"author":"ann","text":"hi"}]}`)
 	fw, _ := mw.CreateFormFile("file", "notes.txt")
 	_, _ = fw.Write([]byte("hello"))
@@ -769,4 +781,118 @@ func TestCheckEntry(t *testing.T) {
 	}
 	a.ok("POST", "/api/documents/check", `{"path":"docs","type":"spec","title":"D"}`, 200)
 	a.ok("POST", "/api/entries/check", `not json`, 400)
+}
+
+// A dynamic enumeration offers artifacts as its options: a value is the
+// artifact's GUID, checked when it is chosen.
+func TestDynamicEnum(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	a.ok("PUT", "/api/config?path=entries/product-fields.json", `{"fields":[{"id":"rank","type":"integer"}]}`, 200)
+	a.ok("PUT", "/api/config?path=entries/types.json", `{"types":[
+		{"id":"requirement","hid":{"prefix":"REQ"},"fields":[{"id":"priority","required":true},"rationale","status"]},
+		{"id":"testcase","hid":{"prefix":"TC"}},{"id":"product","hid":{"prefix":"P"}}]}`, 200)
+	source := `"source":{"kind":"entry","types":["product"],"query":"rank>1","sort":["~rank","title"]}`
+	for _, bad := range []string{
+		`{"id":"product","type":"text",` + source + `}`,                                // only enumerations
+		`{"id":"product","type":"enum","options":[{"value":"a"}],` + source + `}`,      // a source replaces options
+		`{"id":"product","type":"enum","source":{"kind":"link","types":["verifies"]}}`, // entries and documents only
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":[]}}`,          // no type
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["rank desc"]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~"]}}`,
+		`{"id":"product","type":"enum","source":{"kind":"entry","types":["product"],"sort":[{"col":"rank","dir":"desc"}]}}`, // the old form
+	} {
+		a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[`+bad+`]}`, 400)
+	}
+	a.ok("PUT", "/api/config?path=documents/fields.json", `{"fields":[{"id":"product","name":"Belongs to product","type":"enum",`+source+`},
+		{"id":"also","type":"enum","multiple":true,"source":{"kind":"entry","types":["product"]}},
+		{"id":"reversed","type":"enum","source":{"kind":"entry","types":["product"],"sort":["~title"]}}]}`, 200)
+	a.ok("PUT", "/api/config?path=documents/types.json", `{"types":[{"id":"spec","fields":["product","also","reversed"]}]}`, 200)
+
+	product := func(title string, rank int) string {
+		return meta(a.ok("POST", "/api/entries", fmt.Sprintf(`{"path":"products","type":"product","title":%q,"fields":{"rank":%d}}`, title, rank), 201), "guid")
+	}
+	beta, alpha, gamma := product("Beta", 2), product("Alpha", 3), product("Gamma", 1)
+	req := meta(a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"R","fields":{"priority":"low"}}`, 201), "guid")
+
+	// the options: every product, in the source's order (rank descending); the second field by title
+	titles := func(field string) string {
+		var out []string
+		for _, o := range a.ok("GET", "/api/repository/options?type=spec&path=docs&field="+field, "", 200).body["options"].([]any) {
+			out = append(out, o.(map[string]any)["title"].(string))
+		}
+		return strings.Join(out, " ")
+	}
+	if got := titles("product"); got != "Alpha Beta Gamma" {
+		t.Fatalf("options by rank: %s", got)
+	}
+	if got := titles("also"); got != "Alpha Beta Gamma" {
+		t.Fatalf("options by title: %s", got)
+	}
+	if got := titles("reversed"); got != "Gamma Beta Alpha" {
+		t.Fatalf("options by ~title: %s", got)
+	}
+	a.ok("PUT", "/api/entries/"+gamma, `{"title":"A first"}`, 200)
+	if got := titles("also"); got != "A first Alpha Beta" {
+		t.Fatalf("options by title after a rename: %s", got)
+	}
+	a.ok("GET", "/api/repository/options?type=spec&path=docs&field=nope", "", 404)
+	a.ok("GET", "/api/repository/options?type=requirement&path=specs&field=priority", "", 404)
+
+	// a value is the GUID of an option
+	doc := func(title, fields string, status int) string {
+		return meta(a.ok("POST", "/api/documents", `{"path":"docs","type":"spec","title":"`+title+`","fields":`+fields+`}`, status), "guid")
+	}
+	doc("no guid", `{"product":"Beta"}`, 400)
+	doc("no option", `{"product":"`+req+`"}`, 400)
+	doc("missing", `{"product":"00000000-0000-4000-8000-000000000000"}`, 400)
+	doc("one of several is no option", `{"also":["`+alpha+`","`+req+`"]}`, 400)
+	dB := doc("For Beta", `{"product":"`+beta+`","also":["`+alpha+`","`+gamma+`"]}`, 201)
+	dA := doc("For Alpha", `{"product":"`+alpha+`"}`, 201)
+
+	// found by the value, and sorted by the chosen artifact's title
+	if found := a.ok("GET", "/api/repository/search?kind=document&field.product="+beta, "", 200); found.body["total"] != float64(1) {
+		t.Fatalf("search by product: %s", found.raw)
+	}
+	r := a.ok("POST", "/api/repository/query", `{"filter":{"kind":["document"],"type":"spec"},"sort":["product"]}`, 200)
+	if got := r.body["ids"].([]any); len(got) != 2 || got[0] != dA || got[1] != dB {
+		t.Fatalf("sorted by product: %s", r.raw)
+	}
+
+	// a product deleted later: the value stays and other edits still work; it cannot be chosen again
+	a.ok("DELETE", "/api/entries/"+beta, "", 204)
+	a.ok("PUT", "/api/documents/"+dB, `{"title":"Still for Beta"}`, 200)
+	a.ok("PUT", "/api/documents/"+dA, `{"fields":{"product":"`+beta+`"}}`, 400)
+	if got := titles("product"); got != "Alpha A first" {
+		t.Fatalf("options after a delete: %s", got)
+	}
+}
+
+// The search's sort names a column; "~" in front sorts descending.
+func TestSearchSortDirection(t *testing.T) {
+	a := newAPI(t)
+	a.seed()
+	for _, title := range []string{"Bravo", "Alpha", "Charlie"} { // REQ-1, REQ-2, REQ-3, created in this order
+		a.ok("POST", "/api/entries", `{"path":"specs","type":"requirement","title":"`+title+`","fields":{"priority":"low"}}`, 201)
+	}
+	titles := func(sort string) string {
+		var out []string
+		for _, s := range a.ok("GET", "/api/repository/search?kind=entry&sort="+sort, "", 200).body["artifacts"].([]any) {
+			out = append(out, s.(map[string]any)["title"].(string))
+		}
+		return strings.Join(out, " ")
+	}
+	for sort, want := range map[string]string{
+		"title": "Alpha Bravo Charlie", "~title": "Charlie Bravo Alpha",
+		"hid": "Bravo Alpha Charlie", "~hid": "Charlie Alpha Bravo",
+		"created": "Bravo Alpha Charlie", "~created": "Charlie Alpha Bravo",
+		"modified": "Bravo Alpha Charlie", "~modified": "Charlie Alpha Bravo", "": "Charlie Alpha Bravo",
+	} {
+		if got := titles(sort); got != want {
+			t.Errorf("sort=%s: %s, want %s", sort, got, want)
+		}
+	}
+	for _, bad := range []string{"nope", "~", "~~title", "title%20desc"} {
+		a.ok("GET", "/api/repository/search?sort="+bad, "", 400)
+	}
 }

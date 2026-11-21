@@ -349,7 +349,7 @@ export class NewDialog extends LightElement {
             <textarea id="new-text" required .value=${this.text} @input=${(e: Event) => (this.text = (e.target as HTMLTextAreaElement).value)}></textarea></div></div>` : nothing}
         ${(s.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.values[f.id]} .typeId=${s.type} .folder=${this.path}
           @field-change=${(e: CustomEvent) => { this.values = { ...this.values, [e.detail.id]: e.detail.value }; }}></corestone-field>`)}
-        ${s.workflows?.length ? html`<div class="help" style="margin-top:8px">Workflows ${s.workflows.join(", ")} start in their initial state.</div>` : nothing}
+        ${(s.fields ?? []).some((f) => f.type === "workflow") ? html`<div class="help" style="margin-top:8px">${(s.fields ?? []).filter((f) => f.type === "workflow").map((f) => f.name || f.id).join(", ")}: starts in the initial state.</div>` : nothing}
         <div class="foot">
           <button type="button" class="btn" @click=${() => this.cancel()}>Cancel</button>
           <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.scopeError} data-test="create">${this.busy ? "Creating…" : "Create"}</button>

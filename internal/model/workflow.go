@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/thomdehoog/corestone/internal/ojson"
 )
 
 // State is one workflow state.
@@ -13,9 +15,11 @@ type State struct {
 	Final        bool           `json:"final,omitempty"`
 }
 
-// Transition moves an artifact between states.
+// Transition moves an artifact between states. Its id names it within the
+// workflow: it is what a client sends to run it, and two transitions may
+// lead from the same state to the same state.
 type Transition struct {
-	ID   string   `json:"id,omitempty"`
+	ID   string   `json:"id"`
 	Name string   `json:"name,omitempty"`
 	From []string `json:"from"` // state ids, or ["*"]
 	To   string   `json:"to"`
@@ -118,7 +122,18 @@ func (w *Workflow) Validate() error {
 	if !seen[w.Initial] {
 		return Invalid("workflow %q initial state %q is not defined", w.ID, w.Initial)
 	}
+	ids := map[string]bool{}
 	for i, t := range w.Transitions {
+		if t.ID == "" {
+			return Invalid("workflow %q transition %d has no id", w.ID, i)
+		}
+		if err := ValidateTypeID(t.ID); err != nil {
+			return fmt.Errorf("workflow %q transition %d id: %w", w.ID, i, err)
+		}
+		if ids[t.ID] {
+			return Invalid("workflow %q has two transitions with the id %q", w.ID, t.ID)
+		}
+		ids[t.ID] = true
 		if !seen[t.To] {
 			return Invalid("workflow %q transition %d targets unknown state %q", w.ID, i, t.To)
 		}
@@ -158,13 +173,91 @@ func (w *Workflow) Available(from string) []Transition {
 	return out
 }
 
-// Find returns the transition from state `from` to state `to` (by target
-// state or by transition id).
-func (w *Workflow) Find(from, to string) (Transition, bool) {
+// Find returns the transition with the given id, if it is allowed from
+// state `from`.
+func (w *Workflow) Find(from, id string) (Transition, bool) {
 	for _, t := range w.Available(from) {
-		if t.To == to || (t.ID != "" && t.ID == to) {
+		if t.ID == id {
 			return t, true
 		}
 	}
 	return Transition{}, false
+}
+
+// IsFinal reports whether id is a final state of the workflow.
+func (w *Workflow) IsFinal(id string) bool {
+	for _, s := range w.States {
+		if s.ID == id {
+			return s.Final
+		}
+	}
+	return false
+}
+
+// WorkflowValue is the value of a workflow field: the state the artifact is
+// in, the transition that led there and the state before it. A new artifact
+// has only the state. The server writes it; clients send transitions.
+type WorkflowValue struct {
+	State      string
+	Transition string
+	Previous   string
+}
+
+// ParseWorkflowValue reads a workflow field's stored value: an object with
+// "state" and optionally "transition" and "previous", all strings.
+func ParseWorkflowValue(v any) (WorkflowValue, bool) {
+	var get func(string) (any, bool)
+	var keys []string
+	switch o := v.(type) {
+	case *ojson.Object:
+		if o == nil {
+			return WorkflowValue{}, false
+		}
+		get, keys = o.Get, o.Keys()
+	case map[string]any:
+		get = func(k string) (any, bool) { x, ok := o[k]; return x, ok }
+		for k := range o {
+			keys = append(keys, k)
+		}
+	default:
+		return WorkflowValue{}, false
+	}
+	var w WorkflowValue
+	for _, k := range keys {
+		x, _ := get(k)
+		s, ok := x.(string)
+		if !ok {
+			return WorkflowValue{}, false
+		}
+		switch k {
+		case "state":
+			w.State = s
+		case "transition":
+			w.Transition = s
+		case "previous":
+			w.Previous = s
+		default:
+			return WorkflowValue{}, false
+		}
+	}
+	return w, w.State != ""
+}
+
+// WorkflowStateOf is the state in a workflow field's stored value, or "".
+func WorkflowStateOf(v any) string {
+	w, _ := ParseWorkflowValue(v)
+	return w.State
+}
+
+// Object is the stored form of the value.
+func (w WorkflowValue) Object() *ojson.Object {
+	o := ojson.NewObject()
+	o.Set("state", w.State)
+	if w.Transition != "" {
+		o.Set("transition", w.Transition)
+	}
+	if w.Previous != "" {
+		o.Set("previous", w.Previous)
+	}
+	return o
 }

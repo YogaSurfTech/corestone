@@ -10,19 +10,19 @@ test.beforeAll(async () => {
   await seedDomain(folder, prefix);
 });
 
-test("two independent workflows on one artifact, with diagram and rework", async ({ page }) => {
+test("two workflow fields on one artifact, with diagram and rework", async ({ page }) => {
   const e = await post("/entries", { path: folder, type: "req", title: "Two workflows", fields: { priority: "low" } });
   await page.goto(`/artifact/${e.meta.guid}`);
-  const dev = page.locator(".workflow[data-workflow=dev]");
-  const pub = page.locator(".workflow[data-workflow=publish]");
+  const dev = page.locator(".workflow[data-workflow=status]");
+  const pub = page.locator(".workflow[data-workflow=publication]");
   await expect(dev.locator(".pill.state")).toHaveText("open");
   await expect(pub.locator(".pill.state")).toHaveText("draft");
   // both transitions wait for Save and are published in one commit
   await pub.locator("select").selectOption("release");
-  await expect(pub.locator("[data-test=pending-state-publish]")).toHaveText("released");
+  await expect(pub.locator("[data-test=pending-state-publication]")).toHaveText("released");
   await expect(dev.locator(".pill.state")).toHaveText("open"); // untouched
   await dev.locator("select").selectOption("submit");
-  await expect(dev.locator("[data-test=pending-state-dev]")).toHaveText("review");
+  await expect(dev.locator("[data-test=pending-state-status]")).toHaveText("review");
   await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 transitions");
   await page.locator("[data-test=save]").click();
   await expect(page.locator("[data-test=save]")).toHaveCount(0);
@@ -39,10 +39,17 @@ test("two independent workflows on one artifact, with diagram and rework", async
   await expect(dev.locator(".wf-edge", { hasText: "open → review" })).toBeVisible();
   await dev.locator("button", { hasText: "diagram" }).click();
   await expect(dev.locator(".wf-diagram")).toHaveCount(0);
-  const stored = await get<{ meta: { workflows: Record<string, string> } }>(`/entries/${e.meta.guid}`);
-  expect(stored.meta.workflows).toEqual({ dev: "open", publish: "released" });
+  // the field holds the state, the transition that led to it and the state before
+  const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${e.meta.guid}`);
+  expect(stored.data.fields.status).toEqual({ state: "open", transition: "rework", previous: "review" });
+  expect(stored.data.fields.publication).toEqual({ state: "released", transition: "release", previous: "draft" });
   await page.locator(".quicklinks a", { hasText: "History" }).click();
-  await expect(page.locator("#sec-history .history-row", { hasText: "transitioned from review to open" })).toHaveCount(1);
+  await expect(page.locator("#sec-history .history-row", { hasText: "status: review to open" })).toHaveCount(1);
+  // the overview's State column shows the fields in the type's order (status before publication), named by the field
+  await page.goto(`/folder/${folder}`);
+  const pills = page.locator("corestone-overview table.grid tbody tr", { hasText: "Two workflows" }).locator(".pill.state");
+  await expect(pills).toHaveText(["open", "released"]);
+  await expect(pills.first()).toHaveAttribute("title", "Status");
 });
 
 test("relationships: typed links both ways, removal, and endpoint rules", async ({ page }) => {
@@ -164,6 +171,9 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await expect(ov.locator("[data-test=overlays] .node a", { hasText: `Leaf ${id}` })).toBeVisible();
 });
 
+/** Every entry has its own workflow states; they are no part of an overlay. */
+const states = { status: { state: "open" }, publication: { state: "draft" } };
+
 test("change or remove an entry's base with a preview of the effective values", async ({ page }) => {
   const a = await post("/entries", { path: folder, type: "req", title: `Base A ${id}`, fields: { priority: "high", rationale: "from A" } });
   const b = await post("/entries", { path: folder, type: "req", title: `Base B ${id}`, fields: { priority: "low", rationale: "from B" } });
@@ -229,7 +239,7 @@ test("change or remove an entry's base with a preview of the effective values", 
   await expect(page.locator("[data-field=priority] .inherited")).toHaveCount(0);
   const after = await get<{ meta: { base?: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
   expect(after.meta.base).toBeFalsy();
-  expect(after.data.fields).toEqual({ effort: 3, priority: "low", rationale: "from B" });
+  expect(after.data.fields).toEqual({ effort: 3, priority: "low", rationale: "from B", ...states });
   // the overlay of this entry stays attached
   expect((await get<{ meta: { base?: string } }>(`/artifacts/${top.meta.guid}`)).meta.base).toBe(e.meta.guid);
   // without a base, the button offers to inherit from an entry, and the picker has nothing to remove
@@ -263,11 +273,11 @@ test("create a new base from an entry's own fields, as a level of its own or bel
   await expect(page.locator("[data-field=priority] .inherited")).toContainText("inherited from base");
   await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("low");
   const entry = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${e.meta.guid}`);
-  expect(entry.data.fields).toEqual({ effort: 3 });
+  expect(entry.data.fields).toEqual({ effort: 3, ...states });
   const mid = await get<{ meta: { title: string; base: string; hid: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${entry.meta.base}`);
   expect(mid.meta.title).toBe(`Middle ${id}`);
   expect(mid.meta.base).toBe(a.meta.guid);
-  expect(mid.data.fields).toEqual({ priority: "low" });
+  expect(mid.data.fields).toEqual({ priority: "low", ...states });
   await expect(page.locator("#sec-overlay .chain .node").first()).toContainText(mid.meta.hid);
 
   // without a base, required fields must move with it
@@ -283,11 +293,11 @@ test("create a new base from an entry's own fields, as a level of its own or bel
   await form.locator("[data-test=apply-underlay]").click();
   await expect(form).toHaveCount(0);
   const soloAfter = await get<{ meta: { base: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${solo.meta.guid}`);
-  expect(soloAfter.data.fields).toEqual({ effort: 2 });
+  expect(soloAfter.data.fields).toEqual({ effort: 2, ...states });
   const soloBase = await get<{ meta: { title: string; base?: string }; data: { fields: Record<string, unknown> } }>(`/artifacts/${soloAfter.meta.base}`);
   expect(soloBase.meta.title).toBe(`Solo ${id}`);
   expect(soloBase.meta.base).toBeFalsy();
-  expect(soloBase.data.fields).toEqual({ priority: "high" });
+  expect(soloBase.data.fields).toEqual({ priority: "high", ...states });
 });
 
 test("HID rename keeps history and lookup; move keeps identity", async ({ page }) => {

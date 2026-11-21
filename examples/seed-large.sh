@@ -201,9 +201,9 @@ class Client:
             raise RuntimeError(f"Refusing self-link {kind}: {source}")
         self.create("links", dict(type=kind, source=source, target=target))
 
-    def advance(self, guid, workflow, depth):
+    def advance(self, guid, field, depth):
         for index in range(depth):
-            body = dict(workflow=workflow, to=f"advance-{index}")
+            body = dict(field=field, transition=f"advance-{index}")
             self.record("transitions", guid, body)
             if not self.args.dry_run:
                 self.request("POST", f"/artifacts/{guid}/transition", body)
@@ -225,14 +225,15 @@ def common_fields():
             dict(id="description", name="Engineering detail", type="multiline"),
             dict(id="tags", name="Tags", type="enum", enum="tags", multiple=True),
             dict(id="owner", name="Owner", type="text"),
+            dict(id="status", name="Status", type="workflow", workflow="delivery"),
             dict(id="iteration", name="Iteration", type="integer"),
             dict(id="due", name="Target date", type="date")]
 
 
-def type_defs(roles, prefix, workflow_id):
+def type_defs(roles, prefix):
     return [dict(id=role, displayName=LABELS[role], hid=dict(prefix=f"{prefix}-{role[:3].upper()}", digits=6),
-                 workflows=[workflow_id], fields=[dict(id="priority", required=True), "effort", "description", "tags", "owner", "iteration", "due"],
-                 presentation=dict(columns=["priority", "effort", "owner", "iteration"], icon=ICONS[role])) for role in roles]
+                 fields=[dict(id="priority", required=True), "effort", "description", "tags", "owner", "iteration", "due", "status"],
+                 presentation=dict(columns=["priority", "effort", "owner", "iteration", "status"], icon=ICONS[role])) for role in roles]
 
 
 def install_icons(client):
@@ -249,9 +250,10 @@ def configure(client):
     cfg(root, "entries/enums/tags-enum.json", dict(extendable=True, options=[dict(value=s) for s in ["architecture", "reliability", "performance", "verification", "documentation"]]))
     cfg(root, "entries/fields.json", dict(fields=common_fields()))
     cfg(root, "entries/workflows/delivery-workflow.json", workflow(["open", "implementation", "verification", "done"]))
-    cfg(root, "entries/types.json", dict(inheritance="off", types=type_defs(ALL_ROLES, "LAB", "delivery")))
+    cfg(root, "entries/types.json", dict(inheritance="off", types=type_defs(ALL_ROLES, "LAB")))
     cfg(root, "documents/workflows/publication-workflow.json", workflow(["draft", "review", "released"]))
-    cfg(root, "documents/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, hid=dict(prefix=p), workflows=["publication"], presentation=dict(icon=ICONS[s]))
+    cfg(root, "documents/fields.json", dict(fields=[dict(id="publication", name="Publication", type="workflow", workflow="publication")]))
+    cfg(root, "documents/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, hid=dict(prefix=p), fields=["publication"], presentation=dict(icon=ICONS[s]))
         for s, n, p in [("architecture-note", "Architecture note", "ARCH"), ("verification-plan", "Verification plan", "VPLAN"), ("interface-contract", "Interface contract", "IFACE")]]))
     cfg(root, "links/types.json", dict(inheritance="off", types=[dict(id=s, displayName=n, reverseName=r, presentation=dict(icon=ICONS[s])) for s, n, r in [
         ("verifies", "verifies", "verified by"), ("refines", "refines", "refined by"), ("implements", "implements", "implemented by"),
@@ -270,7 +272,7 @@ def configure(client):
         if p["independent"]:
             cfg(scope, "entries/enums/tags-enum.json", dict(extendable=True, options=[dict(value=m) for m in p["modules"]]))
         cfg(scope, "entries/workflows/delivery-workflow.json", workflow(p["states"]))
-        types = type_defs(p["roles"], p["prefix"], "delivery")
+        types = type_defs(p["roles"], p["prefix"])
         for t in types:
             t["fields"].append(extra_id)
             t["presentation"]["columns"].append(extra_id)
@@ -390,7 +392,7 @@ def generate(client):
                 module_refs[module].append(guid)
             # Distribute lifecycle states without a transition commit for every artifact.
             if index % 4 == 0:
-                client.advance(guid, "delivery", 1 + (index // 4) % (len(p["states"]) - 1))
+                client.advance(guid, "status", 1 + (index // 4) % (len(p["states"]) - 1))
             if p["id"] != "moss-lora" and index % 17 == 0:
                 comment = client.create("comments", dict(type="review-question", subject=guid, author=AUTHORS[module_index % len(AUTHORS)],
                     text=f"For {feature}, please attach the worst-case {budget} {p['unit']} timing trace and the restart-recovery evidence before acceptance."))

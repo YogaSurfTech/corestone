@@ -111,7 +111,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
   (`t.load` honours staged ops; duplicate and cardinality checks count links dropped or added in
   the same save); the parts are combined into one commit with one event.
 - `merge.go` — a save from an older version: what the user and others both changed since that
-  version (properties, fields, workflows, attachments, removed links), with who changed it; only
+  version (properties, fields, attachments, removed links), with who changed it; only
   such overlaps refuse the save (`SaveConflict`), everything else merges.
 - `config.go` — configuration files (read, write with warnings for unresolved references, delete),
   attachments. Enforcement of the configuration — types defined where an artifact lives, including
@@ -129,7 +129,7 @@ system —, links, comments, scanner, other) or *ignore*; configured indexers de
 
 Routes (Go 1.22 method patterns), 4 MiB body cap, ETag/If-Match/If-None-Match per RFC 9110, error
 mapping (400/404/409/412/503), kind-checked collections. Generic tables use `POST /api/repository/query`
-(`{filter, sort: [{col, dir}], limit}` → `{total, ids, truncated}`; `filter.types` restricts to type
+(`{filter, sort: ["~$hid", "priority"], limit}`, `~` for descending → `{total, ids, truncated}`; `filter.types` restricts to type
 ids, `kind/*` or `*`) and `POST /api/artifacts/details` (`{ids ≤ 500, columns}` →
 `{artifacts, related, typeNames}`). `ws.go` is the session hub: hello, commit
 and status broadcasts, viewer/editor presence per artifact.

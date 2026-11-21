@@ -9,7 +9,7 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, Summary, View } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, hidLabel, label, showValue, undeclaredField } from "./util";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./util";
 import { MAX_ATTACHMENT, freeFileName } from "./detail";
 import "./type-icon";
 import { appIcon, type AppIcon } from "./icons";
@@ -468,7 +468,7 @@ export class DocumentView extends LightElement {
       <div class="head">${p.number ? html`<span class="num">${p.number}</span>` : nothing}
         <corestone-type-icon kind="entry" .type=${v.meta.type} .folder=${v.meta.folder}></corestone-type-icon>
         ${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : nothing}<b class="title">${v.meta.title}</b>
-        ${Object.entries(v.meta.workflows ?? {}).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
+        ${workflowStates(v.data.fields as Record<string, unknown> | undefined).map(([, st]) => html`<span class="pill state">${st}</span>`)}</div>
       ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
         <cs-richtext readonly .value=${values[f.id] as RichText} .files=${files}></cs-richtext></div>`)}
     </div>`, el);
@@ -738,7 +738,7 @@ export class DocumentView extends LightElement {
       case "props":
         return html`${this.sideHead(id, "Document properties")}
           <dl class="kv"><dt>Type</dt><dd>${v.meta.type}</dd><dt>Folder</dt><dd>${v.meta.folder || "/"}</dd><dt>GUID</dt><dd class="mono small">${v.meta.guid}</dd><dt>Modified</dt><dd>${relTime(v.meta.modifiedAt)}</dd>
-            ${Object.entries(v.meta.workflows ?? {}).map(([w, st]) => html`<dt>${w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
+            ${workflowStates(this.fields).map(([w, st]) => html`<dt>${this.schema?.fields?.find((f) => f.id === w)?.name || w}</dt><dd><span class="pill state">${st}</span></dd>`)}</dl>
           ${(this.schema?.fields ?? []).filter((f) => f.type !== "workflow").map((f) => html`<corestone-field .field=${f} .value=${this.fields[f.id]} .attachments=${v.attachments ?? []} .typeId=${v.meta.type} .folder=${v.meta.folder}
             @field-change=${(e: CustomEvent) => { const n = { ...this.fields }; if (e.detail.value == null) delete n[e.detail.id]; else n[e.detail.id] = e.detail.value; this.fields = n; this.touch(); }}></corestone-field>`)}
           ${Object.keys(this.fields).filter((k) => !this.schema?.fields?.some((f) => f.id === k)).map((k) => html`<corestone-field .field=${undeclaredField(k, this.fields[k])} .value=${this.fields[k]} undeclared

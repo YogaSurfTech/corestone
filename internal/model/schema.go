@@ -36,7 +36,6 @@ type Schema struct {
 	Description string      `json:"description,omitempty"`
 	HID         *HIDConfig  `json:"hid,omitempty"`
 	Fields      []Field     `json:"fields,omitempty"`
-	Workflows   []string    `json:"workflows,omitempty"`
 	SourceTypes []string    `json:"sourceTypes,omitempty"` // links: allowed source types ("*" = any)
 	TargetTypes []string    `json:"targetTypes,omitempty"` // links: allowed target types
 	Cardinality Cardinality `json:"cardinality,omitempty"` // links
@@ -54,7 +53,7 @@ type Schema struct {
 
 // knownSchemaKeys are consumed by the typed struct; everything else is kept in Extra.
 var knownSchemaKeys = map[string]bool{"type": true, "kind": true, "inheritance": true, "displayName": true,
-	"description": true, "hid": true, "fields": true, "workflows": true, "sourceTypes": true,
+	"description": true, "hid": true, "fields": true, "sourceTypes": true,
 	"targetTypes": true, "cardinality": true, "reverseName": true, "presentation": true, "sources": true,
 	"entryTypes": true}
 
@@ -124,11 +123,6 @@ func (s *Schema) Validate() error {
 		}
 		seen[s.Fields[i].ID] = true
 	}
-	for _, w := range s.Workflows {
-		if err := ValidateTypeID(w); err != nil {
-			return fmt.Errorf("workflow reference: %w", err)
-		}
-	}
 	if err := validateEndpoints("sourceTypes", s.SourceTypes); err != nil {
 		return err
 	}
@@ -172,23 +166,12 @@ func (s *Schema) Field(id string) *Field {
 	return nil
 }
 
-// AllWorkflows returns workflow ids from both the workflows list and
-// workflow-typed fields, in a stable order.
-func (s *Schema) AllWorkflows() []string {
-	set := map[string]bool{}
-	var out []string
-	add := func(id string) {
-		if id != "" && !set[id] {
-			set[id] = true
-			out = append(out, id)
-		}
-	}
-	for _, w := range s.Workflows {
-		add(w)
-	}
+// WorkflowFields returns the fields of type workflow, in their order.
+func (s *Schema) WorkflowFields() []Field {
+	var out []Field
 	for _, f := range s.Fields {
 		if f.Type == FieldWorkflow {
-			add(f.Workflow)
+			out = append(out, f)
 		}
 	}
 	return out
@@ -297,17 +280,6 @@ func Compose(defs []ScopedSchema) *Schema {
 			}
 			if !replaced {
 				eff.Fields = append(eff.Fields, f)
-			}
-		}
-		for _, w := range s.Workflows {
-			found := false
-			for _, e := range eff.Workflows {
-				if e == w {
-					found = true
-				}
-			}
-			if !found {
-				eff.Workflows = append(eff.Workflows, w)
 			}
 		}
 		if s.SourceTypes != nil {

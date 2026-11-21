@@ -203,14 +203,14 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err = p.sql.QueryContext(ctx, `SELECT a.guid, a.file_path, a.kind, a.type, COALESCE(s.folder, a.folder), a.states, a.fields
+	rows, err = p.sql.QueryContext(ctx, `SELECT a.guid, a.file_path, a.kind, a.type, COALESCE(s.folder, a.folder), a.fields
 		FROM artifacts a LEFT JOIN artifacts s ON s.guid = COALESCE(a.source, a.subject) WHERE a.valid`)
 	if err != nil {
 		return nil, unavailable(err)
 	}
 	for rows.Next() {
-		var g, path, kind, typ, folder, statesJSON, fieldsJSON string
-		_ = rows.Scan(&g, &path, &kind, &typ, &folder, &statesJSON, &fieldsJSON)
+		var g, path, kind, typ, folder, fieldsJSON string
+		_ = rows.Scan(&g, &path, &kind, &typ, &folder, &fieldsJSON)
 		eff := cfg.Effective(typ, folder)
 		if eff == nil || string(eff.Kind) != kind {
 			add("error", "unknown-type", g, path, fmt.Sprintf("type %q is not defined for %ss here", typ, kind))
@@ -228,16 +228,20 @@ func (p *DB) Validate(ctx context.Context) ([]Issue, error) {
 				add("warning", "undeclared-field", g, path, fmt.Sprintf("field %q is not defined for type %q", k, typ))
 			}
 		}
-		var states map[string]string
-		_ = json.Unmarshal([]byte(statesJSON), &states)
-		for _, wid := range eff.AllWorkflows() {
-			wf := cfg.Workflow(typ, wid, folder)
+		for _, fd := range eff.WorkflowFields() {
+			wf := cfg.Workflow(typ, fd.Workflow, folder)
 			if wf == nil {
-				add("warning", "unknown-workflow", g, path, "type assigns workflow \""+wid+"\" which is not defined here")
+				add("warning", "unknown-workflow", g, path, "field \""+fd.ID+"\" uses workflow \""+fd.Workflow+"\" which is not defined here")
 				continue
 			}
-			if st, ok := states[wid]; ok && !wf.HasState(st) {
-				add("error", "unknown-state", g, path, "workflow \""+wid+"\" has no state \""+st+"\"")
+			v, set := fields[fd.ID]
+			if !set {
+				continue
+			}
+			if wv, ok := model.ParseWorkflowValue(v); !ok {
+				add("error", "unknown-state", g, path, "field \""+fd.ID+"\" does not hold a workflow state")
+			} else if !wf.HasState(wv.State) {
+				add("error", "unknown-state", g, path, "field \""+fd.ID+"\": workflow \""+fd.Workflow+"\" has no state \""+wv.State+"\"")
 			}
 		}
 	}

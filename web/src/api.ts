@@ -81,7 +81,8 @@ const q = (params: Record<string, string | number | boolean | undefined>) => {
 /** The body of a save: what changed besides attachments to store. */
 export interface SaveChanges {
   patch?: Record<string, unknown>;
-  transitions?: { workflow: string; to: string }[];
+  /** Transitions to run, each on a workflow field, by the transition's id. */
+  transitions?: { field: string; transition: string }[];
   addLinks?: { type: string; source: string; target: string }[];
   /** Each removed link with the version the user saw: a link changed since conflicts. */
   removeLinks?: { guid: string; etag?: string }[];
@@ -114,13 +115,17 @@ export const api = {
   search: (params: { q?: string; kind?: string; type?: string; path?: string; subtree?: boolean; limit?: number; [k: string]: string | number | boolean | undefined }) =>
     request<{ artifacts: Summary[]; total: number }>("GET", "/repository/search" + q(params)),
   types: (path: string) => request<{ types: Schema[] }>("GET", "/repository/types" + q({ path })),
+  /** The options of a dynamic enumeration field: the artifacts its source names. */
+  options: (type: string, field: string, path = "") => request<{ options: Summary[] }>("GET", "/repository/options" + q({ type, field, path })),
   values: (type: string, field: string, path = "") => request<{ values: { value: string; count: number }[] }>("GET", "/repository/values" + q({ type, field, path })),
   validate: () => request<{ issues: Issue[]; errors: number; warnings: number }>("GET", "/repository/validate"),
   reindex: () => request<{ started: boolean }>("POST", "/repository/reindex"),
   moveFolder: (from: string, to: string) => request<{ moved: number }>("POST", "/repository/folders/move", { from, to }),
   /** The sorted GUIDs of every match (generic tables); rows come from details. */
+  /** A sort level goes out as its column, with "~" in front for descending. */
   query: (body: { filter?: TableFilter; sort?: SortLevel[]; limit?: number }, signal?: AbortSignal) =>
-    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query", body, {}, signal),
+    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query",
+      { ...body, sort: body.sort?.map((l) => (l.dir === "desc" ? "~" : "") + l.col) }, {}, signal),
   details: (ids: string[], columns?: string[], signal?: AbortSignal) =>
     request<TableRows>("POST", "/artifacts/details", { ids, columns }, {}, signal),
   hid: (hid: string) => request<{ records: { guid: string; hid: string; current: boolean }[] }>("GET", "/repository/hids/" + encodeURIComponent(hid)),
@@ -138,8 +143,8 @@ export const api = {
   overlay: (guid: string) => request<OverlayView>("GET", `/artifacts/${guid}/overlay`),
   documents: (guid: string) => request<{ documents: Summary[] }>("GET", `/artifacts/${guid}/documents`),
   workflows: (guid: string) => request<{ workflows: WorkflowEval[] }>("GET", `/artifacts/${guid}/workflows`),
-  transition: (guid: string, workflow: string, to: string, etag?: string) =>
-    request<View>("POST", `/artifacts/${guid}/transition`, { workflow, to }, etag ? { "If-Match": `"${etag}"` } : {}),
+  transition: (guid: string, field: string, transition: string, etag?: string) =>
+    request<View>("POST", `/artifacts/${guid}/transition`, { field, transition }, etag ? { "If-Match": `"${etag}"` } : {}),
   /** Everything the detail form changed, published as one commit; attachments go as multipart. */
   /** Whether an entry or document could be created from body (nothing is created). */
   check: (collection: "entries" | "documents", body: unknown) => request<{ ok: boolean; problems: string[] }>("POST", `/${collection}/check`, body),

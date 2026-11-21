@@ -27,7 +27,7 @@ type View struct {
 func summarize(a *model.Artifact, folder, path, etag string) *model.Summary {
 	s := &model.Summary{GUID: a.GUID, Kind: a.Kind, Type: a.Type, Title: a.Title, HID: a.HID, Folder: folder, Path: path,
 		Base: a.Base, Source: a.Source, Target: a.Target, Subject: a.Subject, Parent: a.Parent, Author: a.Author,
-		Created: a.Created, Workflows: a.Workflows, ETag: etag}
+		Created: a.Created, ETag: etag}
 	if a.Kind == model.KindComment {
 		s.Excerpt = model.Excerpt(a.Text)
 	}
@@ -91,7 +91,6 @@ func (t *txn) createArtifact(kind model.Kind, req *ojson.Object) (*changeset, er
 		fields = ojson.NewObject()
 	}
 	doc.Set("fields", fields.Clone())
-	doc.Set("workflows", ojson.NewObject())
 	if kind == model.KindDocument {
 		content := req.Array("content")
 		if content == nil {
@@ -124,7 +123,7 @@ func (t *txn) createArtifact(kind model.Kind, req *ojson.Object) (*changeset, er
 // validateArtifact enforces the repository contract for an entry or
 // document: type, HID uniqueness, overlay acyclicity, field types,
 // required fields, reference integrity, document content and workflow
-// initialization (states for newly assigned workflows are filled in).
+// initialization (workflow fields without a state start in the initial one).
 func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model.Artifact, isNew bool) error {
 	if err := a.Validate(); err != nil {
 		return err
@@ -218,22 +217,27 @@ func (t *txn) validateArtifact(a *model.Artifact, folder string, previous *model
 			}
 		}
 	}
-	// Workflows: initialize states of assigned workflows that have none yet.
-	if eff != nil {
-		for _, wid := range eff.AllWorkflows() {
-			if _, has := a.Workflows[wid]; has {
-				continue
-			}
-			def := t.cfg.Workflow(a.Type, wid, folder)
-			if def == nil {
-				return model.Invalid("schema %q assigns workflow %q which is not defined at %s", a.Type, wid, folderName(folder))
-			}
-			a.SetWorkflowState(wid, def.Initial)
+	return t.initWorkflows(a, eff, folder)
+}
+
+// initWorkflows gives every workflow field without a value the initial
+// state of its workflow, and checks the states of the others.
+func (t *txn) initWorkflows(a *model.Artifact, eff *model.Schema, folder string) error {
+	if eff == nil {
+		return nil
+	}
+	for _, f := range eff.WorkflowFields() {
+		def := t.cfg.Workflow(a.Type, f.Workflow, folder)
+		if def == nil {
+			return model.Invalid("field %q of type %q uses workflow %q, which is not defined at %s", f.ID, a.Type, f.Workflow, folderName(folder))
 		}
-		for wid, st := range a.Workflows {
-			if def := t.cfg.Workflow(a.Type, wid, folder); def != nil && !def.HasState(st) {
-				return model.Invalid("workflow %q has no state %q", wid, st)
-			}
+		cur, has := a.WorkflowValue(f.ID)
+		if !has {
+			a.SetWorkflowValue(f.ID, model.WorkflowValue{State: def.Initial})
+			continue
+		}
+		if !def.HasState(cur.State) {
+			return model.Invalid("field %q: workflow %q has no state %q", f.ID, f.Workflow, cur.State)
 		}
 	}
 	return nil
@@ -274,6 +278,34 @@ func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Objec
 			if err := def.ValidateValue(v); err != nil {
 				return err
 			}
+			// a workflow field is written by the server only: by a transition,
+			// or with the initial state (after this check)
+			if def.Type == model.FieldWorkflow {
+				if old, had := prev.Get(k); !had || !ojson.Equal(old, v) {
+					return model.Invalid("field %q is a workflow: its state changes through transitions", k)
+				}
+			}
+			// a dynamic enumeration: a value is checked when it is chosen, so an
+			// artifact deleted or retyped later does not block other edits
+			if def.Source != nil {
+				old, _ := prev.Get(k)
+				had := map[string]bool{}
+				for _, g := range def.SourceGUIDs(old) {
+					had[g] = true
+				}
+				for _, g := range def.SourceGUIDs(v) {
+					if had[g] {
+						continue
+					}
+					loc, err := t.exists(g)
+					if err != nil {
+						return fmt.Errorf("field %q: %w", k, err)
+					}
+					if !def.Source.Allows(loc.Kind, loc.Type) {
+						return model.Invalid("field %q does not offer %s (%s %s)", k, g, loc.Kind, loc.Type)
+					}
+				}
+			}
 			// links in a text are checked when added: a text that links to an item
 			// deleted later can still be edited (the link shows as missing)
 			linked := map[string]bool{}
@@ -294,6 +326,14 @@ func (t *txn) validateFields(eff *model.Schema, own, prev, resolved *ojson.Objec
 		}
 	}
 	for _, def := range eff.Fields {
+		if def.Type == model.FieldWorkflow {
+			if _, had := prev.Get(def.ID); had {
+				if _, has := own.Get(def.ID); !has {
+					return model.Invalid("field %q is a workflow: its state changes through transitions", def.ID)
+				}
+			}
+			continue
+		}
 		if !def.Required {
 			continue
 		}

@@ -37,10 +37,10 @@ Everything domain-specific lives in JSON configuration inside the repository:
 
 - **The type system** lives in `<scope>/.corestone/config/`, with one directory per kind
   (`entries/`, `documents/`, `links/`, `comments/`): `types.json` defines the kind's types (HID
-  generation, workflow assignments, link-type endpoint rules and cardinality, presentation hints),
+  generation, link-type endpoint rules and cardinality, presentation hints),
   `fields.json` and `<type>-fields.json` the fields with the Foundation's generic field types,
-  `enums/` the enumerations and `workflows/` the state machines — an artifact can be in several
-  workflows at once. Definitions resolve **lexically**, nearest folder first; a kind's
+  `enums/` the enumerations and `workflows/` the state machines. A workflow is a field: a field of
+  type `workflow` holds the state, and a type may have several. Definitions resolve **lexically**, nearest folder first; a kind's
   `types.json` can set `"inheritance": "off"` to give a subtree its own type system for that kind.
   The server **enforces** it: types and fields must be defined where an artifact lives. See
   [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -109,8 +109,8 @@ deep link), a REST client and a WebSocket session client. It contains no domain 
 - **Overview** — a table whose columns come from schema presentation metadata, with kind filters and
   the **＋ New** flow: choose a type visible at the current folder, fill an empty schema-generated
   form, create.
-- **Entry detail** — one scrollable page with quick links: general, fields, workflows (state
-  dropdown with available transitions and a diagram), relationships (with allowed link types),
+- **Entry detail** — one scrollable page with quick links: general, fields (a workflow field shows
+  its state, the transitions allowed from it and a diagram), relationships (with allowed link types),
   threaded comments, attachments, overlay composition (chain and per-field origin), history, and
   pass-through metadata. Field edits, transitions, added or removed links, comments and
   attachments are staged (shown as unsaved) and published together by **Save** as a single
@@ -134,18 +134,18 @@ GET  PUT  DELETE /api/artifacts/{guid}/files/{name}                          att
 POST /api/artifacts/{guid}/save           If-Match; one commit for all changes (see below)
 ```
 
-`POST /api/artifacts/{guid}/save` takes `{patch?, transitions?: [{workflow, to}], addLinks?,
+`POST /api/artifacts/{guid}/save` takes `{patch?, transitions?: [{field, transition}], addLinks?,
 removeLinks?: [guid], addComments?, removeFiles?: [name]}` as JSON, or as multipart with that
 object in a `changes` part plus one `file` part per attachment to store. Links must start or end
 at `{guid}`; comments are attached to it. All steps are validated together — any failure rejects
-the whole save — and published as one commit (`Kind HID modified; dev open -> review, 1 link
+the whole save — and published as one commit (`Kind HID modified; status: Submit for review (open -> review), 1 link
 added, …`; a single change keeps its usual subject). It returns the updated artifact and ETag.
 Each attachment may be up to 32 MiB, all of one save together up to 128 MiB.
 
 `If-Match` names the version the user started from. When the artifact has changed since, the save
 is merged: the user's changes are applied on top of the current version, and changes by others to
 anything else stay, without a warning. Only when both changed the same thing (a property, a field,
-a workflow, an attachment, or a link being removed — `removeLinks` entries may be `{guid, etag}`
+an attachment, or a link being removed — `removeLinks` entries may be `{guid, etag}`
 with the link version the user saw) is the save refused with `412` and
 `{etag, conflicts: [{key, author, time, base, theirs, mine}]}`. Sending the same save again with
 `overwrite: <that etag>` saves the user's values; a change made after that version conflicts again.
@@ -162,7 +162,9 @@ Service APIs:
 GET  /api/health                          liveness/readiness: 200 while the database answers, 503 otherwise; version, sessions
 GET  /api/repository                      head, projection status, statistics, scanner config
 GET  /api/repository/tree?path=&subtree=  folders and artifacts
-GET  /api/repository/search?q=&kind=&type=&path=&subtree=&hid=&field.<id>=&state.<wf>=&sort=&limit=&offset=
+GET  /api/repository/search?q=&kind=&type=&path=&subtree=&hid=&field.<id>=&sort=&limit=&offset=
+                                          sort: title, hid, path, created or modified; "~" in front for descending (~created: newest first)
+GET  /api/repository/options?type=&path=&field=   the options of a dynamic enumeration field (artifacts)
 GET  /api/repository/types?path=          effective schemas visible at a folder
 GET  /api/repository/values?type=&field=&path=   field values in use, most frequent first
 GET  /api/repository/validate             repository invariants: dangling refs, self-links, duplicate HIDs, cycles, misplaced metadata, …
@@ -175,7 +177,7 @@ GET  /api/artifacts/{guid}/schema | overlay | workflows | relationships | commen
                                           (history entries name links that repeat a deleted link: same type and endpoints)
 GET  /api/artifacts/{guid}/versions/{blob}?commit=   a historic version: links, comments, endpoints and subject as they were then,
                                           and what the commit changed (created, restored after a deletion, properties, links, comments)
-POST /api/artifacts/{guid}/transition     {workflow, to}      POST /api/artifacts/{guid}/move  {path}
+POST /api/artifacts/{guid}/transition     {field, transition}   POST /api/artifacts/{guid}/move  {path}
 GET  /api/config?scope=[&path=]           a folder's configuration files, or one file (ETag)
 PUT  DELETE /api/config?scope=&path=      write or remove a file (If-Match); returns unresolved references as warnings
 GET  /api/schemas/effective?type=&path=   the composed type    GET /api/workflows/{id}?type=&path=   a resolved workflow

@@ -92,9 +92,12 @@ class RecordingClient(seed.Client):
         for ref in refs:
             if isinstance(ref, dict) and ref.get("required"):
                 assert ref["id"] in body["fields"]
-        for workflow_id in definition.get("workflows", []):
-            wf = self.named(folder, kind, "workflow", body["type"], workflow_id)
-            assert wf["initial"] in {state["id"] for state in wf["states"]}
+        for ref in refs:  # a workflow is a field of the type; its definition is found from the folder
+            field = fields[ref["id"] if isinstance(ref, dict) else ref]
+            if field["type"] == "workflow":
+                assert field["id"] not in body.get("fields", {}), "a state is set by transitions only"
+                wf = self.named(folder, kind, "workflow", body["type"], field["workflow"])
+                assert wf["initial"] in {state["id"] for state in wf["states"]}
         if kind == "documents":
             # The documents format: sections with an 8-character id, placed
             # entries (each at most once per document) and text paragraphs.
@@ -121,13 +124,16 @@ class RecordingClient(seed.Client):
             self.role_counts[body["type"]] += 1
         return guid
 
-    def advance(self, guid, workflow_id, depth):
+    def advance(self, guid, field_id, depth):
         artifact = self.artifacts[guid]
         kind = "documents" if "content" in artifact else "entries"
-        wf = self.named(artifact["path"], kind, "workflow", artifact["type"], workflow_id)
+        _, fields, refs = self.definition(artifact["path"], kind, artifact["type"])
+        assert field_id in [ref["id"] if isinstance(ref, dict) else ref for ref in refs], (artifact["type"], field_id)
+        assert fields[field_id]["type"] == "workflow", fields[field_id]
+        wf = self.named(artifact["path"], kind, "workflow", artifact["type"], fields[field_id]["workflow"])
         assert 0 < depth < len(wf["states"])
-        self.transitions.append((guid, workflow_id, depth))
-        super().advance(guid, workflow_id, depth)
+        self.transitions.append((guid, field_id, depth))
+        super().advance(guid, field_id, depth)
 
 
 def run(count=1000, scale=1, random_seed=20261023):

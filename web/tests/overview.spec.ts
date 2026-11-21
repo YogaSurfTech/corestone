@@ -34,7 +34,7 @@ function row(guid: string, fields: Summary["fields"], type = "task"): Summary {
   return { guid, type, fields, kind: "entry", title: guid, folder: "", path: guid, links: 0, comments: 0 };
 }
 
-interface Calls { queries: { filter?: Record<string, unknown>; sort?: { col: string; dir: string }[]; limit?: number }[]; details: string[][] }
+interface Calls { queries: { filter?: Record<string, unknown>; sort?: string[]; limit?: number }[]; details: string[][] }
 
 /**
  * Mounts the real overview against a mocked server. Sorting is the server's job
@@ -60,7 +60,7 @@ async function mount(page: Page, rows: Summary[], schemas = [schema], related: R
       calls.queries.push(body);
       const kinds: string[] = body.filter?.kind ?? ["entry", "document"];
       let ids = rows.filter((r) => kinds.includes(r.kind)).map((r) => r.guid);
-      if (body.sort?.[0]?.dir === "desc") ids = ids.reverse();
+      if (body.sort?.[0]?.startsWith("~")) ids = ids.reverse(); // "~" in front: descending
       const total = ids.length;
       if (body.limit) ids = ids.slice(0, body.limit);
       await route.fulfill({ json: { total, ids, truncated: ids.length < total } });
@@ -100,7 +100,7 @@ test("three sort levels are sent to the server, promote without duplicates and p
   await sortBy(page, "priority");
   await sortBy(page, "effort");
   await sortBy(page, "text");
-  await expect.poll(() => lastSort(calls)).toEqual([{ col: "text", dir: "asc" }, { col: "effort", dir: "asc" }, { col: "priority", dir: "asc" }]);
+  await expect.poll(() => lastSort(calls)).toEqual(["text", "effort", "priority"]);
   await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
   await expect(page.locator('th[data-col="text"]')).toHaveAttribute("aria-sort", "ascending");
   await expect(page.locator('th[data-col="effort"] .sort-level')).toHaveText("2");
@@ -108,14 +108,14 @@ test("three sort levels are sent to the server, promote without duplicates and p
   await sortBy(page, "effort");
   await sortBy(page, "text");
   const expected = [{ col: "text", dir: "asc" }, { col: "effort", dir: "desc" }, { col: "priority", dir: "asc" }];
-  await expect.poll(() => lastSort(calls)).toEqual(expected);
+  await expect.poll(() => lastSort(calls)).toEqual(["text", "~effort", "priority"]);
   const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort);
   await expect.poll(saved).toEqual(expected);
   await sortBy(page, "$title");
   const promoted = [{ col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" }];
   await expect.poll(saved).toEqual(promoted);
   const after = await mount(page, [row("a", {})]);
-  await expect.poll(() => lastSort(after)).toEqual(promoted);
+  await expect.poll(() => lastSort(after)).toEqual(["$title", "text", "~effort"]);
   await expect(page.locator('th[data-col="$title"]')).toHaveAttribute("aria-sort", "ascending");
 });
 
@@ -125,7 +125,7 @@ test("legacy single-column sort settings remain usable", async ({ page }) => {
     widths: {}, sort: { col: "priority", dir: "desc" },
   })));
   const calls = await mount(page, [row("low", { priority: "low" }), row("high", { priority: "high" })]);
-  await expect.poll(() => lastSort(calls)).toEqual([{ col: "priority", dir: "desc" }]);
+  await expect.poll(() => lastSort(calls)).toEqual(["~priority"]);
   await expect(page.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
   await sortBy(page, "effort");
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort)).toEqual([

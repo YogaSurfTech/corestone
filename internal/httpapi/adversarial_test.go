@@ -63,8 +63,9 @@ func TestHTTPAbuse(t *testing.T) {
 	a.ok("PUT", "/api/entries/"+g, `{"guid":"11111111-1111-4111-8111-111111111111"}`, 400)
 	a.ok("PUT", "/api/entries/"+g, `{"kind":"link"}`, 400)
 	a.ok("PUT", "/api/entries/"+g, `{"workflows":{"dev":"done"}}`, 400)
-	a.ok("PUT", "/api/entries/"+g, `{"fields":"not an object"}`, 200)   // ignored, no change
-	a.ok("PUT", "/api/entries/"+g, `{"fields":{"priority":null}}`, 400) // required field removed
+	a.ok("PUT", "/api/entries/"+g, `{"fields":{"status":{"state":"done"}}}`, 400) // a state is set by transitions only
+	a.ok("PUT", "/api/entries/"+g, `{"fields":"not an object"}`, 200)             // ignored, no change
+	a.ok("PUT", "/api/entries/"+g, `{"fields":{"priority":null}}`, 400)           // required field removed
 	a.ok("PUT", "/api/entries/"+g, `{"title":"tab\tok\nnewline"}`, 200)
 	a.ok("PUT", "/api/entries/"+g, `{"title":"bell\u0007"}`, 400)
 	a.ok("POST", "/api/artifacts/"+g+"/move", `{"path":"x/`+strings.Repeat("y", 300)+`"}`, 400)
