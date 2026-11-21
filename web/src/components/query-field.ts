@@ -5,12 +5,10 @@
 import { html, nothing, render, svg, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import { api } from "../api";
-import { pickArtifact, store } from "../store";
-import type { EnumOption, QueryWarning, Schema, Summary } from "../types";
+import type { EnumOption, QueryWarning, Schema } from "../types";
 import { hidLabel } from "./util";
 import "./enum-control";
-import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type Value } from "./query-model";
+import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 
 const INPUT: Record<string, Input> = {
   enum: "enum", workflow: "enum", boolean: "bool", integer: "number", float: "number", currency: "number",
@@ -18,7 +16,7 @@ const INPUT: Record<string, Input> = {
 };
 
 /** The fields a query can name here: the general ones and those of the types given. */
-export function queryFields(schemas: Schema[], folder: string, type: string): QueryField[] {
+export function queryFields(schemas: Schema[], folder: string, type: string, source: QuerySource): QueryField[] {
   const general = (id: string, name: string, input: Input, more: Partial<QueryField> = {}): QueryField => ({ id, name, input, group: "General", ...more });
   const out: QueryField[] = [
     general("", "Text", "text"),
@@ -38,11 +36,11 @@ export function queryFields(schemas: Schema[], folder: string, type: string): Qu
       const field: QueryField = { id: f.id, name: f.name || f.id, input: INPUT[f.type] ?? "text", group: "Fields" };
       if (f.type === "enum" && f.source) {
         // a dynamic enumeration is written as the chosen artifact's HID
-        field.load = () => api.options(s.type, f.id, folder).then((r) => r.options.map((o: Summary) => ({ value: o.hid ?? o.guid, label: hidLabel(o) })));
+        field.load = () => source.enumOptions(s.type, f.id, folder).then((r) => r.map((o) => ({ value: o.hid ?? o.guid, label: hidLabel(o) })));
       } else if (f.type === "enum") {
         field.options = f.options ?? [];
       } else if (f.type === "workflow") {
-        field.load = () => api.workflowDef(f.workflow ?? "", s.type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation })));
+        field.load = () => source.workflowStates(f.workflow ?? "", s.type, folder);
       } else if (field.input === "artifact") {
         field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes };
       }
@@ -74,6 +72,8 @@ export class QueryFieldElement extends LightElement {
   /** The query that runs (the route's). */
   @property() value = "";
   @property({ attribute: false }) fields: QueryField[] = [];
+  /** Where its data comes from. */
+  @property({ attribute: false }) source!: QuerySource;
   /** The folder of the view: where the icons of enumeration values are looked up. */
   @property() folder = "";
 
@@ -186,7 +186,7 @@ export class QueryFieldElement extends LightElement {
     let warnings: QueryWarning[] = [];
     if (text.trim()) {
       try {
-        warnings = (await api.parseQuery(text)).warnings;
+        warnings = await this.source.check(text);
       } catch (e) {
         error = errorText(e);
       }
@@ -239,7 +239,7 @@ export class QueryFieldElement extends LightElement {
     this.show({ kind: "editor", field, index }, anchor);
     if (field.input === "enum" && !field.options && field.load) {
       field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
-        (e) => { this.options = []; store.toast(errorText(e), "error"); });
+        (e) => { this.options = []; this.source.failed(e); });
     }
     void this.updateComplete.then(() => {
       (this.querySelector<HTMLElement>(".qb-editor .enum-search input") ?? this.querySelector<HTMLElement>(".qb-editor :is(input, select, button):not(.qb-not)"))?.focus();
@@ -293,7 +293,7 @@ export class QueryFieldElement extends LightElement {
     const p = field.picker;
     if (!p) return;
     const target = this.open; // the picker is a dialog of its own: a click in it closes this editor
-    void pickArtifact(p).then((s) => { if (s) this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target); });
+    void this.source.pick(p).then((s) => { if (s) this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target); });
   }
 
   private editor(field: QueryField) {

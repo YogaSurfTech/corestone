@@ -1,7 +1,7 @@
 // The query builder's model: a query as a row of criteria, and the query
 // text it stands for. The text is what runs and what the server reads; the
 // builder only writes it (a text is never turned back into criteria).
-import type { EnumOption, PickOptions } from "../types";
+import type { EnumOption, PickOptions, QueryWarning, Summary } from "../types";
 
 /** How two criteria are joined. NOT binds strongest, then AND, then XOR, then OR. */
 export type Join = "AND" | "OR" | "XOR";
@@ -25,6 +25,20 @@ export interface QueryField {
   load?: () => Promise<EnumOption[]>;
   /** artifact: what the picker offers. */
   picker?: PickOptions;
+}
+
+/** What the query field needs from outside: it is handed in, the field asks no server and no store itself. */
+export interface QuerySource {
+  /** Has the query read: its warnings. Rejects when it cannot be read. */
+  check(text: string): Promise<QueryWarning[]>;
+  /** The artifacts a dynamic enumeration offers. */
+  enumOptions(type: string, field: string, folder: string): Promise<Summary[]>;
+  /** The states of a workflow, as options. */
+  workflowStates(workflow: string, type: string, folder: string): Promise<EnumOption[]>;
+  /** Lets the user choose an artifact; null when they give up. */
+  pick(options: PickOptions): Promise<Summary | null>;
+  /** Tells the user that something failed. */
+  failed(error: unknown): void;
 }
 
 export type Value =
