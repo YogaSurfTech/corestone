@@ -3,6 +3,9 @@
 .cs-editor { --cs-border: #d0d7de; --cs-hover: #eef1f5; --cs-pressed: #dde6f3; --cs-muted: #57606a; --cs-text: #1f2328; --cs-panel: #fff;
   --cs-disabled: #a5acb4; --cs-focus: rgba(21,101,192,.25); --cs-link: #1565c0; --cs-error: #c62828;
   --cs-stripe: color-mix(in srgb, var(--cs-hover) 60%, transparent); --cs-guide: color-mix(in srgb, var(--cs-border) 70%, transparent);
+  /* the blocks of @corestone/ui (ui.css: menus, dialog heads) in the editor's colours */
+  --ui-panel: var(--cs-panel); --ui-text: var(--cs-text); --ui-border: var(--cs-border); --ui-hover: var(--cs-hover); --ui-muted: var(--cs-muted);
+  --ui-accent: var(--cs-link); --ui-error: var(--cs-error);
   position: relative;
   max-width: 640px; color: var(--cs-text); font: 14px/1.5 Inter, Arial, sans-serif; }
 .cs-editor *, .cs-editor *::before, .cs-editor *::after { box-sizing: border-box; }
@@ -132,18 +135,16 @@
 .cs-tablegrid .cells { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .cs-tablegrid .cells button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--cs-border); border-radius: 3px; background: var(--cs-panel); cursor: pointer; }
 .cs-tablegrid .cells button.on { background: var(--cs-pressed); border-color: var(--cs-link); }
-/* the menus are those of @corestone/ui (ui.css); here they only get the editor's colours and size */
-.cs-menu { --ui-panel: var(--cs-panel); --ui-text: var(--cs-text); --ui-border: var(--cs-border); --ui-hover: var(--cs-hover); --ui-muted: var(--cs-muted);
-  --ui-accent: var(--cs-link); --ui-error: var(--cs-error); font-size: 13px; }
+/* the menus are those of @corestone/ui (ui.css); here they only get the editor's size (the colours: .cs-editor) */
+.cs-menu { font-size: 13px; }
 .cs-tableprops { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; width: 262px; }
-/* The head of the small dialogs (dialogHead): title on the left, close button on the right. */
-.cs-tableprops .head, .cs-formulapop .head, .cs-filepop .head { display: flex; align-items: center; justify-content: space-between; margin-right: -4px; }
-.cs-tableprops .title, .cs-formulapop .title, .cs-filepop .title { font-weight: 600; }
-.cs-tableprops button.x, .cs-tableprops button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0;
+/* The head of the small dialogs is dialogHead's (.ui-head in ui.css); here its close button only moves into the padding. */
+.cs-tableprops .head, .cs-formulapop .head, .cs-filepop .head { margin-right: -4px; }
+/* A choice among a few options, shown as icon buttons. */
+:is(.cs-tableprops, .cs-formulapop) button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0;
   border: 0; border-radius: 6px; background: transparent; color: var(--cs-text); cursor: pointer; }
-.cs-tableprops button.x { width: 26px; height: 26px; color: var(--cs-muted); }
-.cs-tableprops button.x:hover, .cs-tableprops button.opt:hover { background: var(--cs-hover); }
-.cs-tableprops button.opt[aria-checked="true"] { background: var(--cs-pressed); box-shadow: inset 0 0 0 1px var(--cs-link); }
+:is(.cs-tableprops, .cs-formulapop) button.opt:hover { background: var(--cs-hover); }
+:is(.cs-tableprops, .cs-formulapop) button.opt[aria-checked="true"] { background: var(--cs-pressed); box-shadow: inset 0 0 0 1px var(--cs-link); }
 .cs-tableprops .size { display: flex; align-items: center; gap: 6px; }
 .cs-tableprops .num { display: inline-flex; align-items: center; gap: 4px; color: var(--cs-muted); }
 .cs-tableprops .times { color: var(--cs-muted); }
@@ -196,11 +197,6 @@
 .cs-formulapop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; padding: 8px 10px 10px; width: min(420px, 100%);
   display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
-.cs-formulapop button.x, .cs-formulapop button.opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px;
-  padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
-.cs-formulapop button.x { width: 26px; height: 26px; color: var(--cs-muted); }
-.cs-formulapop button.x:hover, .cs-formulapop button.opt:hover { background: var(--cs-hover); }
-.cs-formulapop button.opt[aria-checked="true"] { background: var(--cs-pressed); box-shadow: inset 0 0 0 1px var(--cs-link); }
 .cs-formulapop .latex { width: 100%; height: auto; min-height: 0; flex: none; box-sizing: border-box; resize: vertical; border: 1px solid var(--cs-border); border-radius: 5px; padding: 6px 8px;
   font: 13px/1.4 ui-monospace, monospace; background: var(--cs-panel); color: inherit; }
 .cs-formulapop .preview { min-height: 40px; max-height: 200px; overflow: auto; display: flex; align-items: center; justify-content: center;
@@ -220,23 +216,17 @@
 .cs-diagrampop .box { position: absolute; inset: 6vh 6vw; display: flex; flex-direction: column; background: var(--cs-panel);
   color: var(--cs-text); border: 1px solid var(--cs-border); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,.28); overflow: hidden; }
 .cs-diagrampop[hidden] { display: none; }
-.cs-diagrampop .head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--cs-border); font-size: 13px; }
-.cs-diagrampop .title { font-weight: 600; flex: 1; }
+.cs-diagrampop .head { gap: 10px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--cs-border); font-size: 13px; }
+.cs-diagrampop .title { flex: 1; }
 .cs-diagrampop .ask { display: inline-flex; align-items: center; gap: 6px; }
 .cs-diagrampop .ask[hidden] { display: none; }
 .cs-diagrampop .lb.danger { color: var(--cs-error); }
-.cs-diagrampop button.x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
-  border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
-.cs-diagrampop button.x:hover { background: var(--cs-hover); }
 .cs-diagrampop iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* the file picker, the alternative text, notices */
 .cs-filepop, .cs-altpop { position: absolute; z-index: 20; background: var(--cs-panel); color: var(--cs-text); border: 1px solid var(--cs-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 13px; }
 .cs-filepop { padding: 8px 10px 10px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
-.cs-filepop button.x { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0;
-  border-radius: 6px; background: transparent; color: var(--cs-muted); cursor: pointer; }
-.cs-filepop button.x:hover { background: var(--cs-hover); }
 .cs-filepop .list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
 .cs-filepop .list .none { color: var(--cs-muted); padding: 4px 0; }
 .cs-filepop button.file { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent;

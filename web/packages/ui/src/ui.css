@@ -1,6 +1,7 @@
 /* @corestone/ui: the look of its blocks. The page gives the colours as
-   --ui-* variables on .ui-pop (panel, text, border, shadow, hover, muted,
-   accent, error); without them the browser's system colours show. */
+   --ui-* variables on .ui-pop or on an element around the blocks (panel,
+   text, border, shadow, hover, muted, accent, error); without them the
+   browser's system colours show. */
 
 /* A floating panel of an Overlay. */
 .ui-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px;
@@ -32,3 +33,10 @@
 .ui-pop .mi-icon { display: inline-flex; gap: 3px; margin-right: 8px; }
 /* A heading above a group of items. */
 .ui-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ui-muted, GrayText); padding: 6px 10px 2px; }
+
+/* The head of a small dialog (dialogHead): title on the left, close button on the right. */
+.ui-head { display: flex; align-items: center; justify-content: space-between; }
+.ui-head .title { font-weight: 600; }
+.ui-head button.x { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ui-muted, GrayText); cursor: pointer; }
+.ui-head button.x:hover { background: var(--ui-hover, Highlight); }
