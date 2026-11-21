@@ -17,3 +17,4 @@ export { Resizer, splitter, type ResizerOptions } from "./resizer";
 export { attachTooltips, setTip, tipOf, type Tip, type TooltipOptions } from "./tooltip";
 export { tint, type ColorChoices, type Palette, type StripePreset } from "./palette";
 export { customColor, recentSwatches, swatch } from "./swatches";
+export { section, type SectionBadge, type SectionOptions } from "./section";
