@@ -15,6 +15,7 @@ import "./document";
 import "./dialogs";
 import "./account"; // the account page, shown in a dialog
 import "./toast";
+import { StoreController } from "./store-controller";
 
 // Application shell (design guide §7.2): header, navigation sidebar, and
 // the main workspace with the artifact overview above the detail view.
@@ -24,8 +25,19 @@ const DEFAULT_NAV_W = 288, MIN_NAV_W = 180, MAX_NAV_W = 640; // sidebar width, p
 
 @customElement("corestone-app")
 export class App extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s) => {
+    if (s.route.guid === this.lastGuid) return;
+    this.lastGuid = s.route.guid;
+    this.selectedKind = null;
+    if (s.route.guid) {
+      announceView(s.route.guid);
+      api.get(s.route.guid).then((v) => {
+        if (store.state.route.guid !== v.meta.guid) return;
+        this.selectedKind = v.meta.kind;
+      }).catch(() => { this.selectedKind = "missing"; });
+    } else announceView("");
+  });
+  private get s(): State { return this.watch.state; }
   @state() private selectedKind: string | null = null;
   @state() private dismissedConfig = ""; // the invalid-config set the user closed; a different set shows again
   private lastGuid: string | null = null;
@@ -46,25 +58,10 @@ export class App extends LightElement {
   override connectedCallback() {
     super.connectedCallback();
     provideServices(this, services);
-    this.unsub = store.subscribe((s) => {
-      this.s = s;
-      if (s.route.guid !== this.lastGuid) {
-        this.lastGuid = s.route.guid;
-        this.selectedKind = null;
-        if (s.route.guid) {
-          announceView(s.route.guid);
-          api.get(s.route.guid).then((v) => {
-            if (store.state.route.guid !== v.meta.guid) return;
-            this.selectedKind = v.meta.kind;
-          }).catch(() => { this.selectedKind = "missing"; });
-        } else announceView("");
-      }
-      this.requestUpdate();
-    });
     this.pollStatus();
     window.addEventListener("keydown", this.onKey);
   }
-  override disconnectedCallback() { this.unsub?.(); window.clearInterval(this.statusTimer); window.removeEventListener("keydown", this.onKey); super.disconnectedCallback(); }
+  override disconnectedCallback() { window.clearInterval(this.statusTimer); window.removeEventListener("keydown", this.onKey); super.disconnectedCallback(); }
 
   private onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement;

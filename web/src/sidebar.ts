@@ -6,6 +6,7 @@ import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { FolderInfo, Schema } from "./types";
 import { displayName, kindPlural } from "./components/util";
+import { StoreController } from "./store-controller";
 
 // Repository navigation (design guide §7.3): subtree toggle, the
 // folder hierarchy below the current folder, and artifacts grouped by schema type.
@@ -23,8 +24,18 @@ export function countTitle(f: FolderInfo): string {
 
 @customElement("corestone-sidebar")
 export class Sidebar extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s, first) => {
+    if (first || s.refreshTick !== this.lastTick) {
+      this.lastTick = s.refreshTick;
+      this.reloadAll();
+    }
+    if (s.route.folder !== this.lastFolder) {
+      this.lastFolder = s.route.folder;
+      this.rootAt(s.route.folder);
+      this.loadTypes(s.route.folder);
+    }
+  });
+  private get s(): State { return this.watch.state; }
   @state() private root: Node = { info: { name: "Repository", path: "", artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
   @state() private types: Schema[] = [];
   @state() private counts: Record<string, number> = {};
@@ -33,24 +44,6 @@ export class Sidebar extends LightElement {
   @state() private filter = "";
   private rootSeq = 0;
 
-  override connectedCallback() {
-    super.connectedCallback();
-    this.unsub = store.subscribe((s) => {
-      const first = !this.s;
-      this.s = s;
-      if (first || s.refreshTick !== this.lastTick) {
-        this.lastTick = s.refreshTick;
-        this.reloadAll();
-      }
-      if (s.route.folder !== this.lastFolder) {
-        this.lastFolder = s.route.folder;
-        this.rootAt(s.route.folder);
-        this.loadTypes(s.route.folder);
-      }
-      this.requestUpdate();
-    });
-  }
-  override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
 
   private async reloadAll() {
     await this.rootAt(this.s.route.folder);

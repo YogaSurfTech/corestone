@@ -14,6 +14,7 @@ import "./components/table";
 import type { TableColumn } from "./components/table";
 import "./components/fields";
 import { OVERLAY_HELP, type OverlayState } from "./components/fields";
+import { StoreController } from "./store-controller";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -82,8 +83,12 @@ export class Detail extends LightElement {
   @property() at = "";
   /** The loaded historic version; null while showing the current state. */
   @state() private historic: VersionView | null = null;
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s) => {
+    if (s.refreshTick === this.lastTick) return;
+    this.lastTick = s.refreshTick;
+    if (this.view && !this.version) this.reload(true); // a version does not change
+  });
+  private get s(): State { return this.watch.state; }
   @state() private view: View | null = null;
   @state() private schema: Schema | null = null;
   @state() private workflows: WorkflowEval[] = [];
@@ -144,16 +149,8 @@ export class Detail extends LightElement {
   override connectedCallback() {
     super.connectedCallback();
     setLeaveGuard(this.leaveGuard);
-    this.unsub = store.subscribe((s) => {
-      this.s = s;
-      if (s.refreshTick !== this.lastTick) {
-        this.lastTick = s.refreshTick;
-        if (this.view && !this.version) this.reload(true); // a version does not change
-      }
-      this.requestUpdate();
-    });
   }
-  override disconnectedCallback() { this.unsub?.(); this.actions.close(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.actions.close(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
     if ((changed.has("guid") || changed.has("version") || changed.has("at")) && this.guid) {
       // A deep link to a section (?tab=history) opens it.

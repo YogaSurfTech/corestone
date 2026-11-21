@@ -14,6 +14,7 @@ import { MAX_ATTACHMENT, freeFileName } from "./files";
 import "./components/type-icon";
 import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
+import { StoreController } from "./store-controller";
 
 // Document view (design guide §7.6, §9.5; docs/design/Corestone documents.md): one editor for
 // the whole document (a tree of sections with text, pictures, tables and placed entries), the
@@ -46,8 +47,12 @@ function mapKeys<T>(v: T, f: (key: string) => string): T {
 @customElement("corestone-document")
 export class DocumentView extends LightElement {
   @property() guid = "";
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s) => {
+    if (s.refreshTick === this.lastTick) return;
+    this.lastTick = s.refreshTick;
+    if (this.view) { this.loadSide(); this.reloadEntries(); }
+  });
+  private get s(): State { return this.watch.state; }
   /** The left edge of the sidebars: their width, px. */
   private readonly side = new Resizer({
     key: "corestone.docSideWidth", fallback: 320, min: 240, max: 720, axis: "x", step: 16, reverse: true,
@@ -126,19 +131,10 @@ export class DocumentView extends LightElement {
         if (g && !this.held.has(g)) void this.loadEntry(this.real(g));
       }
     }, { rootMargin: "600px 0px" });
-    this.unsub = store.subscribe((s) => {
-      this.s = s;
-      if (s.refreshTick !== this.lastTick) {
-        this.lastTick = s.refreshTick;
-        if (this.view) { this.loadSide(); this.reloadEntries(); }
-      }
-      this.requestUpdate();
-    });
   }
   override disconnectedCallback() {
     this.resizes?.disconnect();
     this.watched = undefined;
-    this.unsub?.();
     this.observer?.disconnect();
     clearLeaveGuard(this.leaveGuard);
     if (this.editing) announceEdit(this.guid, false);

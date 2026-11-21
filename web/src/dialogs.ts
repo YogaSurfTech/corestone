@@ -14,6 +14,7 @@ import { collectionOf, displayName, kindLabel, kindPlural, label } from "./compo
 import "./components/type-icon";
 import "./components/fields";
 import "./components/folder-field";
+import { StoreController } from "./store-controller";
 
 
 /** Where the size a dialog was last dragged to is kept: the picker, or a dialog by its resizable name. */
@@ -33,14 +34,13 @@ const sizeStyle = (name: string) => { const sz = savedSize(name); return sz ? `w
 
 @customElement("corestone-dialogs")
 export class Dialogs extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this);
+  private get s(): State { return this.watch.state; }
   override connectedCallback() {
     super.connectedCallback();
-    this.unsub = store.subscribe((s) => { this.s = s; this.requestUpdate(); });
     window.addEventListener("keydown", this.onKey);
   }
-  override disconnectedCallback() { this.unsub?.(); window.removeEventListener("keydown", this.onKey); super.disconnectedCallback(); }
+  override disconnectedCallback() { window.removeEventListener("keydown", this.onKey); super.disconnectedCallback(); }
   private onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
     if (this.s?.picker) { const c = this.s.picker.onCancel as (() => void) | undefined; store.set({ picker: null }); c?.(); }

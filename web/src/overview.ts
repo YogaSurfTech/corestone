@@ -16,6 +16,7 @@ import "./components/table";
 import "./components/type-icon";
 import "./components/enum-control";
 import "./components/kind-menu";
+import { StoreController } from "./store-controller";
 
 // Artifact overview (design guide §7.4): every artifact matching the
 // navigation context in a server-sorted, lazily loaded table whose columns
@@ -57,8 +58,18 @@ const querySource: QuerySource = {
 
 @customElement("corestone-overview")
 export class Overview extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s) => {
+    const r = s.route;
+    const key = JSON.stringify([r.folder, r.q, r.subtree, r.kind, r.type]);
+    if (key === this.key && s.refreshTick === this.lastTick) return;
+    // A commit may change definitions: resolve them again; the table reloads its rows itself.
+    if (s.refreshTick !== this.lastTick) this.folderTypes.clear();
+    if (key !== this.key) { this.rowSchemas = {}; this.total = -1; }
+    this.key = key;
+    this.lastTick = s.refreshTick;
+    this.load();
+  });
+  private get s(): State { return this.watch.state; }
   @state() private total = -1; // -1 until the table has loaded
   @state() private below = -1; // artifacts including subfolders, when the view shows the folder itself
   @state() private error = "";
@@ -71,24 +82,7 @@ export class Overview extends LightElement {
   private loads = 0;
   private lastTick = -1;
 
-  override connectedCallback() {
-    super.connectedCallback();
-    this.unsub = store.subscribe((s) => {
-      this.s = s;
-      const r = s.route;
-      const key = JSON.stringify([r.folder, r.q, r.subtree, r.kind, r.type]);
-      if (key !== this.key || s.refreshTick !== this.lastTick) {
-        // A commit may change definitions: resolve them again; the table reloads its rows itself.
-        if (s.refreshTick !== this.lastTick) this.folderTypes.clear();
-        if (key !== this.key) { this.rowSchemas = {}; this.total = -1; }
-        this.key = key;
-        this.lastTick = s.refreshTick;
-        this.load();
-      }
-      this.requestUpdate();
-    });
-  }
-  override disconnectedCallback() { this.unsub?.(); this.newMenu.close(); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.newMenu.close(); super.disconnectedCallback(); }
 
   /** The fields the query builder offers: kept while the types, folder and type stay the same. */
   private offered: { key: unknown[]; fields: QueryField[] } | null = null;

@@ -4,6 +4,7 @@ import { customElement, state } from "lit/decorators.js";
 import { api, type Account } from "./api";
 import { store, type State } from "./store";
 import { themeChoice } from "./components/theme-choice";
+import { StoreController } from "./store-controller";
 
 // Local accounts (-auth local): the sign-in page shown instead of the
 // application, and the account dialog behind the header's user button.
@@ -55,17 +56,15 @@ export class SignIn extends LightElement {
 /** The own account (name, email, password, theme, sign out); admins also manage all accounts. */
 @customElement("corestone-account-dialog")
 export class AccountDialog extends LightElement {
-  @state() private s!: State;
+  private readonly watch = new StoreController(this);
+  private get s(): State { return this.watch.state; }
   @state() private manage = false;
   @state() private accounts: Account[] = [];
   @state() private unknownAdmins: string[] = [];
   @state() private resetting: string | null = null; // the account whose new password is being typed
   @state() private deleting: string | null = null; // the account whose deletion awaits confirmation
   @state() private error = "";
-  private unsub?: () => void;
 
-  override connectedCallback() { super.connectedCallback(); this.unsub = store.subscribe((s) => (this.s = s)); }
-  override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
 
   /** Runs a change, showing a failure inline; resolves whether it worked. */
   private async run(fn: () => Promise<unknown>, done: string): Promise<boolean> {
