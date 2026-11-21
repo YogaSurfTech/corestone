@@ -318,6 +318,9 @@ func (c *compiler) term(n *query.Node, a string) []any {
 	if n.Up > 0 && n.Field != "folder" {
 		return c.never(n, "~%d is for folder only (folder~1 is the parent folder)", n.Up)
 	}
+	if n.Reverse && n.Field != "base" {
+		return c.never(n, "~ in front is for base only (~base:REQ-1 is the base of REQ-1)")
+	}
 	if n.Sub != "" {
 		return c.field(n, a)
 	}
@@ -363,6 +366,23 @@ func (c *compiler) term(n *query.Node, a string) []any {
 		return seq("("+a+".hid_prefix, COALESCE("+a+".hid_num, 0)) "+cmp+" (lower(regexp_replace(", v, "::text, '[0-9]+$', '')), COALESCE((substring(", v, "::text from '[0-9]+$'))::numeric, 0))")
 	case "folder":
 		return c.folder(n, a)
+	case "base":
+		// base:X: the artifact is based on X (it overlays X); ~base:X: it is the base of X
+		if cmp != "" {
+			return c.never(n, "base cannot be compared")
+		}
+		named := func(o string) []any { // the artifact o is the one the value names, by HID or GUID
+			return seq("(lower("+o+".hid) = lower(", bound{n.Value}, ") OR "+o+".guid = lower(", bound{n.Value}, "))")
+		}
+		switch {
+		case n.Reverse && n.Null:
+			return seq("NOT EXISTS (SELECT 1 FROM artifacts o WHERE o.base = " + a + ".guid)")
+		case n.Reverse:
+			return cat(seq("EXISTS (SELECT 1 FROM artifacts o WHERE o.base = "+a+".guid AND "), named("o"), seq(")"))
+		case n.Null:
+			return seq("COALESCE(" + a + ".base, '') = ''")
+		}
+		return cat(seq("EXISTS (SELECT 1 FROM artifacts o WHERE o.guid = "+a+".base AND "), named("o"), seq(")"))
 	case "created", "modified":
 		col := a + "." + n.Field + "_at"
 		if n.Null {

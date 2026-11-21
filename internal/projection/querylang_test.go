@@ -172,3 +172,51 @@ func TestQueryLanguage(t *testing.T) {
 		t.Errorf("hostile values: %q", got)
 	}
 }
+
+// base: an entry is based on another (it overlays it); ~base reads it the
+// other way round.
+func TestQueryLanguageBase(t *testing.T) {
+	p, repo := testDB(t)
+	ctx := context.Background()
+	guids, name := map[string]string{}, map[string]string{}
+	for _, n := range []string{"root", "mid", "leaf", "other"} {
+		guids[n] = model.NewGUID()
+		name[guids[n]] = n
+	}
+	entry := func(n, hid, extra string) gitx.Op {
+		return gitx.Op{Path: "specs/" + guids[n] + "/.corestone.json", Content: entryJSON(guids[n], "part", n, hid, extra)}
+	}
+	commit(t, repo, "entries",
+		gitx.Op{Path: ".corestone/config/entries/types.json", Content: []byte(`{"types":[{"id":"part"}]}`)},
+		entry("root", "P-1", ""), entry("mid", "P-2", `"base":"`+guids["root"]+`"`),
+		entry("leaf", "P-3", `"base":"`+guids["mid"]+`"`), entry("other", "", ""))
+	if err := p.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ q, want string }{
+		{"base:P-1", "mid"}, {"base:p-2", "leaf"}, {"base:" + guids["root"], "mid"}, {"base:P-3", ""},
+		{"~base:P-3", "mid"}, {"~base:P-2", "root"}, {"~base:" + guids["mid"], "root"}, {"~base:P-1", ""},
+		{"base:NULL", "other root"}, {"NOT base:NULL", "leaf mid"}, // with a base: the overlays
+		{"~base:NULL", "leaf other"}, {"NOT ~base:NULL", "mid root"}, // the bases
+		{"base:(P-1 P-2)", "leaf mid"}, {"NOT base:NULL AND NOT ~base:NULL", "mid"},
+	} {
+		res, err := p.QueryIDs(ctx, Query{Lang: c.q, Subtree: true}, nil, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", c.q, err)
+		}
+		var got []string
+		for _, id := range res.IDs {
+			got = append(got, name[id])
+		}
+		sort.Strings(got)
+		if strings.Join(got, " ") != c.want || len(res.Warnings) != 0 {
+			t.Errorf("%s: got %q %v, want %q", c.q, got, res.Warnings, c.want)
+		}
+	}
+	for q, want := range map[string]string{"~title:x": "~ in front is for base only", "base:>P-1": "base cannot be compared"} {
+		res, err := p.QueryIDs(ctx, Query{Lang: q, Subtree: true}, nil, 0)
+		if err != nil || len(res.IDs) != 0 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0].Message, want) {
+			t.Errorf("%s: %+v %v", q, res, err)
+		}
+	}
+}
