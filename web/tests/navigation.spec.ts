@@ -2,7 +2,7 @@ import { answerPrompt, api, expect, get, post, seedDomain, stamp, test } from ".
 import type { Page } from "@playwright/test";
 
 // Navigation and shell behaviour: keyboard shortcuts, breadcrumbs,
-// history navigation, deep links, filters, kind chips, columns, sorting,
+// history navigation, deep links, filters, the kind menu, columns, sorting,
 // collapse state, responsive layout, dark mode, status and reindex.
 
 const id = stamp();
@@ -69,7 +69,7 @@ test("deep links: section tab, expanded layout, folder context", async ({ page }
   await expect(page).not.toHaveURL(/tab=/);
 });
 
-test("overview: kind chips, schema columns, subtree, sorting stability, social counts", async ({ page }) => {
+test("overview: kind menu, schema columns, subtree, sorting stability, social counts", async ({ page }) => {
   await page.goto(`/folder/${folder}?subtree=1`);
   const table = page.locator("corestone-overview table.grid");
   await expect(table.locator("thead")).toContainText("Priority");
@@ -78,15 +78,38 @@ test("overview: kind chips, schema columns, subtree, sorting stability, social c
   const alpha = table.locator("tbody tr", { hasText: `Alpha one ${id}` });
   await expect(alpha).toContainText("high");
   await expect(alpha.locator(".social")).toContainText("⇄ 1 · ✎ 1");
-  await page.locator(".chip", { hasText: "Documents" }).click();
+  // what is shown: one button with the icon of the active view, which opens a menu of all of them
+  const kind = page.locator("[data-test=kind]");
+  const menu = page.locator("[data-test=kind-menu]");
+  const show = async (k: string) => { await kind.click(); await menu.locator(`.mi[data-kind=${k}]`).click(); await expect(menu).toBeHidden(); await expect(kind).toHaveAttribute("data-kind", k); };
+  await expect(kind.locator(".kind-icon")).toHaveText(["E", "D"]);
+  await kind.click();
+  await expect(menu.locator(".mi")).toHaveText(["EDEntries + Docs", "EEntries", "DDocuments", "LLinks", "CComments"]);
+  await expect(menu.locator(".mi[aria-checked=true]")).toHaveText("EDEntries + Docs");
+  await kind.click(); // a second click closes it
+  await expect(menu).toBeHidden();
+  await show("document");
+  await expect(kind.locator(".kind-icon")).toHaveText(["D"]);
+  await expect(kind).toHaveAttribute("title", "Showing: Documents");
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(table.locator("tbody tr .kind-icon.document")).toBeVisible();
-  await page.locator(".chip", { hasText: "Links" }).click();
+  await show("link");
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(table.locator("tbody tr")).toContainText("verifies");
-  await page.locator(".chip", { hasText: "Comments" }).click();
+  await show("comment");
   await expect(table.locator("tbody tr")).toHaveCount(1);
-  await page.locator(".chip", { hasText: "Entries + Docs" }).click();
+  // with the keyboard: ↓ opens it on the active view, the arrow keys move, Escape gives the focus back
+  await kind.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.locator(".mi[data-kind=comment]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(kind).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown"); // round to the first
+  await expect(menu.locator(".mi[data-kind=all]")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(kind).toHaveAttribute("data-kind", "all");
   await expect(table.locator("tbody tr")).toHaveCount(4);
   await page.locator("[data-test=subtree]").uncheck();
   await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");

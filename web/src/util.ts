@@ -18,9 +18,11 @@ export function hidLabel(s: Summary | undefined | null): string {
   return s?.hid && s.title ? `${s.hid} – ${s.title}` : label(s);
 }
 
+/** The letter a kind's icon shows. */
+export const kindLetter: Record<Kind, string> = { entry: "E", document: "D", link: "L", comment: "C" };
+
 export function kindIcon(kind: Kind, title: string = kindLabel[kind]): TemplateResult {
-  const letter = { entry: "E", document: "D", link: "L", comment: "C" }[kind];
-  return html`<span class="kind-icon ${kind}" title=${title}>${letter}</span>`;
+  return html`<span class="kind-icon ${kind}" title=${title}>${kindLetter[kind]}</span>`;
 }
 
 export function displayName(s: Schema | undefined, type: string): string {
