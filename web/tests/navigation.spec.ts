@@ -452,6 +452,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.locator("[data-test=query-editor] input[data-value=low]").check();
   await page.locator("[data-test=query-apply]").click();
   await expect(clauses.first()).toHaveText("Priority: low, high");
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toContain("priority:(low high)"); // the query runs
   await page.reload();
   await expect(clauses).toHaveCount(2);
   await expect(rows).toHaveCount(3);

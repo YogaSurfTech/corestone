@@ -150,14 +150,17 @@ export class QueryFieldElement extends LightElement {
   private async run(replace: boolean) {
     window.clearTimeout(this.timer);
     const text = this.text;
-    if (await this.check(text)) this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace } }));
+    if (!(await this.check(text))) return;
+    // the criteria are kept with the text that runs, so a reload finds them for the query it shows
+    if (this.clauses.length && toText(this.clauses) === text) prefs.setJson(STORE, { text, clauses: this.clauses });
+    this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace } }));
   }
 
   /** The criteria changed: write the text and run it. */
   private built(clauses: Clause[]) {
     this.clauses = clauses;
     this.text = toText(clauses);
-    prefs.setJson(STORE, { text: this.text, clauses });
+    if (!clauses.length) prefs.setJson(STORE, null);
     this.open = null;
     void this.run(false);
   }
