@@ -459,6 +459,18 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.locator("[data-test=query-as-text]").click();
   await expect(page.locator("[data-test=search]")).toHaveValue("NOT priority:(low high) OR (effort:>=2 AND effort:<=5)");
   await expect(clauses).toHaveCount(0);
+  // the criteria used last are offered again beside the fields, the newest first; a pinned one is kept
+  await page.locator("[data-test=search]").fill("");
+  await page.locator("[data-test=query-add]").click();
+  const kept = page.locator("[data-test=query-history-item]");
+  await expect(kept).toHaveText(["NOT Priority: low, high", "Effort: 2 – 5", "Priority: high"]);
+  await page.locator("[data-test=query-pin]").nth(2).click();
+  await expect(kept).toHaveText(["Priority: high", "NOT Priority: low, high", "Effort: 2 – 5"]);
+  await kept.first().click();
+  await expect(clauses).toHaveText(["Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await page.locator("[data-test=query-clear]").click();
+  await expect(rows).toHaveCount(4);
   // with text in the field, a criterion joins it as text
   await page.locator("[data-test=search]").fill("title:beta");
   await page.locator("[data-test=query-add]").click();

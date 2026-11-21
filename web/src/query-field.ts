@@ -2,7 +2,7 @@
 // criteria. "+" offers the fields; a criterion is a button that opens its
 // editor, with NOT to switch on and off and the operator between two
 // criteria to choose. The builder writes the query text, which is what runs.
-import { html, nothing, type PropertyValues } from "lit";
+import { html, nothing, svg, type PropertyValues } from "lit";
 import { LightElement, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { api } from "./api";
@@ -51,12 +51,20 @@ export function queryFields(schemas: Schema[], folder: string, type: string): Qu
   return out;
 }
 
+const pinIcon = html`<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">${svg`<path d="M10.2 1.6 14.4 5.8l-1.1 1.1-.9-.2-2.3 2.3.3 2.4-1.2 1.2-2.6-2.6-3.5 3.5-.9.2.2-.9 3.5-3.5L3.3 6.7l1.2-1.2 2.4.3 2.3-2.3-.2-.9z" fill="currentColor"/>`}</svg>`;
+
 type Open =
   | { kind: "fields" }
   | { kind: "join"; index: number }
   | { kind: "editor"; field: QueryField; index: number | null };
 
 const STORE = "corestone.query";
+/** The criteria used last, newest first; pinned ones are never forgotten. */
+const HISTORY = "corestone.query.history";
+const REMEMBERED = 15;
+interface Remembered { clause: Clause; pinned: boolean }
+/** What makes two criteria the same: field, NOT and value, not the operator in front. */
+const sameAs = (c: Clause) => toText([{ ...c, join: "AND" }]);
 
 @customElement("corestone-query-field")
 export class QueryFieldElement extends LightElement {
@@ -71,6 +79,7 @@ export class QueryFieldElement extends LightElement {
   @state() private open: Open | null = null;
   /** What is typed to find a field in the list. */
   @state() private find = "";
+  @state() private history: Remembered[] = [];
   // the editor's draft
   @state() private options: EnumOption[] | null = null;
   @state() private draft: { empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
@@ -83,6 +92,21 @@ export class QueryFieldElement extends LightElement {
   override connectedCallback() {
     super.connectedCallback();
     document.addEventListener("click", this.close);
+    const kept = prefs.json<Remembered[]>(HISTORY, []);
+    this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
+  }
+
+  private keep(history: Remembered[]) {
+    // the pinned ones stay; of the others the newest fifteen
+    let free = REMEMBERED;
+    this.history = history.filter((h) => h.pinned || free-- > 0);
+    prefs.setJson(HISTORY, this.history);
+  }
+
+  private remember(clause: Clause) {
+    const key = sameAs(clause);
+    const old = this.history.find((h) => sameAs(h.clause) === key);
+    this.keep([{ clause: { ...clause, join: "AND" }, pinned: !!old?.pinned }, ...this.history.filter((h) => h !== old)]);
   }
   override disconnectedCallback() {
     document.removeEventListener("click", this.close);
@@ -189,6 +213,12 @@ export class QueryFieldElement extends LightElement {
     const clause: Clause = index === null
       ? { field: { id: field.id, name: field.name, input: field.input }, not: false, join: "AND", value }
       : { ...this.clauses[index], value };
+    this.remember(clause);
+    this.place(clause, index);
+  }
+
+  /** Put a criterion into the query: in place of the one at index, or as a new one at the end. */
+  private place(clause: Clause, index: number | null) {
     if (!this.clauses.length && this.text.trim()) {
       // text is being typed: the criterion joins it as text
       this.text = `${this.text.trim()} AND ${toText([clause])}`;
@@ -265,7 +295,8 @@ export class QueryFieldElement extends LightElement {
     // a field stays if its name holds what is typed, anywhere in it
     const find = this.find.trim().toLowerCase();
     const found = this.fields.filter((f) => f.name.toLowerCase().includes(find));
-    return html`<div class="qb-pop menu-like" data-test="query-fields" @click=${(e: Event) => e.stopPropagation()}>
+    return html`<div class="qb-pop qb-two" @click=${(e: Event) => e.stopPropagation()}>
+     <div class="menu-like qb-col" data-test="query-fields">
       <input type="search" class="qb-find" data-test="query-find" placeholder="Find a field…" aria-label="Find a field" .value=${this.find}
         @input=${(e: Event) => { this.find = (e.target as HTMLInputElement).value; }}
         @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter" && found.length) { e.preventDefault(); this.edit(found[0], null); } }} />
@@ -274,6 +305,16 @@ export class QueryFieldElement extends LightElement {
         const fields = found.filter((f) => f.group === g);
         return fields.length ? html`<div class="group">${g}</div>${fields.map((f) => html`<button class="item" data-field=${f.id} @click=${() => this.edit(f, null)}>${f.name}</button>`)}` : nothing;
       })}
+     </div>
+     ${this.history.length ? html`<div class="menu-like qb-col qb-history" data-test="query-history">
+      <div class="group">History</div>
+      ${[...this.history.filter((h) => h.pinned), ...this.history.filter((h) => !h.pinned)].map((h) => html`<div class="qb-kept">
+        <button class="item" data-test="query-history-item" title="Add this criterion again" @click=${() => { this.remember(h.clause); this.place({ ...h.clause, join: "AND" }, null); }}>${h.clause.not ? "NOT " : ""}${clauseLabel(h.clause)}</button>
+        <button class="qb-pin ${h.pinned ? "on" : ""}" data-test="query-pin" aria-pressed=${h.pinned ? "true" : "false"}
+          title=${h.pinned ? "Pinned: it is kept. Click to let it go with the others." : "Pin: keep it, however many follow"} aria-label="Pin"
+          @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${pinIcon}</button>
+      </div>`)}
+     </div>` : nothing}
     </div>`;
   }
 
