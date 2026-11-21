@@ -10,7 +10,7 @@ import { pickArtifact, store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, View } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/util";
-import { MAX_ATTACHMENT, freeFileName } from "./files";
+import { createFiles } from "./files";
 import "./components/type-icon";
 import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
@@ -93,7 +93,6 @@ export class DocumentView extends LightElement {
   @state() private flash = false;
   private schemas = new Map<string, Promise<Schema | null>>();
   private observer?: IntersectionObserver;
-  private blobUrls = new WeakMap<File, string>();
   @state() private dragId: string | null = null;
   @state() private dropAt: number | "end" | null = null;
 
@@ -468,33 +467,13 @@ export class DocumentView extends LightElement {
 
   // ---- the document's files (pictures in the text), kept with Save ----
 
-  private readonly docFiles: EntryFiles = {
-    add: async (file) => {
-      if (file.size > MAX_ATTACHMENT) throw new Error(`it is larger than ${MAX_ATTACHMENT >> 20} MiB`);
-      const name = freeFileName(file, new Set(await this.docFiles.list()));
-      const f = name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
-      this.pendingFiles = [...this.pendingFiles, f];
-      this.touch();
-      return name;
-    },
-    url: (name) => {
-      const p = this.pendingFiles.find((f) => f.name === name);
-      if (p) {
-        let u = this.blobUrls.get(p);
-        if (!u) { u = URL.createObjectURL(p); this.blobUrls.set(p, u); }
-        return u;
-      }
-      return api.fileUrl(this.guid, name);
-    },
-    list: async () => [...new Set([
-      ...(this.view?.attachments ?? []).map((a) => a.name).filter((n) => !this.removedFiles.includes(n)),
-      ...this.pendingFiles.map((f) => f.name)])],
-    get: async (name) => {
-      const p = this.pendingFiles.find((f) => f.name === name);
-      if (p) return p;
-      return api.fileBlob(api.fileUrl(this.guid, name));
-    },
-  };
+  private readonly docFiles: EntryFiles = createFiles({
+    pending: () => ({ files: this.pendingFiles, removed: this.removedFiles }),
+    setPending: (files, removed) => { this.pendingFiles = files; this.removedFiles = removed; },
+    stored: () => (this.view?.attachments ?? []).map((a) => a.name),
+    url: (name) => api.fileUrl(this.guid, name),
+    touched: () => this.touch(),
+  });
 
   /** Links in the text to items: chosen with the item picker, opened like references. */
   private readonly itemLinks: ItemLinks = {

@@ -4,7 +4,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { MAX_ATTACHMENT, freeFileName } from "./files";
+import { createFiles } from "./files";
 import { store, type Route, type State, toastError } from "./store";
 import type { Attachment, CommentView, Field, HistoryEntry, OverlayView, PickerAction, Relationships, Schema, Summary, VersionView, View, WorkflowEval, WorkflowValue } from "./types";
 import { announceEdit } from "./ws";
@@ -386,48 +386,18 @@ export class Detail extends LightElement {
   /** The entry's files for images and file links in rich text: the stored ones and the ones
    *  waiting for Save (a new one joins the pending attachments, shown from the browser until
    *  it is saved). */
-  private readonly blobUrls = new WeakMap<File, string>();
-  private readonly entryFiles: EntryFiles = {
-    add: async (file, replace) => {
-      if (file.size > MAX_ATTACHMENT) throw new Error(`it is larger than ${MAX_ATTACHMENT >> 20} MiB`);
-      // replace: under its own name, in place of the stored or pending file (Save overwrites it)
-      const name = replace ? file.name : freeFileName(file, new Set(await this.entryFiles.list()));
-      const f = name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
-      this.pending = { ...this.pending, files: [...this.pending.files.filter((p) => p.name !== name), f],
-        removedFiles: this.pending.removedFiles.filter((n) => n !== name) };
-      this.setOpen("attachments", true, false); // as an upload there does: what Save will store shows
-      this.touched();
-      return name;
-    },
-    // a pending file is dropped, a stored one is removed with Save
-    remove: (name) => {
-      const p = this.pending;
-      if (p.files.some((f) => f.name === name)) this.pending = { ...p, files: p.files.filter((f) => f.name !== name) };
-      else if ((this.view?.attachments ?? []).some((a) => a.name === name) && !p.removedFiles.includes(name)) {
-        this.pending = { ...p, removedFiles: [...p.removedFiles, name] };
-        this.touched();
-      }
-    },
+  private readonly entryFiles: EntryFiles = createFiles({
+    pending: () => ({ files: this.pending.files, removed: this.pending.removedFiles }),
+    setPending: (files, removedFiles) => { this.pending = { ...this.pending, files, removedFiles }; },
+    stored: () => (this.view?.attachments ?? []).map((a) => a.name),
     url: (name) => {
-      const p = this.pending.files.find((f) => f.name === name);
-      if (p) {
-        let u = this.blobUrls.get(p);
-        if (!u) { u = URL.createObjectURL(p); this.blobUrls.set(p, u); }
-        return u;
-      }
       const h = this.historic;
       return h ? api.versionFileUrl(this.guid, h.etag, h.commit.sha, name) : api.fileUrl(this.guid, name);
     },
-    list: async () => [...new Set([
-      ...(this.view?.attachments ?? []).map((a) => a.name).filter((n) => !this.pending.removedFiles.includes(n)),
-      ...this.pending.files.map((f) => f.name)])],
-    // a file's bytes: a pending one from the browser, else from the server
-    get: async (name) => {
-      const p = this.pending.files.find((f) => f.name === name);
-      if (p) return p;
-      return api.fileBlob(this.entryFiles.url(name));
-    },
-  };
+    touched: () => this.touched(),
+    added: () => this.setOpen("attachments", true, false), // as an upload there does: what Save will store shows
+    inPlace: true,
+  });
 
   private touched() {
     if (this.historic) return; // read-only: nobody is editing
