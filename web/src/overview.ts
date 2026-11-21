@@ -3,7 +3,7 @@ import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relT
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { pickArtifact, store, type State, toastError } from "./store";
+import { pickArtifact, store, type NewOptions, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
 import { queryFields } from "./components/query-field";
 import type { QueryField, QuerySource } from "./components/query-model";
@@ -335,7 +335,7 @@ export class Overview extends LightElement {
     label: "New", cls: "new-pop",
     items: (): MenuEntry[] => {
       const folder = this.s.route.folder;
-      const open = (opts: Record<string, unknown>) => store.set({ dialog: { kind: "new", folder, ...opts } });
+      const open = (opts: NewOptions) => store.set({ dialog: { kind: "new", folder, ...opts } });
       const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
       const all: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
       const items: MenuEntry[] = all.filter(([k]) => kinds.has(k)).map(([k, test, label]) => ({ label, test, run: () => open({ kinds: [k] }) }));

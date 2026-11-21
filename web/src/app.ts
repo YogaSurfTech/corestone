@@ -13,6 +13,8 @@ import "./overview";
 import "./detail";
 import "./document";
 import "./dialogs";
+import "./new-dialog";
+import "./picker";
 import "./account"; // the account page, shown in a dialog
 import "./toast";
 import { StoreController } from "./store-controller";

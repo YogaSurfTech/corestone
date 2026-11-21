@@ -6,7 +6,7 @@ import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { pickArtifact, store, type State, toastError } from "./store";
+import { pickArtifact, pickArtifacts, store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, View } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/util";
@@ -273,10 +273,8 @@ export class DocumentView extends LightElement {
 
   private readonly host: DocumentHost = {
     guid: undefined,
-    pickEntries: (taken) => new Promise((resolve) => {
-      store.set({ picker: { kind: "pick", title: "Insert entries", kinds: ["entry"], taken: { guids: new Set(taken), note: "already in this document" },
-        multi: { verb: "Insert" }, onPickMany: (guids: string[]) => resolve(guids), onCancel: () => resolve([]) } });
-    }),
+    pickEntries: (taken) => pickArtifacts({ title: "Insert entries", kinds: ["entry"],
+      taken: { guids: new Set(taken), note: "already in this document" } }, "Insert"),
     renderEntry: (el, p) => this.renderEntry(el, p),
     openEntry: (key, newTab) => {
       const guid = this.real(key);

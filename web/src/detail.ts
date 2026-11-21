@@ -5,7 +5,7 @@ import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { createFiles } from "./files";
-import { store, type Route, type State, toastError } from "./store";
+import { pickArtifact, store, type Route, type State, toastError } from "./store";
 import type { Attachment, CommentView, Field, HistoryEntry, OverlayView, PickerAction, Relationships, Schema, Summary, VersionView, View, WorkflowEval, WorkflowValue } from "./types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/util";
@@ -442,8 +442,8 @@ export class Detail extends LightElement {
       } else if (e instanceof ApiError && e.status === 412) {
         this.error = "Someone else modified this artifact in the meantime. Reload to see their changes; your edits stay in the form until you do.";
       } else if (e instanceof ApiError && e.status === 404) {
-        store.set({ dialog: { kind: "confirm", title: "Deleted meanwhile", noConfirm: true,
-          text: `${label(this.view.meta)} was deleted by someone else while you were editing. Your changes cannot be saved; they stay in the form until you leave.` } });
+        void store.confirm("Deleted meanwhile", { noConfirm: true,
+          text: `${label(this.view.meta)} was deleted by someone else while you were editing. Your changes cannot be saved; they stay in the form until you leave.` });
       } else {
         this.error = errorText(e);
       }
@@ -466,12 +466,12 @@ export class Detail extends LightElement {
       <th>${this.conflictLabel(it.key)}</th>
       <td>${fmt(it.theirs)}<div class="muted small">${it.author ?? "someone"}${it.time ? html` · ${fmtTime(it.time)}` : nothing}</div></td>
       <td>${fmt(it.mine)}</td></tr>`;
-    store.set({ dialog: { kind: "confirm", title: "Changed by someone else", danger: true, confirmLabel: "Overwrite", resizable: "conflict",
+    void store.confirm("Changed by someone else", { danger: true, confirmLabel: "Overwrite", resizable: "conflict",
       text: `While you were editing ${label(v.meta)}, someone else changed the same things. Your other changes merge without loss.`,
       body: html`<p><a href=${`/artifact/${v.meta.guid}`} target="_blank" rel="noopener" data-test="conflict-current">Open the current version in a new tab</a></p>
         <table class="base-diff conflict-table" data-test="conflicts"><thead><tr><th></th><th>Theirs (now)</th><th>Yours</th></tr></thead>
         <tbody>${c.conflicts.map(row)}</tbody></table>`,
-      onConfirm: () => void this.save(c.etag) } });
+    }).then((choice) => { if (choice === "confirm") void this.save(c.etag); });
   }
 
   private conflictLabel(key: string): string {
@@ -500,16 +500,15 @@ export class Detail extends LightElement {
 
   private async deleteArtifact() {
     const v = this.view!;
-    store.set({ dialog: { kind: "confirm", title: `Delete ${label(v.meta)}?`, danger: true, confirmLabel: "Delete",
-      text: `The artifact, its ${v.meta.links} link(s), ${v.meta.comments} comment(s) and ${v.attachments?.length ?? 0} attachment(s) are removed in one commit. History stays in Git.`,
-      onConfirm: async () => {
-        try {
-          await api.remove(this.guid, v.etag);
-          store.toast("Deleted", "success");
-          store.refresh();
-          navigate({ guid: null });
-        } catch (e) { toastError(e); }
-      } } });
+    const choice = await store.confirm(`Delete ${label(v.meta)}?`, { danger: true, confirmLabel: "Delete",
+      text: `The artifact, its ${v.meta.links} link(s), ${v.meta.comments} comment(s) and ${v.attachments?.length ?? 0} attachment(s) are removed in one commit. History stays in Git.` });
+    if (choice !== "confirm") return;
+    try {
+      await api.remove(this.guid, v.etag);
+      store.toast("Deleted", "success");
+      store.refresh();
+      navigate({ guid: null });
+    } catch (e) { toastError(e); }
   }
 
   /**
@@ -540,8 +539,9 @@ export class Detail extends LightElement {
 
   /** A new link waits for Save. */
   private addLink(asSource: boolean, type: string, role: string, types?: string[]) {
-    store.set({ picker: { kind: "pick", title: asSource ? `${type}: choose target` : `${type}: choose source`, types, exclude: this.guid, kinds: ["entry", "document"],
-      onPick: (other: Summary) => {
+    void pickArtifact({ title: asSource ? `${type}: choose target` : `${type}: choose source`, types, exclude: this.guid, kinds: ["entry", "document"] })
+      .then((other) => {
+        if (!other) return;
         const link = asSource ? { type, source: this.guid, target: other.guid } : { type, source: other.guid, target: this.guid };
         const all = [...(this.rel?.outgoing ?? []), ...(this.rel?.incoming ?? [])].filter((l) => !this.pending.removedLinks.includes(l.link.guid));
         if (all.some((l) => l.link.type === type && l.link.source === link.source && l.link.target === link.target)
@@ -552,7 +552,7 @@ export class Detail extends LightElement {
         this.pending = { ...this.pending, links: [...this.pending.links, { ...link, other, role, dir: asSource ? "out" : "in" }] };
         this.setOpen("relationships", true, false);
         this.touched();
-      } } });
+      });
   }
 
   /** Removing a stored link waits for Save; removing a pending one drops it. */
@@ -592,12 +592,7 @@ export class Detail extends LightElement {
 
   private createOverlay() {
     const v = this.view!;
-    store.set({ dialog: { kind: "new", kinds: ["entry"], type: v.meta.type, folder: v.meta.folder, baseGuid: this.guid } });
-    // the new dialog reads baseGuid via a small hook below
-    window.setTimeout(() => {
-      const dlg = document.querySelector("corestone-new-dialog") as (HTMLElement & { base: string; baseLabel: string }) | null;
-      if (dlg) { dlg.base = this.guid; dlg.baseLabel = label(v.meta); }
-    }, 50);
+    store.set({ dialog: { kind: "new", kinds: ["entry"], type: v.meta.type, folder: v.meta.folder, base: { guid: this.guid, label: label(v.meta) } } });
   }
 
   override render() {
@@ -1018,8 +1013,8 @@ export class Detail extends LightElement {
     const base = v.meta.base;
     const actions: PickerAction[] = [{ label: "Create new base…", test: "create-base", tone: "add", run: this.startUnderlay }];
     if (base) actions.push({ label: `Remove base ${this.levelLabel(base)}`, test: "remove-base", tone: "remove", run: () => { void this.previewBase(null); } });
-    store.set({ picker: { kind: "pick", title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: this.guid,
-      actions, onPick: (s: Summary) => { void this.previewBase(s); } } });
+    void pickArtifact({ title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: this.guid, actions })
+      .then((s) => { if (s) void this.previewBase(s); });
   };
 
   /** The fields this entry sets itself, which can move into a new base. A workflow's state cannot: every entry has its own. */
