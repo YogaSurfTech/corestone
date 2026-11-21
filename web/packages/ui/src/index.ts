@@ -14,3 +14,4 @@ export { iconSet, type IconStyle } from "./lib/icons";
 export { LightElement } from "./lib/light-element";
 export { buildMenu, DropMenu, popupMenu, type DropMenuOptions, type MenuEntry } from "./menu";
 export { Resizer, splitter, type ResizerOptions } from "./resizer";
+export { attachTooltips, setTip, tipOf, type Tip, type TooltipOptions } from "./tooltip";
