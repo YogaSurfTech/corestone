@@ -89,6 +89,10 @@ export function clauseLabel(c: Clause): string {
     case "artifact": return `${n}: ${v.label}`;
     case "enum": return `${n}: ${v.values.map((o) => o.label).join(", ")}`;
     case "text": return `${n}: ${v.text}`;
-    case "range": return v.compare === "between" ? `${n}: ${v.a} – ${v.b}` : `${n} ${v.compare === "=" ? ":" : ({ "<": "<", "<=": "≤", ">": ">", ">=": "≥" } as Record<string, string>)[v.compare]} ${v.a}`;
+    case "range": {
+      if (v.compare === "between") return `${n}: ${v.a} – ${v.b}`;
+      if (v.compare === "=") return `${n}: ${v.a}`;
+      return `${n} ${({ "<": "<", "<=": "≤", ">": ">", ">=": "≥" } as Record<string, string>)[v.compare]} ${v.a}`;
+    }
   }
 }
