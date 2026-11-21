@@ -6,17 +6,14 @@ import { api } from "./api";
 import { navigate } from "./router";
 import { store, type Dialog, type State, type Theme } from "./store";
 import type { RichText } from "@corestone/editor";
-import type { Kind, Schema, SortLevel, Summary, TableFilter, View } from "./types";
-import type { Table, TableColumn } from "./table";
-import "./table";
-import { collectionOf, displayName, kindLabel, kindPlural, label } from "./util";
-import "./type-icon";
-import "./fields";
-import "./folder-field";
-import "./account";
+import type { Kind, PickerAction, Schema, SortLevel, Summary, TableFilter, View } from "./types";
+import type { Table, TableColumn } from "./components/table";
+import "./components/table";
+import { collectionOf, displayName, kindLabel, kindPlural, label } from "./components/util";
+import "./components/type-icon";
+import "./components/fields";
+import "./components/folder-field";
 
-/** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
-export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
 
 /** Where the size a dialog was last dragged to is kept: the picker, or a dialog by its resizable name. */
 const sizeKey = (name: string) => name === "picker" ? "corestone.pickerSize" : `corestone.dialogSize.${name}`;

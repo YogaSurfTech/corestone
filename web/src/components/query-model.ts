@@ -1,8 +1,7 @@
 // The query builder's model: a query as a row of criteria, and the query
 // text it stands for. The text is what runs and what the server reads; the
 // builder only writes it (a text is never turned back into criteria).
-import type { PickOptions } from "./store";
-import type { EnumOption } from "./types";
+import type { EnumOption, PickOptions } from "../types";
 
 /** How two criteria are joined. NOT binds strongest, then AND, then XOR, then OR. */
 export type Join = "AND" | "OR" | "XOR";

@@ -2,7 +2,7 @@ import { html } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { customElement, property } from "lit/decorators.js";
 import { LightElement, Overlay, buildMenu } from "@corestone/ui";
-import type { Kind } from "./types";
+import type { Kind } from "../types";
 import { kindMark } from "./util";
 
 /** What the overview can show: "" is entries and documents together. */

@@ -4,16 +4,16 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
+import { MAX_ATTACHMENT, freeFileName } from "./files";
 import { store, type Route, type State, toastError } from "./store";
-import type { Attachment, CommentView, Field, HistoryEntry, OverlayView, Relationships, Schema, Summary, VersionView, View, WorkflowEval, WorkflowValue } from "./types";
+import type { Attachment, CommentView, Field, HistoryEntry, OverlayView, PickerAction, Relationships, Schema, Summary, VersionView, View, WorkflowEval, WorkflowValue } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./util";
-import "./type-icon";
-import "./table";
-import type { TableColumn } from "./table";
-import "./fields";
-import { OVERLAY_HELP, type OverlayState } from "./fields";
-import type { PickerAction } from "./dialogs";
+import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/util";
+import "./components/type-icon";
+import "./components/table";
+import type { TableColumn } from "./components/table";
+import "./components/fields";
+import { OVERLAY_HELP, type OverlayState } from "./components/fields";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -1250,25 +1250,4 @@ export class Detail extends LightElement {
       <h4 class="small muted" style="margin-top:10px">Additional properties</h4>
       ${Object.keys(d).length ? html`<pre class="json">${JSON.stringify(d, null, 2)}</pre>` : html`<div class="muted small">No extra properties. Tools may add their own; they are preserved on save.</div>`}`);
   }
-}
-
-/** The server's limit for one attachment (internal/httpapi maxAttachment). */
-export const MAX_ATTACHMENT = 32 << 20;
-
-/** A name for a new file of the entry: its own name made safe, a dated name for pasted
- *  images (which all arrive as "image.png"), numbered when the name is taken. */
-export function freeFileName(file: File, taken: Set<string>): string {
-  // eslint-disable-next-line no-control-regex
-  let name = (file.name || "").replace(/[\u0000-\u001f\u007f/\\]/g, "_").trim().replace(/^[.:]+/, "");
-  const ext = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? file.type.split("/")[1] ?? "bin").toLowerCase().replace("jpeg", "jpg");
-  if (!name || /^image\.[a-z]+$/i.test(name)) {
-    const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
-    name = `image-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
-  }
-  let stem = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
-  const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
-  while (new TextEncoder().encode(stem + suffix).length > 200) stem = stem.slice(0, -1);
-  let out = stem + suffix;
-  for (let n = 2; taken.has(out) || out.startsWith(".corestone"); n++) out = `${stem}-${n}${suffix}`;
-  return out;
 }

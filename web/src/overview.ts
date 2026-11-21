@@ -5,16 +5,16 @@ import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
-import { queryFields } from "./query-field";
-import type { QueryField } from "./query-model";
-import { fieldValue } from "./sorting";
-import { hasSource, knownOptions, withMissing } from "./options";
-import { kindIcon, kindLabel, workflowStates } from "./util";
-import type { TableColumn, TableContext } from "./table";
-import "./table";
-import "./type-icon";
-import "./enum-control";
-import "./kind-menu";
+import { queryFields } from "./components/query-field";
+import type { QueryField } from "./components/query-model";
+import { fieldValue } from "./components/sorting";
+import { hasSource, knownOptions, withMissing } from "./components/options";
+import { kindIcon, kindLabel, workflowStates } from "./components/util";
+import type { TableColumn, TableContext } from "./components/table";
+import "./components/table";
+import "./components/type-icon";
+import "./components/enum-control";
+import "./components/kind-menu";
 
 // Artifact overview (design guide §7.4): every artifact matching the
 // navigation context in a server-sorted, lazily loaded table whose columns

@@ -4,7 +4,7 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
 const result = await build({
-  stdin: { contents: 'export * from "./table-model";', resolveDir: fileURLToPath(new URL("../src", import.meta.url)) },
+  stdin: { contents: 'export * from "./table-model";', resolveDir: fileURLToPath(new URL("../src/components", import.meta.url)) },
   bundle: true, format: "esm", platform: "node", write: false,
 });
 const { BATCH, batchesFor, promoteSort } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);

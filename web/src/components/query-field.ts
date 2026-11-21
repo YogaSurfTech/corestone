@@ -5,9 +5,9 @@
 import { html, nothing, render, svg, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import { api } from "./api";
-import { pickArtifact, store } from "./store";
-import type { EnumOption, QueryWarning, Schema, Summary } from "./types";
+import { api } from "../api";
+import { pickArtifact, store } from "../store";
+import type { EnumOption, QueryWarning, Schema, Summary } from "../types";
 import { hidLabel } from "./util";
 import "./enum-control";
 import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type Value } from "./query-model";

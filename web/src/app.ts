@@ -5,12 +5,13 @@ import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import { announceName, announceView } from "./ws";
-import { folderCrumbs } from "./util";
+import { folderCrumbs } from "./components/util";
 import "./sidebar";
 import "./overview";
 import "./detail";
 import "./document";
 import "./dialogs";
+import "./account"; // the account page, shown in a dialog
 import "./toast";
 
 // Application shell (design guide §7.2): header, navigation sidebar, and

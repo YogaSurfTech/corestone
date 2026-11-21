@@ -34,6 +34,33 @@ test("the app imports anything", () => {
   assert.deepEqual(what("src/detail.ts", `import { RichTextEditor } from "@corestone/editor"; import { api } from "./api"; import "x";`), []);
 });
 
+test("components of the app take types from it, and nothing of the server, the store or the views", () => {
+  assert.deepEqual(what("src/components/table.ts", `
+    import { html } from "lit";
+    import { LightElement } from "@corestone/ui";
+    import "@corestone/editor";
+    import type { Summary } from "../types";
+    import { compare } from "./sorting";
+  `), []);
+  assert.deepEqual(what("src/components/table.ts", `
+    import { api } from "../api";
+    import { store } from "../store";
+    import { navigate } from "../router";
+    import "../dialogs";
+    import { EditorView } from "prosemirror-view";
+  `), ["imports src/api", "imports src/store", "imports src/router", "imports the view src/dialogs", "imports prosemirror-view"]);
+  assert.deepEqual(what("src/overview.ts", `import "./components/table";`), []);
+});
+
+test("only the shell imports a view", () => {
+  assert.deepEqual(what("src/app.ts", `import "./overview"; import "./detail";`), []);
+  assert.deepEqual(what("src/main.ts", `import { SignIn } from "./account";`), []);
+  assert.deepEqual(what("src/document.ts", `import { freeFileName } from "./detail"; import { store } from "./store"; import { x } from "./files";`),
+    ["imports the view src/detail"]);
+  assert.deepEqual(what("src/store.ts", `import "./dialogs";`), ["imports the view src/dialogs"]);
+  assert.deepEqual(what("src/new-view.ts", `import type { PickerAction } from "./dialogs";`), ["imports the view src/dialogs"]);
+});
+
 test("the network and the storage belong to one file each", () => {
   assert.deepEqual(what("src/api.ts", `fetch("/api"); localStorage.getItem("k");`), ["uses localStorage"]);
   assert.deepEqual(what("src/ws.ts", `new WebSocket(url);`), []);

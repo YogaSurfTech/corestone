@@ -1,4 +1,4 @@
-import type { Summary } from "./types";
+import type { Summary } from "../types";
 import { plainText } from "@corestone/editor/model"; // the stored form only, without the editor (also in Node)
 import { isRichText, isWorkflowValue } from "./util";
 
