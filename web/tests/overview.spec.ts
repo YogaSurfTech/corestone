@@ -189,10 +189,11 @@ for (const folder of ["", "overview-scope"]) {
       fields: [{ id: "note", name: "Note", type: "text" }, { id: "priority", name: "Priority", type: "enum",
         options: [{ value: "high", label: "High" }] }] };
     await mount(page, [link], [linkSchema], { [source.guid]: source, [target.guid]: target }, folder);
-    await page.getByRole("button", { name: "Links", exact: true }).click();
+    await page.locator("[data-test=kind]").click();
+    await page.getByRole("menuitemcheckbox", { name: "Links", exact: true }).click();
     await expect(page.locator("thead th .th-sort")).toHaveText(["From", "Role", "To", "Note", "Priority", "Author", "Created", "Updated"]);
     const cells = page.locator(`tr[data-guid="${link.guid}"] td`);
-    // endpoint cells start with the type icon (here the kind letter fallback); the link carries the label
+    // endpoint cells start with the type icon (here the kind's own icon); the link carries the label
     await expect(cells.nth(0).getByRole("link")).toHaveText("CMP-1");
     await expect(cells.nth(1)).toHaveText("Verifies");
     await expect(cells.nth(2).getByRole("link")).toHaveText(target.guid);
