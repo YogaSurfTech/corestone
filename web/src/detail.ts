@@ -428,9 +428,7 @@ export class Detail extends LightElement {
     get: async (name) => {
       const p = this.pending.files.find((f) => f.name === name);
       if (p) return p;
-      const res = await fetch(this.entryFiles.url(name), { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`the file could not be read (${res.status})`);
-      return res.blob();
+      return api.fileBlob(this.entryFiles.url(name));
     },
   };
 
