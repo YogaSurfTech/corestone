@@ -2,15 +2,14 @@
 // criteria. "+" offers the fields; a criterion is a button that opens its
 // editor, with NOT to switch on and off and the operator between two
 // criteria to choose. The builder writes the query text, which is what runs.
-import { html, nothing, render, svg, type PropertyValues } from "lit";
+import { html, nothing, render, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import { api } from "./api";
-import { pickArtifact, store } from "./store";
-import type { EnumOption, QueryWarning, Schema, Summary } from "./types";
+import type { EnumOption, QueryWarning, Schema } from "../types";
+import { markIcon } from "./icons";
 import { hidLabel } from "./util";
 import "./enum-control";
-import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type Value } from "./query-model";
+import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 
 const INPUT: Record<string, Input> = {
   enum: "enum", workflow: "enum", boolean: "bool", integer: "number", float: "number", currency: "number",
@@ -18,7 +17,7 @@ const INPUT: Record<string, Input> = {
 };
 
 /** The fields a query can name here: the general ones and those of the types given. */
-export function queryFields(schemas: Schema[], folder: string, type: string): QueryField[] {
+export function queryFields(schemas: Schema[], folder: string, type: string, source: QuerySource): QueryField[] {
   const general = (id: string, name: string, input: Input, more: Partial<QueryField> = {}): QueryField => ({ id, name, input, group: "General", ...more });
   const out: QueryField[] = [
     general("", "Text", "text"),
@@ -38,11 +37,11 @@ export function queryFields(schemas: Schema[], folder: string, type: string): Qu
       const field: QueryField = { id: f.id, name: f.name || f.id, input: INPUT[f.type] ?? "text", group: "Fields" };
       if (f.type === "enum" && f.source) {
         // a dynamic enumeration is written as the chosen artifact's HID
-        field.load = () => api.options(s.type, f.id, folder).then((r) => r.options.map((o: Summary) => ({ value: o.hid ?? o.guid, label: hidLabel(o) })));
+        field.load = () => source.enumOptions(s.type, f.id, folder).then((r) => r.map((o) => ({ value: o.hid ?? o.guid, label: hidLabel(o) })));
       } else if (f.type === "enum") {
         field.options = f.options ?? [];
       } else if (f.type === "workflow") {
-        field.load = () => api.workflowDef(f.workflow ?? "", s.type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation })));
+        field.load = () => source.workflowStates(f.workflow ?? "", s.type, folder);
       } else if (field.input === "artifact") {
         field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes };
       }
@@ -51,10 +50,6 @@ export function queryFields(schemas: Schema[], folder: string, type: string): Qu
   }
   return out;
 }
-
-const pinIcon = html`<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">${svg`<path d="M10.2 1.6 14.4 5.8l-1.1 1.1-.9-.2-2.3 2.3.3 2.4-1.2 1.2-2.6-2.6-3.5 3.5-.9.2.2-.9 3.5-3.5L3.3 6.7l1.2-1.2 2.4.3 2.3-2.3-.2-.9z" fill="currentColor"/>`}</svg>`;
-
-const calendarIcon = html`<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">${svg`<path d="M4.5 1.5v2M11.5 1.5v2M2 6.5h12M3.5 3h9A1.5 1.5 0 0 1 14 4.5v8A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-8A1.5 1.5 0 0 1 3.5 3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`}</svg>`;
 
 type Open =
   | { kind: "fields" }
@@ -74,6 +69,8 @@ export class QueryFieldElement extends LightElement {
   /** The query that runs (the route's). */
   @property() value = "";
   @property({ attribute: false }) fields: QueryField[] = [];
+  /** Where its data comes from. */
+  @property({ attribute: false }) source!: QuerySource;
   /** The folder of the view: where the icons of enumeration values are looked up. */
   @property() folder = "";
 
@@ -96,7 +93,6 @@ export class QueryFieldElement extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    document.addEventListener("mousedown", this.pressed, true); // before the overlay's own listener
     const kept = prefs.json<Remembered[]>(HISTORY, []);
     this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
   }
@@ -115,7 +111,6 @@ export class QueryFieldElement extends LightElement {
   }
   override disconnectedCallback() {
     this.overlay?.close();
-    document.removeEventListener("mousedown", this.pressed, true);
     window.clearTimeout(this.timer);
     super.disconnectedCallback();
   }
@@ -129,11 +124,6 @@ export class QueryFieldElement extends LightElement {
   /** The control a panel opens below. */
   private anchor: HTMLElement | null = null;
   private opening = false;
-  /** The press on "+" found the list of fields open (the overlay closes it on that press): the click must not open it again. */
-  private pressedOpen = false;
-  private pressed = (e: MouseEvent) => {
-    this.pressedOpen = this.open?.kind === "fields" && !!(e.target as Element).closest?.("[data-test=query-add]") && this.contains(e.target as Node);
-  };
   /** The built list of fields, kept while it holds the same fields: its items keep the focus. */
   private fieldMenu: { key: string; items: HTMLElement[] } | null = null;
 
@@ -149,8 +139,8 @@ export class QueryFieldElement extends LightElement {
         onClose: () => { if (!this.opening && this.open) this.open = null; },
         onEscape: () => this.querySelector<HTMLElement>("[data-test=query-add]")?.focus(),
       });
-      this.panel = this.overlay.panel("qb-pop", "dialog", "Criterion");
-      this.menu = this.overlay.panel("qb-pop menu-like", "menu", "Operator");
+      this.panel = this.overlay.panel("ui-pop qb-pop", "dialog", "Criterion");
+      this.menu = this.overlay.panel("ui-pop ui-menu", "menu", "Operator");
     }
     const o = this.open;
     if (!o) {
@@ -160,19 +150,17 @@ export class QueryFieldElement extends LightElement {
     const target = o.kind === "join" ? this.menu : this.panel;
     if (o.kind === "join") {
       const items = buildMenu(JOINS.map((j) => ({
-        label: j, checked: this.clauses[o.index]?.join === j,
+        label: j, checked: this.clauses[o.index]?.join === j, test: "query-join-" + j.toLowerCase(),
         run: () => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c))),
       })));
-      items.forEach((b, i) => { b.dataset.test = "query-join-" + JOINS[i].toLowerCase(); });
       this.menu.replaceChildren(...items);
     } else {
       this.panel.classList.toggle("qb-two", o.kind === "fields");
       render(o.kind === "editor" ? this.editor(o.field) : this.fieldList(), this.panel);
     }
     if (target.hidden) {
-      const r = (this.anchor?.isConnected ? this.anchor : this).getBoundingClientRect();
       this.opening = true;
-      this.overlay.open(target, { x: r.left, y: r.bottom + 4 });
+      this.overlay.openBelow(target, this.anchor?.isConnected ? this.anchor : this);
       this.opening = false;
       if (o.kind === "join") (this.menu.querySelector("[aria-checked=true]") as HTMLElement | null)?.focus();
     }
@@ -195,7 +183,7 @@ export class QueryFieldElement extends LightElement {
     let warnings: QueryWarning[] = [];
     if (text.trim()) {
       try {
-        warnings = (await api.parseQuery(text)).warnings;
+        warnings = await this.source.check(text);
       } catch (e) {
         error = errorText(e);
       }
@@ -248,7 +236,7 @@ export class QueryFieldElement extends LightElement {
     this.show({ kind: "editor", field, index }, anchor);
     if (field.input === "enum" && !field.options && field.load) {
       field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
-        (e) => { this.options = []; store.toast(errorText(e), "error"); });
+        (e) => { this.options = []; this.source.failed(e); });
     }
     void this.updateComplete.then(() => {
       (this.querySelector<HTMLElement>(".qb-editor .enum-search input") ?? this.querySelector<HTMLElement>(".qb-editor :is(input, select, button):not(.qb-not)"))?.focus();
@@ -302,7 +290,7 @@ export class QueryFieldElement extends LightElement {
     const p = field.picker;
     if (!p) return;
     const target = this.open; // the picker is a dialog of its own: a click in it closes this editor
-    void pickArtifact(p).then((s) => { if (s) this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target); });
+    void this.source.pick(p).then((s) => { if (s) this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target); });
   }
 
   private editor(field: QueryField) {
@@ -318,7 +306,7 @@ export class QueryFieldElement extends LightElement {
               // the browser's own date picker, opened from a button that looks the same everywhere
               const day = (e.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement;
               try { day.showPicker(); } catch { day.focus(); }
-            }}>${calendarIcon}</button>
+            }}>${markIcon("calendar")}</button>
           <input type="date" class="qb-day" tabindex="-1" aria-hidden="true" .value=${/^\d{4}-\d\d-\d\d$/.test(d[key]) ? d[key] : ""} @change=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} /></span>`;
     let body;
     switch (field.input) {
@@ -392,7 +380,7 @@ export class QueryFieldElement extends LightElement {
         <button class="item" data-test="query-history-item" title="Add this criterion again" @click=${() => { this.remember(h.clause); this.place({ ...h.clause, join: "AND" }, null); }}>${h.clause.not ? "NOT " : ""}${clauseLabel(h.clause)}</button>
         <button class="qb-pin ${h.pinned ? "on" : ""}" data-test="query-pin" aria-pressed=${h.pinned ? "true" : "false"}
           title=${h.pinned ? "Pinned: it is kept. Click to let it go with the others." : "Pin: keep it, however many follow"} aria-label="Pin"
-          @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${pinIcon}</button>
+          @click=${() => this.keep(this.history.map((x) => (x === h ? { ...x, pinned: !x.pinned } : x)))}>${markIcon("pin", 13)}</button>
       </div>`)}
      </div>` : nothing}`;
   }
@@ -404,7 +392,7 @@ export class QueryFieldElement extends LightElement {
         <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
           @click=${(e: Event) => {
             // a second click closes the list: the press already closed it, so it is not opened again
-            if (this.pressedOpen) { this.pressedOpen = false; return; }
+            if (this.open?.kind === "fields") { this.open = null; return; } // a second click closes the list
             this.find = "";
             this.show({ kind: "fields" }, e.currentTarget as HTMLElement);
             void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=query-find]")?.focus());

@@ -215,3 +215,18 @@ export interface TableRows {
   related: Record<string, Summary>;
   typeNames: Record<string, Record<string, string>>;
 }
+
+/** What the artifact picker offers when one artifact is to be chosen. */
+export interface PickOptions {
+  title: string;
+  kinds?: Kind[];
+  /** Type ids; "<kind>/*" allows every type of a kind. */
+  types?: string[];
+  /** Narrows what is offered, in the query language. */
+  query?: string;
+  /** An artifact that is not offered (its GUID). */
+  exclude?: string;
+}
+
+/** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
+export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }

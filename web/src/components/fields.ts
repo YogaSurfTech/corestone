@@ -3,10 +3,10 @@ import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
-import { api, server } from "./api";
-import { pickArtifact, store } from "./store";
+import { api, server } from "../api";
+import { pickArtifact, store } from "../store";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
-import type { Attachment, Field, Summary } from "./types";
+import type { Attachment, Field, Summary } from "../types";
 import { hasSource, knownOptions, withMissing } from "./options";
 import { label, safeHref, showValue } from "./util";
 

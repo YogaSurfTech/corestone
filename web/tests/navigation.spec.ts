@@ -81,12 +81,12 @@ test("overview: kind menu, schema columns, subtree, sorting stability, social co
   // what is shown: one button with the icon of the active view, which opens a menu of all of them
   const kind = page.locator("[data-test=kind]");
   const menu = page.locator("[data-test=kind-menu]");
-  const show = async (k: string) => { await kind.click(); await menu.locator(`.mi[data-kind=${k}]`).click(); await expect(menu).toBeHidden(); await expect(kind).toHaveAttribute("data-kind", k); };
+  const show = async (k: string) => { await kind.click(); await menu.locator(`[data-test=kind-${k}]`).click(); await expect(menu).toBeHidden(); await expect(kind).toHaveAttribute("data-kind", k); };
   await expect(kind.locator(".kind-icon")).toHaveClass([/entry/, /document/]);
   await kind.click();
   await expect(menu.locator(".mi")).toHaveText(["Entries + Docs", "Entries", "Documents", "Links", "Comments"]);
-  await expect(menu.locator(".mi[data-kind=all] .kind-icon svg")).toHaveCount(2); // each with its pictogram
-  await expect(menu.locator(".mi[data-kind=link] .kind-icon.link svg")).toBeVisible();
+  await expect(menu.locator("[data-test=kind-all] .kind-icon svg")).toHaveCount(2); // each with its pictogram
+  await expect(menu.locator("[data-test=kind-link] .kind-icon.link svg")).toBeVisible();
   await expect(menu.locator(".mi[aria-checked=true]")).toHaveText("Entries + Docs");
   await kind.click(); // a second click closes it
   await expect(menu).toBeHidden();
@@ -103,13 +103,13 @@ test("overview: kind menu, schema columns, subtree, sorting stability, social co
   // with the keyboard: ↓ opens it on the active view, the arrow keys move, Escape gives the focus back
   await kind.focus();
   await page.keyboard.press("ArrowDown");
-  await expect(menu.locator(".mi[data-kind=comment]")).toBeFocused();
+  await expect(menu.locator("[data-test=kind-comment]")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(kind).toBeFocused();
   await page.keyboard.press("Enter");
   await page.keyboard.press("ArrowDown"); // round to the first
-  await expect(menu.locator(".mi[data-kind=all]")).toBeFocused();
+  await expect(menu.locator("[data-test=kind-all]")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(kind).toHaveAttribute("data-kind", "all");
   await expect(table.locator("tbody tr")).toHaveCount(4);
@@ -438,8 +438,8 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   const clauses = page.locator("[data-test=query-clause]");
   await expect(rows).toHaveCount(4);
   // nothing hangs below the field while nothing is open
-  await expect(page.locator("corestone-query-field .qb-pop")).toHaveCount(2);
-  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
+  await expect(page.locator("corestone-query-field .ui-pop")).toHaveCount(2);
+  await expect(page.locator("corestone-query-field .ui-pop:visible")).toHaveCount(0);
   // "+" offers the fields; an enumeration offers its values
   await page.locator("[data-test=query-add]").click();
   await expect(page.locator("[data-test=query-fields] .mi[data-field=finished]")).toBeVisible();
@@ -470,7 +470,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.locator("[data-test=query-join]").click();
   await page.locator("[data-test=query-join-or]").click();
   await expect(page.locator("[data-test=query-join]")).toHaveText("OR");
-  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
+  await expect(page.locator("corestone-query-field .ui-pop:visible")).toHaveCount(0);
   await expect(rows).toHaveCount(2);
   // NOT is switched on and off per criterion
   await page.locator("[data-test=query-not]").first().click();
@@ -586,4 +586,36 @@ test("query builder: based on and base of are chosen in the artifact picker", as
   await expect(page.locator("[data-test=query-clause]")).toHaveText([`Base of: ${overlay.meta.hid}`]);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(`Base ${id}`);
+});
+
+test("menus of the toolbar and the entry: a second click and Escape close them, the arrow keys move", async ({ page }) => {
+  await page.goto(`/folder/${folder}?subtree=1`);
+  const add = page.locator("[data-test=new]");
+  const any = page.locator("[data-test=new-any]");
+  await add.click();
+  await expect(any).toBeVisible();
+  await expect(add).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("corestone-overview .ui-menu .group").first()).toHaveText(`in ${folder}`);
+  await add.click(); // a second click closes it
+  await expect(any).toBeHidden();
+  await expect(add).toHaveAttribute("aria-expanded", "false");
+  await add.click();
+  await page.keyboard.press("ArrowUp"); // from the first item round to the last
+  await expect(any).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(any).toBeHidden();
+  await expect(add).toBeFocused();
+  await add.click();
+  await page.locator("[data-test=count]").click(); // a click elsewhere closes it
+  await expect(any).toBeHidden();
+  // the entry's actions open towards the left, inside the window
+  await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
+  const actions = page.locator("corestone-detail [data-test=actions]");
+  await actions.click();
+  const remove = page.locator("[data-test=delete]");
+  await expect(remove).toBeVisible();
+  const box = (await remove.boundingBox())!, button = (await actions.boundingBox())!;
+  expect(Math.round(box.x + box.width)).toBeLessThanOrEqual(Math.round(button.x + button.width));
+  await actions.click();
+  await expect(remove).toBeHidden();
 });

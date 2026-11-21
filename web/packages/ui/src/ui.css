@@ -1,0 +1,23 @@
+/* @corestone/ui: the look of its blocks. The page gives the colours as
+   --ui-* variables on .ui-pop (panel, text, border, shadow, hover, muted,
+   accent, error); without them the browser's system colours show. */
+
+/* A floating panel of an Overlay. */
+.ui-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px;
+  background: var(--ui-panel, Canvas); color: var(--ui-text, CanvasText); border: 1px solid var(--ui-border, GrayText); border-radius: 10px;
+  box-shadow: var(--ui-shadow, 0 8px 30px rgba(0, 0, 0, 0.2)); }
+.ui-pop[hidden] { display: none !important; } /* stronger than any display a panel is given */
+
+/* A panel that is a menu: a column of items. */
+.ui-pop.ui-menu { display: flex; flex-direction: column; min-width: 96px; padding: 6px; }
+
+/* The items buildMenu makes, wherever they stand in a panel. */
+.ui-pop .mi { display: flex; align-items: center; width: 100%; text-align: left; white-space: nowrap; border: none; background: none; color: inherit; font: inherit;
+  padding: 6px 10px; border-radius: 7px; cursor: pointer; position: relative; }
+.ui-pop .mi:is(:hover, :focus-visible):not(:disabled) { background: var(--ui-hover, Highlight); outline: none; }
+.ui-pop .mi[aria-checked=true] { font-weight: 700; color: var(--ui-accent, LinkText); }
+.ui-pop .mi:disabled { color: var(--ui-muted, GrayText); cursor: default; }
+.ui-pop .mi.danger:not(:disabled) { color: var(--ui-error, #d14343); }
+.ui-pop .mi-icon { display: inline-flex; gap: 3px; margin-right: 8px; }
+/* A heading above a group of items. */
+.ui-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ui-muted, GrayText); padding: 6px 10px 2px; }

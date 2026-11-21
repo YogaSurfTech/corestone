@@ -2,9 +2,9 @@ import { html, type PropertyValues } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
-import { api } from "./api";
-import { store } from "./store";
-import type { Kind, Schema } from "./types";
+import { api } from "../api";
+import { store } from "../store";
+import type { Kind, Schema } from "../types";
 import { kindIcon } from "./util";
 
 // Types visible per folder, shared by all icons on the page and dropped

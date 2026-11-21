@@ -18,6 +18,14 @@ export interface OverlayOptions {
   onClose?(): void;
 }
 
+/** How a panel stands below the control that opens it. */
+export interface Below {
+  /** "start" (the default): left edges in line. "end": right edges in line. */
+  align?: "start" | "end";
+  /** The distance below the control, 4 by default. */
+  gap?: number;
+}
+
 /**
  * A group of floating panels (menus, small dialogs) inside one element, of
  * which one is open at a time. A click outside the open panel or Escape in it
@@ -52,12 +60,41 @@ export class Overlay {
 
   /** Shows a panel with its top left corner at a point of the window, moved left as far as needed to stay inside the root. */
   open(panel: HTMLElement, at: Point): void {
+    this.show(panel, at);
+  }
+
+  /**
+   * Shows a panel below the control that opens it: its left edges in line, or
+   * with `align: "end"` its right edges (the panel then reaches to the left,
+   * also beyond the root). A press on that control does not close the panel;
+   * what the control's click does is the caller's (see toggle).
+   */
+  openBelow(panel: HTMLElement, anchor: HTMLElement, o: Below = {}): void {
+    const a = anchor.getBoundingClientRect();
+    this.show(panel, { x: a.left, y: a.bottom + (o.gap ?? 4) }, anchor);
+    if (o.align !== "end") return;
+    const r = this.o.root.getBoundingClientRect();
+    panel.style.left = "auto";
+    panel.style.right = `${r.right - a.right}px`;
+    const over = -panel.getBoundingClientRect().left; // not beyond the window's left edge
+    if (over > 0) panel.style.right = `${r.right - a.right - over}px`;
+  }
+
+  /** For the click of the control a panel belongs to: opens the panel below it, or closes it when it is open. True when it is open now. */
+  toggle(panel: HTMLElement, anchor: HTMLElement, o: Below = {}): boolean {
+    if (!panel.hidden) { this.close(); return false; }
+    this.openBelow(panel, anchor, o);
+    return true;
+  }
+
+  private show(panel: HTMLElement, at: Point, anchor?: HTMLElement): void {
     this.close();
     panel.hidden = false;
     const r = this.o.root.getBoundingClientRect();
+    panel.style.right = "";
     panel.style.left = `${Math.max(0, Math.min(at.x - r.left, r.width - panel.offsetWidth))}px`;
     panel.style.top = `${at.y - r.top}px`;
-    this.outside = (e) => { if (!panel.contains(e.target as Node)) this.close(); };
+    this.outside = (e) => { if (!panel.contains(e.target as Node) && !anchor?.contains(e.target as Node)) this.close(); };
     document.addEventListener("mousedown", this.outside, true);
   }
 

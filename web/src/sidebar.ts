@@ -5,7 +5,7 @@ import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
 import type { FolderInfo, Schema } from "./types";
-import { displayName, kindPlural } from "./util";
+import { displayName, kindPlural } from "./components/util";
 
 // Repository navigation (design guide §7.3): subtree toggle, the
 // folder hierarchy below the current folder, and artifacts grouped by schema type.

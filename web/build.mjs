@@ -6,6 +6,7 @@ rmSync("dist/chunks", { recursive: true, force: true }); // chunks of earlier bu
 mkdirSync("dist", { recursive: true });
 cpSync("index.html", "dist/index.html");
 cpSync("src/styles.css", "dist/styles.css");
+cpSync("packages/ui/src/ui.css", "dist/ui.css"); // the look of the blocks of @corestone/ui
 // The standalone editor demo (/editor-demo.html): the editor package only.
 cpSync("packages/editor/demo/editor-demo.html", "dist/editor-demo.html");
 cpSync("packages/editor/src/editor.css", "dist/editor.css");

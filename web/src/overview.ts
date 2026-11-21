@@ -1,20 +1,20 @@
 import { html, nothing } from "lit";
-import { LightElement, errorText, fmtTime, prefs, relTime } from "@corestone/ui";
+import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { store, type State, toastError } from "./store";
+import { pickArtifact, store, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
-import { queryFields } from "./query-field";
-import type { QueryField } from "./query-model";
-import { fieldValue } from "./sorting";
-import { hasSource, knownOptions, withMissing } from "./options";
-import { kindIcon, kindLabel, workflowStates } from "./util";
-import type { TableColumn, TableContext } from "./table";
-import "./table";
-import "./type-icon";
-import "./enum-control";
-import "./kind-menu";
+import { queryFields } from "./components/query-field";
+import type { QueryField, QuerySource } from "./components/query-model";
+import { fieldValue } from "./components/sorting";
+import { hasSource, knownOptions, withMissing } from "./components/options";
+import { kindIcon, kindLabel, workflowStates } from "./components/util";
+import type { TableColumn, TableContext } from "./components/table";
+import "./components/table";
+import "./components/type-icon";
+import "./components/enum-control";
+import "./components/kind-menu";
 
 // Artifact overview (design guide §7.4): every artifact matching the
 // navigation context in a server-sorted, lazily loaded table whose columns
@@ -45,6 +45,15 @@ const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row
 /** The total when the table could not be loaded: its own notice says why. */
 const FAILED = -2;
 
+/** What the query field asks for: the server reads queries and knows the options, the store shows the picker. */
+const querySource: QuerySource = {
+  check: (text) => api.parseQuery(text).then((r) => r.warnings),
+  enumOptions: (type, field, folder) => api.options(type, field, folder).then((r) => r.options),
+  workflowStates: (workflow, type, folder) => api.workflowDef(workflow, type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation }))),
+  pick: pickArtifact,
+  failed: toastError,
+};
+
 @customElement("corestone-overview")
 export class Overview extends LightElement {
   private unsub?: () => void;
@@ -55,7 +64,6 @@ export class Overview extends LightElement {
   @state() private schemas: Record<string, Schema> = {};
   /** The schema of every (folder, type) among the loaded rows; null when the type is not defined there. */
   @state() private rowSchemas: Record<string, Schema | null> = {};
-  @state() private menu = false;
   @state() private layout = loadLayout();
   private folderTypes = new Map<string, Promise<Schema[]>>();
   private key = "";
@@ -78,17 +86,15 @@ export class Overview extends LightElement {
       }
       this.requestUpdate();
     });
-    document.addEventListener("click", this.closeMenu);
   }
-  override disconnectedCallback() { this.unsub?.(); document.removeEventListener("click", this.closeMenu); super.disconnectedCallback(); }
-  private closeMenu = () => { if (this.menu) this.menu = false; };
+  override disconnectedCallback() { this.unsub?.(); this.newMenu.close(); super.disconnectedCallback(); }
 
   /** The fields the query builder offers: kept while the types, folder and type stay the same. */
   private offered: { key: unknown[]; fields: QueryField[] } | null = null;
   private queryFields(): QueryField[] {
     const r = this.s.route;
     const key = [this.schemas, r.folder, r.type];
-    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type) };
+    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type, querySource) };
     return this.offered.fields;
   }
 
@@ -292,10 +298,10 @@ export class Overview extends LightElement {
     return html`
       <div class="toolbar">
         <div class="relative">
-          <button class="btn primary" data-test="new" @click=${(e: Event) => { e.stopPropagation(); this.menu = !this.menu; }}>＋ New</button>
-          ${this.menu ? this.newMenu() : nothing}
+          <button class="btn primary" data-test="new" aria-haspopup="menu" aria-expanded="false"
+            @click=${(e: Event) => this.newMenu.toggle(e.currentTarget as HTMLElement)}>＋ New</button>
         </div>
-        <corestone-query-field class="query-field" .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()}
+        <corestone-query-field class="query-field" .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()} .source=${querySource}
           @query-change=${(e: CustomEvent<{ text: string; replace: boolean }>) => navigate({ q: e.detail.text, guid: null }, e.detail.replace)}></corestone-query-field>
         <span class="hint" data-test="count">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} ${this.counted(total)}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
@@ -329,18 +335,18 @@ export class Overview extends LightElement {
     });
   };
 
-  private newMenu() {
-    const r = this.s.route;
-    const open = (opts: Record<string, unknown>) => { this.menu = false; store.set({ dialog: { kind: "new", folder: r.folder, ...opts } }); };
-    // Only the kinds that have types here: a kind without types is not available in this folder.
-    const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
-    const items: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
-    return html`<div class="menu" @click=${(e: Event) => e.stopPropagation()}>
-      <div class="group">in ${r.folder || "/"}</div>
-      ${items.filter(([k]) => kinds.has(k)).map(([k, test, name]) => html`<button class="item" data-test=${test} @click=${() => open({ kinds: [k] })}>${name}</button>`)}
-      ${kinds.size ? nothing : html`<div class="item muted" data-test="no-types">No types are defined in this folder.</div>`}
-      <div class="group">any</div>
-      <button class="item" data-test="new-any" @click=${() => open({})}>Choose a type…</button>
-    </div>`;
-  }
+  /** What can be made here: only the kinds that have types in this folder. */
+  private readonly newMenu = new DropMenu({
+    label: "New", cls: "new-pop",
+    items: (): MenuEntry[] => {
+      const folder = this.s.route.folder;
+      const open = (opts: Record<string, unknown>) => store.set({ dialog: { kind: "new", folder, ...opts } });
+      const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
+      const all: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
+      const items: MenuEntry[] = all.filter(([k]) => kinds.has(k)).map(([k, test, label]) => ({ label, test, run: () => open({ kinds: [k] }) }));
+      if (!items.length) items.push({ label: "No types are defined in this folder.", test: "no-types", disabled: true });
+      items[0].group = `in ${folder || "/"}`;
+      return [...items, { label: "Choose a type…", test: "new-any", group: "any", run: () => open({}) }];
+    },
+  });
 }

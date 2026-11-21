@@ -3,12 +3,13 @@
 // controls built on them. Nothing here knows about Corestone's data, the
 // server, or ProseMirror (see web/scripts/check-layers.mjs).
 export { button, el, type ButtonOptions } from "./lib/dom";
-export { dialogHead, Overlay, type OverlayOptions, type Point } from "./overlay";
+export { dialogHead, Overlay, type Below, type OverlayOptions, type Point } from "./overlay";
 export { prefs, type PrefsOptions } from "./lib/prefs";
 export { errorText } from "./lib/errors";
 export { drag, type DragOptions } from "./lib/drag";
 export { deepEqual, fmtSize, fmtTime, relTime } from "./lib/format";
 export { dataUrlToBlob } from "./lib/data-url";
+export { iconSet, type IconStyle } from "./lib/icons";
 export { LightElement } from "./lib/light-element";
-export { buildMenu, popupMenu, type MenuEntry } from "./menu";
+export { buildMenu, DropMenu, popupMenu, type DropMenuOptions, type MenuEntry } from "./menu";
 export { Resizer, splitter, type ResizerOptions } from "./resizer";

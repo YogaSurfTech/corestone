@@ -9,11 +9,11 @@ import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./rou
 import { pickArtifact, store, type State, toastError } from "./store";
 import type { CommentView, Field, LogEntry, Relationships, Schema, View } from "./types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./util";
-import { MAX_ATTACHMENT, freeFileName } from "./detail";
-import "./type-icon";
-import { appIcon, type AppIcon } from "./icons";
-import "./fields";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/util";
+import { MAX_ATTACHMENT, freeFileName } from "./files";
+import "./components/type-icon";
+import { appIcon, type AppIcon } from "./components/icons";
+import "./components/fields";
 
 // Document view (design guide §7.6, §9.5; docs/design/Corestone documents.md): one editor for
 // the whole document (a tree of sections with text, pictures, tables and placed entries), the

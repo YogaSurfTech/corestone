@@ -1,3 +1,5 @@
+import { iconSet } from "@corestone/ui";
+
 // Toolbar icons (24×24 line drawings), from the design demo page.
 const ICONS: Record<string, string> = {
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
@@ -59,6 +61,4 @@ const ICONS: Record<string, string> = {
   file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',
 };
 
-export function icon(name: string, size = 18): string {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
-}
+export const icon = iconSet(ICONS, { grid: 24, size: 18, stroke: 1.8 });

@@ -1,8 +1,8 @@
 // Options of dynamic enumerations: an enum field with a source offers
 // artifacts, and its value is the chosen artifact's GUID. The options are
 // loaded per type, field and folder, and shared briefly by editors and tables.
-import { api } from "./api";
-import type { EnumOption, Field } from "./types";
+import { api } from "../api";
+import type { EnumOption, Field } from "../types";
 import { hidLabel } from "./util";
 
 const TTL = 30_000;

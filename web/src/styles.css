@@ -102,16 +102,13 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-join.and { margin: 0 1px; }
 .qb-join.xor { margin: 0 6px; }
 .qb-join.or { margin: 0 12px; }
-.qb-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-.qb-pop[hidden] { display: none !important; } /* stronger than the display of .menu-like and .qb-two */
-.qb-pop.menu-like { min-width: 96px; padding: 6px; display: flex; flex-direction: column; }
+/* the panels and menus of @corestone/ui (ui.css) in the colours of the page */
+.ui-pop { --ui-panel: var(--panel); --ui-text: var(--text); --ui-border: var(--border); --ui-shadow: var(--shadow); --ui-hover: var(--panel-2); --ui-muted: var(--muted); --ui-accent: var(--accent); --ui-error: var(--danger); }
 .qb-editor { display: flex; flex-direction: column; gap: 8px; }
+/* a remembered criterion in the history: a line that is cut where the column ends */
+.qb-pop .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
+.qb-pop .item:is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
 .menu-like { display: flex; flex-direction: column; }
-/* the items of a menu built by @corestone/ui, and the history's */
-.qb-pop :is(.mi, .item) { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; position: relative; }
-.qb-pop :is(.mi, .item):is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
-.qb-pop .mi[aria-checked=true] { font-weight: 700; color: var(--accent); }
-.qb-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
 .qb-pop.qb-two:not([hidden]) { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
 .qb-col { display: flex; flex-direction: column; min-width: 200px; }
 .qb-history { border-left: 1px solid var(--border); padding-left: 8px; min-width: 220px; max-width: 320px; }
@@ -158,10 +155,9 @@ corestone-overview { display: flex; flex-direction: column; min-height: 0; min-w
 corestone-kind-menu { position: relative; display: inline-flex; }
 .kind-button { gap: 3px; padding: 3px 6px; }
 .kind-button .kind-icon, .kind-pop .kind-icon { margin-right: 0; }
+.kind-pop.ui-menu { min-width: 170px; }
+.kind-pop .mi-icon { width: 39px; } /* room for two icons, so the names stand in one line */
 .kind-button .caret { font-size: 10px; color: var(--muted); margin-left: 2px; }
-.kind-pop.menu-like { min-width: 170px; }
-.kind-pop .mi { display: flex; align-items: center; white-space: nowrap; }
-.kind-pop .mi-icon { display: inline-flex; gap: 3px; width: 39px; margin-right: 8px; } /* room for two icons, so the names stand in one line */
 .table-wrap { flex: 1; min-height: 0; }
 corestone-table[hidden] { display: none; }
 table.grid { width: 100%; border-collapse: collapse; }
@@ -267,8 +263,8 @@ corestone-detail.historic .section.changed > h3 { color: var(--changed); }
 .dh-dates { color: var(--muted); font-size: 11.5px; }
 .dh-dates .gap { display: inline-block; width: 14px; }
 .dh-actions { position: relative; }
-.dh-actions .menu { left: auto; right: 0; min-width: 160px; }
-.menu .item.danger { color: var(--danger, #d14343); }
+.actions-pop.ui-menu { min-width: 160px; }
+.new-pop.ui-menu { min-width: 240px; }
 .dh-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dh-identity { display: flex; align-items: center; gap: 8px; flex: 1; min-width: min(200px, 100%); }
 .dh-title h2 { font-size: 17px; flex: 1; min-width: 0; margin: 0; }
@@ -519,10 +515,6 @@ corestone-table { display: flex; flex-direction: column; min-height: 0; }
 .toast .text { flex: 1; }
 .progress { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; width: 120px; }
 .progress > div { height: 100%; background: var(--accent); transition: width 0.3s; }
-.menu { position: absolute; top: 100%; left: 0; z-index: 40; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); min-width: 240px; padding: 6px; margin-top: 4px; }
-.menu .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
-.menu .item:hover { background: var(--panel-2); }
-.menu .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
 .relative { position: relative; }
 .grow { flex: 1; }
 .muted { color: var(--muted); }

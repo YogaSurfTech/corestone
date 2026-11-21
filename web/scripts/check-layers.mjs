@@ -6,8 +6,11 @@
 //   node scripts/check-layers.mjs --prune   remove the allowlist lines that no longer apply
 //
 // A module imports only from the modules below it, and only the named files
-// touch the network and the browser's storage. The allowlist holds the
-// violations that existed when the check was introduced; it only shrinks.
+// touch the network and the browser's storage. Inside the application, the
+// components know nothing of the server, the store, the router or the views,
+// and a view is imported by the application's shell only, never by another
+// view. The allowlist holds the violations that existed when a rule was
+// introduced; it only shrinks.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +19,8 @@ import ts from "typescript";
 /**
  * The modules, most specific directory first. `packages` are the npm packages
  * a module may import (a trailing * matches a prefix), `modules` the other
- * modules of this list, `typesOf` the packages it may import types from.
+ * modules of this list, `typesOf` the packages it may import types from,
+ * `files` single files of other modules it may import.
  * A module without `packages` may import anything.
  */
 export const MODULES = [
@@ -24,8 +28,24 @@ export const MODULES = [
   { id: "ui", dir: "packages/ui/src/", packages: ["lit"], modules: ["ui/lib"] },
   { id: "editor", dir: "packages/editor/src/", packages: ["@corestone/ui", "prosemirror-*", "mathjax-full"], modules: [] },
   { id: "components", dir: "packages/components/src/", packages: ["@corestone/ui", "lit"], modules: [], typesOf: ["@corestone/editor"] },
+  // Components of the application: they show Corestone's data, which is handed to them.
+  // The field editor contains the rich-text editor, so the editor package is allowed here.
+  { id: "app/components", dir: "src/components/", packages: ["@corestone/ui", "@corestone/editor", "lit"], modules: [], files: ["src/types.ts"] },
   { id: "app", dir: "src/" },
 ];
+
+/**
+ * The application's files that are not views: the access to the server, the
+ * state, and the shell that puts the views together. Every other file directly
+ * in src/ is a view, and only the shell imports a view.
+ */
+export const APP_BASE = ["src/api.ts", "src/ws.ts", "src/store.ts", "src/router.ts", "src/types.ts", "src/files.ts"];
+export const APP_SHELL = ["src/app.ts", "src/main.ts"];
+
+/** True for a view of the application: a file directly in src/ that is neither base nor shell. */
+export function isView(path) {
+  return /^src\/[^/]+\.ts$/.test(path) && !APP_BASE.includes(path) && !APP_SHELL.includes(path);
+}
 
 /** The globals only one file may use. */
 export const GLOBALS = {
@@ -75,7 +95,8 @@ export function violations(path, source) {
       const target = posix.normalize(posix.join(posix.dirname(path), spec));
       const to = moduleOf(target + ".ts");
       if (!to) return add(node, `imports ${target}`);
-      if (to === mod || !mod.packages || mod.modules.includes(to.id)) return;
+      if (isView(target + ".ts") && !APP_SHELL.includes(path)) return add(node, `imports the view ${target}`);
+      if (to === mod || !mod.packages || mod.modules.includes(to.id) || mod.files?.includes(target + ".ts")) return;
       return add(node, `imports ${target}`);
     }
     if (!mod.packages) return;

@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
-import type { EnumOption } from "./types";
+import type { EnumOption } from "../types";
 import { iconUrl } from "./type-icon";
 
 export function enumLabel(option: EnumOption, folder: string) {

@@ -222,12 +222,19 @@ test("links: Ctrl+K links the selection; the bubble edits and removes; bad addre
   const area = page.locator(".cs-area .ProseMirror");
   await area.click();
   await page.keyboard.type("see the spec here");
-  // select "spec" with the keyboard: a selection set by script reaches the editor only with
-  // the browser's next selection event, which Ctrl+K could overtake on a slow machine
+  // select "spec" with the keyboard. The editor learns of a selection only with the browser's
+  // selection event, which comes after the selection itself and which Ctrl+K can overtake on a
+  // slow machine: so wait for an event that saw "spec". This listener is registered after the
+  // editor's and runs after it, so by then the editor has it too.
+  await page.evaluate(() => {
+    const w = window as unknown as { seen: string };
+    w.seen = "";
+    document.addEventListener("selectionchange", () => { w.seen = getSelection()!.toString(); });
+  });
   await page.keyboard.press("Home");
   for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
-  await expect.poll(() => page.evaluate(() => getSelection()!.toString())).toBe("spec");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { seen: string }).seen)).toBe("spec");
   await page.keyboard.press("Control+k");
   const pop = page.locator(".cs-linkpop");
   await expect(pop).toBeVisible();

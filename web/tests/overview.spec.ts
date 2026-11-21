@@ -6,7 +6,8 @@ import { expect, test, type Page } from "./fixtures";
 
 let script: string;
 // The app styles make the table body the scroll container the lazy loading measures.
-const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../packages/ui/src/ui.css", import.meta.url), "utf8")
+  + readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 test.beforeAll(async () => {
   const result = await build({
     stdin: {
