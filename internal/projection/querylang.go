@@ -59,6 +59,8 @@ type queryEnv struct {
 	dynamic map[string]bool // enumerations whose options are artifacts
 	// links are the link types that are defined at the root or in use.
 	links map[string]bool
+	// final: some workflow in use marks a state as final.
+	final bool
 	cfg   *model.ConfigIndex
 }
 
@@ -107,6 +109,7 @@ func (p *DB) queryEnv(ctx context.Context) (*queryEnv, error) {
 					for _, st := range wf.States {
 						env.options[f.ID][st.ID] = true
 						if st.Final {
+							env.final = true
 							tc.Final[f.ID][st.ID] = true
 						}
 					}
@@ -318,6 +321,9 @@ func (c *compiler) term(n *query.Node, a string) []any {
 	if n.Up > 0 && n.Field != "folder" {
 		return c.never(n, "~%d is for folder only (folder~1 is the parent folder)", n.Up)
 	}
+	if n.Reverse && n.Field != "base" {
+		return c.never(n, "~ in front is for base only (~base:REQ-1 is the base of REQ-1)")
+	}
 	if n.Sub != "" {
 		return c.field(n, a)
 	}
@@ -363,6 +369,23 @@ func (c *compiler) term(n *query.Node, a string) []any {
 		return seq("("+a+".hid_prefix, COALESCE("+a+".hid_num, 0)) "+cmp+" (lower(regexp_replace(", v, "::text, '[0-9]+$', '')), COALESCE((substring(", v, "::text from '[0-9]+$'))::numeric, 0))")
 	case "folder":
 		return c.folder(n, a)
+	case "base":
+		// base:X: the artifact is based on X (it overlays X); ~base:X: it is the base of X
+		if cmp != "" {
+			return c.never(n, "base cannot be compared")
+		}
+		named := func(o string) []any { // the artifact o is the one the value names, by HID or GUID
+			return seq("(lower("+o+".hid) = lower(", bound{n.Value}, ") OR "+o+".guid = lower(", bound{n.Value}, "))")
+		}
+		switch {
+		case n.Reverse && n.Null:
+			return seq("NOT EXISTS (SELECT 1 FROM artifacts o WHERE o.base = " + a + ".guid)")
+		case n.Reverse:
+			return cat(seq("EXISTS (SELECT 1 FROM artifacts o WHERE o.base = "+a+".guid AND "), named("o"), seq(")"))
+		case n.Null:
+			return seq("COALESCE(" + a + ".base, '') = ''")
+		}
+		return cat(seq("EXISTS (SELECT 1 FROM artifacts o WHERE o.guid = "+a+".base AND "), named("o"), seq(")"))
 	case "created", "modified":
 		col := a + "." + n.Field + "_at"
 		if n.Null {
@@ -374,8 +397,13 @@ func (c *compiler) term(n *query.Node, a string) []any {
 		}
 		return ranged(col, cmp, from, to)
 	case "valid", "finished":
-		if n.Null || cmp != "" || (n.Value != "true" && n.Value != "false") {
+		truth := strings.ToLower(n.Value) // True and TRUE are read too
+		if n.Null || cmp != "" || (truth != "true" && truth != "false") {
 			return c.never(n, "%s is true or false", n.Field)
+		}
+		if n.Field == "finished" && !c.env.final {
+			// said once per criterion: without it the empty result looks like a fault of the query
+			c.warnings = append(c.warnings, Warning{Pos: n.Pos, Message: `no workflow marks a state as final ("final": true), so nothing is finished`})
 		}
 		expr := a + ".valid"
 		if n.Field == "finished" {
@@ -384,7 +412,7 @@ func (c *compiler) term(n *query.Node, a string) []any {
 			expr = "(jsonb_array_length(" + wf + ") > 0 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(" + wf + ") w (id) WHERE " +
 				c.conf(a, "'final'", "w.id", "COALESCE("+a+".fields -> w.id ->> 'state', '')") + " IS NULL))"
 		}
-		if n.Value == "false" {
+		if truth == "false" {
 			return c.bind("(NOT " + expr + ")")
 		}
 		return c.bind(expr)
@@ -499,7 +527,7 @@ func (c *compiler) field(n *query.Node, a string) []any {
 	switch {
 	case only(number) && !isNumber:
 		return c.never(n, "%q is no number; %s is a number", n.Value, n.Field)
-	case only(boolean) && (n.Compare != "" || (n.Value != "true" && n.Value != "false")):
+	case only(boolean) && (n.Compare != "" || (strings.ToLower(n.Value) != "true" && strings.ToLower(n.Value) != "false")):
 		return c.never(n, "%s is true or false", n.Field)
 	case only(ranked) && n.Sub != "transition" && !c.env.open[n.Field] && !c.env.options[n.Field][n.Value]:
 		return c.never(n, "%s has no value %q", n.Field, n.Value)

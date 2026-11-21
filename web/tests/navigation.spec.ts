@@ -34,12 +34,12 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await expect(page.locator("header .crumbs")).toContainText("alpha");
   await page.locator("header .crumbs a", { hasText: folder }).click();
-  await expect(page.locator(".toolbar .title")).toHaveText(folder);
+  await expect(page.locator("header .crumbs")).toContainText(folder);
   // open an artifact, Escape closes it, back reopens it
   await page.locator(`.tree .row[data-folder="${folder}/alpha"]`).click();
   await page.locator("corestone-overview table.grid tbody tr", { hasText: `Alpha one ${id}` }).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
-  await page.locator(".toolbar .title").click(); // out of the title field, not into the query field
+  await page.locator(".toolbar .hint").click(); // out of the title field, not into the query field
   await page.keyboard.press("Escape");
   await expect(page.locator("corestone-detail")).toHaveCount(0);
   await page.goBack();
@@ -50,7 +50,7 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   // the header brand goes home
   await page.locator("header .brand").click();
-  await expect(page.locator(".toolbar .title")).toHaveText("Repository");
+  await expect(page.locator("header .crumbs")).toContainText("Repository");
 });
 
 test("deep links: section tab, expanded layout, folder context", async ({ page }) => {
@@ -98,7 +98,7 @@ test("overview: kind chips, schema columns, subtree, sorting stability, social c
   await expect(page.locator("corestone-overview .empty-state")).toContainText("Nothing here yet");
   await page.locator("[data-test=subtree]").check();
   await expect(table.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator(".toolbar .title")).toContainText("Test case");
+  await expect(page.locator(".toolbar .hint")).toContainText("Test case");
   await page.locator(".tree .row[data-type=req]").click();
   await expect(page.locator("[data-test=subtree]")).toBeChecked();
   await expect(table.locator("tbody tr")).toHaveCount(2);
@@ -134,7 +134,7 @@ test("search: text, HID, results across folders, clearing", async ({ page }) => 
   await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   await page.locator("[data-test=search]").fill("");
   await expect(page.locator("[data-test=query-warning]")).toHaveCount(0);
-  await expect(page.locator(".toolbar .title")).toHaveText(folder);
+  await expect(page.locator("header .crumbs")).toContainText(folder);
   await expect(page).not.toHaveURL(/q=/);
 });
 
@@ -254,7 +254,7 @@ test("status indicator, user name and reindex", async ({ page }) => {
   const many = Array.from({ length: 120 }, (_, i) => post("/entries", { path: `${folder}/bulk`, type: "req", title: `Bulk ${i} ${id}`, fields: { priority: "low", effort: i } }));
   await Promise.all(many);
   await page.locator(`.tree .row[data-folder="${folder}/bulk"]`).click();
-  await expect(page.locator(".toolbar .hint")).toContainText("120 artifacts");
+  await expect(page.locator(".toolbar .hint")).toContainText("120 entries and docs");
   // rows are loaded lazily: the table knows all of them but renders the visible ones
   await expect(page.locator("corestone-overview table.grid")).toHaveAttribute("aria-rowcount", "120");
   expect(await page.locator("corestone-overview table.grid tbody tr").count()).toBeLessThan(120);
@@ -395,9 +395,170 @@ test("opening an artifact keeps the folder, the navigation and the table as they
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Beta two ${id}`);
   await expect(page).not.toHaveURL(/folder=/);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
-  await expect(page.locator(".toolbar .title")).toHaveText("Repository");
+  await expect(page.locator("header .crumbs")).toContainText("Repository");
   await (await scrollToRow(page, `Alpha one ${id}`)).click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(page.locator(".tree .row.selected")).toContainText("Repository");
   expect(searches).toBe(0);
+});
+
+test("query builder: criteria as buttons, NOT, the operator between them, a range, as text", async ({ page }) => {
+  const own = `${folder}/builder`;
+  await post("/entries", { path: own, type: "req", title: `Alpha one ${id}`, fields: { priority: "high", effort: 1 } });
+  await post("/entries", { path: own, type: "req", title: `Beta two ${id}`, fields: { priority: "low", effort: 2 } });
+  await post("/entries", { path: own, type: "tc", title: `Gamma test ${id}` });
+  await post("/documents", { path: own, type: "spec", title: `Delta doc ${id}` });
+  await page.goto(`/folder/${own}`);
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  const clauses = page.locator("[data-test=query-clause]");
+  await expect(rows).toHaveCount(4);
+  // nothing hangs below the field while nothing is open
+  await expect(page.locator("corestone-query-field .qb-pop")).toHaveCount(2);
+  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
+  // "+" offers the fields; an enumeration offers its values
+  await page.locator("[data-test=query-add]").click();
+  await expect(page.locator("[data-test=query-fields] .mi[data-field=finished]")).toBeVisible();
+  // the list is narrowed by a part of the name, anywhere in it
+  await expect(page.locator("[data-test=query-find]")).toBeFocused();
+  await page.locator("[data-test=query-find]").fill("IT");
+  await expect(page.locator("[data-test=query-fields] .mi")).toHaveText(["Title", "Priority"]);
+  await page.locator("[data-test=query-find]").fill("nosuch");
+  await expect(page.locator("[data-test=query-fields]")).toContainText("No field with this name");
+  await page.locator("[data-test=query-find]").fill("prio");
+  await page.keyboard.press("Enter"); // the first one found
+  await page.locator("[data-test=query-editor] .enum-option[data-value=high]").click();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await expect(page).toHaveURL(/q=priority%3Ahigh/);
+  // a number between two values is one criterion
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-fields] .mi[data-field=effort]").click();
+  await page.locator("[data-test=query-compare]").selectOption("between");
+  await page.locator("[data-test=query-editor] [data-test=query-value]").nth(0).fill("2");
+  await page.locator("[data-test=query-editor] [data-test=query-value]").nth(1).fill("5");
+  await page.keyboard.press("Enter");
+  await expect(clauses).toHaveText(["Priority: high", "Effort: 2 – 5"]);
+  await expect(page.locator(".toolbar .hint")).toContainText("0 entries and docs");
+  // the operator between two criteria is chosen from its alternatives
+  await expect(page.locator("[data-test=query-join]")).toHaveText("AND");
+  await page.locator("[data-test=query-join]").click();
+  await page.locator("[data-test=query-join-or]").click();
+  await expect(page.locator("[data-test=query-join]")).toHaveText("OR");
+  await expect(page.locator("corestone-query-field .qb-pop:visible")).toHaveCount(0);
+  await expect(rows).toHaveCount(2);
+  // NOT is switched on and off per criterion
+  await page.locator("[data-test=query-not]").first().click();
+  await expect(page.locator("[data-test=query-not]").first()).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(3);
+  // a criterion opens its editor again; the criteria survive a reload
+  await clauses.first().click();
+  await page.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses.first()).toHaveText("Priority: low, high");
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toContain("priority:(low high)"); // the query runs
+  await page.reload();
+  await expect(clauses).toHaveCount(2);
+  await expect(rows).toHaveCount(3);
+  // the whole query as text
+  await page.locator("[data-test=query-as-text]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("NOT priority:(low high) OR (effort:>=2 AND effort:<=5)");
+  await expect(clauses).toHaveCount(0);
+  // the criteria used last are offered again beside the fields, the newest first; a pinned one is kept
+  await page.locator("[data-test=search]").fill("");
+  await page.locator("[data-test=query-add]").click();
+  const kept = page.locator("[data-test=query-history-item]");
+  await expect(kept).toHaveText(["NOT Priority: low, high", "Effort: 2 – 5", "Priority: high"]);
+  // NOT is also set in the editor, so a criterion with NOT can be made in one go, and pinned
+  await page.locator("[data-test=query-fields] .mi[data-field=priority]").click();
+  await page.locator("[data-test=query-editor-not]").click();
+  await page.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Priority: low"]);
+  await expect(page.locator("[data-test=query-not]")).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(3);
+  await clauses.first().click();
+  await expect(page.locator("[data-test=query-editor-not]")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.locator("[data-test=query-clear]").click();
+  await page.locator("[data-test=query-add]").click();
+  await expect(kept.first()).toHaveText("NOT Priority: low");
+  await page.locator("[data-test=query-pin]").nth(3).click();
+  await expect(kept).toHaveText(["Priority: high", "NOT Priority: low", "NOT Priority: low, high", "Effort: 2 – 5"]);
+  await kept.first().click();
+  await expect(clauses).toHaveText(["Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await page.locator("[data-test=query-clear]").click();
+  await expect(rows).toHaveCount(4);
+  // a date: typed, or a day from the browser's picker behind the calendar button
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-fields] .mi[data-field=created]").click();
+  await expect(page.locator("[data-test=query-calendar] svg")).toBeVisible();
+  await page.locator("[data-test=query-editor] .qb-day").evaluate((el: HTMLInputElement) => { el.value = "2020-02-03"; el.dispatchEvent(new Event("change", { bubbles: true })); });
+  await expect(page.locator("[data-test=query-editor] [data-test=query-value]")).toHaveValue("2020-02-03");
+  await page.locator("[data-test=query-compare]").selectOption(">=");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Created ≥ 2020-02-03"]);
+  await expect(rows).toHaveCount(4);
+  await page.locator("[data-test=query-as-text]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("created:>=2020-02-03");
+  // with text in the field, a criterion joins it as text
+  await page.locator("[data-test=search]").fill("title:beta");
+  // the list of fields is a menu: the arrow keys move through it, Escape closes it
+  await page.locator("[data-test=query-add]").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-test=query-fields]")).toBeHidden();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-add]").click(); // a second click closes it too
+  await expect(page.locator("[data-test=query-fields]")).toBeHidden();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-find]").fill("i");
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("[data-test=query-fields] .mi").first()).toBeFocused();
+  await page.keyboard.press("ArrowUp"); // round to the last one
+  await expect(page.locator("[data-test=query-fields] .mi").last()).toBeFocused();
+  await page.locator("[data-test=query-find]").fill("finished");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await page.locator("[data-test=query-no]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
+  await expect(rows).toHaveCount(1);
+});
+
+test("query builder: based on and base of are chosen in the artifact picker", async ({ page }) => {
+  const own = `${folder}/overlays`;
+  const base = await post("/entries", { path: own, type: "req", title: `Base ${id}`, fields: { priority: "high" } });
+  const overlay = await post("/entries", { path: own, type: "req", title: `Overlay ${id}`, base: base.meta.guid, fields: {} });
+  await post("/entries", { path: own, type: "req", title: `Alone ${id}`, fields: { priority: "low" } });
+  await page.goto(`/folder/${own}`);
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  await expect(rows).toHaveCount(3);
+  // based on: the picker offers only entries something is based on
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  const offered = page.locator("corestone-picker table.grid tbody tr");
+  await page.locator("corestone-picker input[type=search]").fill(id);
+  await expect(offered).toHaveCount(1);
+  await offered.first().click();
+  await expect(page.locator("[data-test=query-clause]")).toHaveText([`Based on: ${base.meta.hid}`]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Overlay ${id}`);
+  // base of: only entries that have a base; closing the picker without a choice changes nothing
+  await page.locator("[data-test=query-clear]").click();
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="~base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("corestone-picker")).toHaveCount(0);
+  await expect(page.locator("[data-test=query-clause]")).toHaveCount(0);
+  await page.locator("[data-test=query-add]").click();
+  await page.locator('[data-test=query-fields] .mi[data-field="~base"]').click();
+  await page.locator("[data-test=query-pick]").click();
+  await page.locator("corestone-picker input[type=search]").fill(id);
+  await expect(offered).toHaveCount(1);
+  await offered.first().click();
+  await expect(page.locator("[data-test=query-clause]")).toHaveText([`Base of: ${overlay.meta.hid}`]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Base ${id}`);
 });

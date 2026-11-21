@@ -436,7 +436,8 @@ export class Picker extends LightElement {
   private applyFilter() {
     const kinds = (this.dialog.kinds as Kind[] | undefined) ?? ["entry", "document"];
     const types = this.dialog.types as string[] | undefined;
-    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}) };
+    // dialog.query narrows what is offered, in the query language
+    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}), query: (this.dialog.query as string | undefined) || undefined };
   }
 
   private onInput(e: Event) {

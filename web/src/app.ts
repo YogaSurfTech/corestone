@@ -65,7 +65,7 @@ export class App extends LightElement {
   private onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement;
     const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-    if (e.key === "/" && !typing) { e.preventDefault(); this.querySelector<HTMLInputElement>("corestone-overview [data-test=search]")?.focus(); }
+    if (e.key === "/" && !typing) { e.preventDefault(); (this.querySelector<HTMLElement>("corestone-overview [data-test=search]") ?? this.querySelector<HTMLElement>("corestone-overview [data-test=query-add]"))?.focus(); }
     if (e.key === "n" && !typing && !this.s.dialog) { e.preventDefault(); store.set({ dialog: { kind: "new", folder: this.s.route.folder } }); }
     if (e.key === "Escape" && !typing && this.s.route.guid && !this.s.dialog) navigate({ guid: null, expanded: false });
   };

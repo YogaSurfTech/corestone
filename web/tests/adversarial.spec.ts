@@ -99,7 +99,7 @@ test("garbage deep links degrade gracefully", async ({ page }) => {
   await expect(page.locator("[data-test=query-error]")).toContainText("position");
   await expect(page.locator(".toolbar .hint")).toHaveText("not searched");
   await page.goto(`/folder/${folder}?q=${encodeURIComponent(`"'; DROP TABLE artifacts; --"`)}`);
-  await expect(page.locator(".toolbar .hint")).toContainText("0 artifacts");
+  await expect(page.locator(".toolbar .hint")).toContainText("0 entries and docs");
 });
 
 test("orphaned and cyclic comment threads still show", async ({ page }) => {

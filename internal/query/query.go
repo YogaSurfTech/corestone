@@ -72,6 +72,8 @@ type Node struct {
 
 	// Link: the link type's id, whether the direction is reversed ("~"),
 	// and the query the artifact at the other end must match (nil: any).
+	// Reverse on a term is "~" in front of its field: the field read the
+	// other way round (~base:REQ-1 is the base of REQ-1).
 	LinkType string `json:"linkType,omitempty"`
 	Reverse  bool   `json:"reverse,omitempty"`
 	Query    *Node  `json:"query,omitempty"`
@@ -232,7 +234,7 @@ func operator(t token) bool {
 
 // starts reports whether a primary (or NOT) can begin at t.
 func starts(t token) bool {
-	return t.kind == tLParen || t.kind == tQuoted || isOp(t, "NOT") || (t.kind == tWord && !operator(t))
+	return t.kind == tLParen || t.kind == tQuoted || t.kind == tTilde || isOp(t, "NOT") || (t.kind == tWord && !operator(t))
 }
 
 func join(op string, pos int, nodes []*Node, implicit bool) *Node {
@@ -324,6 +326,16 @@ func (p *parser) primary(group bool, field ...*Node) (*Node, error) {
 		return n, nil
 	case operator(t):
 		return nil, &Error{t.pos, fmt.Sprintf("%s needs a criterion before and after it", t.text)}
+	case t.kind == tTilde && !group:
+		// "~field:": the field read the other way round (~base:REQ-1: the base of REQ-1)
+		p.next()
+		if f, ok, err := p.field(); err != nil {
+			return nil, err
+		} else if ok && f.Up == 0 {
+			f.Reverse, f.Pos = true, t.pos
+			return p.criterion(f)
+		}
+		return nil, &Error{t.pos, "a field is expected after ~ (~base:REQ-1 is the base of REQ-1)"}
 	case t.kind == tWord && !group:
 		if isOp(t, "has_link") && p.peekAt(1).kind == tColon {
 			return p.link()
@@ -337,7 +349,7 @@ func (p *parser) primary(group bool, field ...*Node) (*Node, error) {
 	case t.kind == tWord || t.kind == tQuoted:
 		n := &Node{Op: Term, Pos: t.pos}
 		if group {
-			n.Field, n.Sub, n.Up = field[0].Field, field[0].Sub, field[0].Up
+			n.Field, n.Sub, n.Up, n.Reverse = field[0].Field, field[0].Sub, field[0].Up, field[0].Reverse
 		}
 		return p.value(n)
 	}

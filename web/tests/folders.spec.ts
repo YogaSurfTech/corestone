@@ -60,7 +60,7 @@ test("New folder plans a destination that becomes real with its first artifact",
   await answerPrompt(page, "plans");
   const row = page.locator(`.tree .row[data-folder="${folder}/plans"]`);
   await expect(row).toHaveClass(/pending/);
-  await expect(page.locator(".toolbar .title")).toHaveText("plans");
+  await expect(page.locator("header .crumbs")).toContainText("plans");
 
   await openNewReq(page);
   await expect(page.locator("#new-path")).toHaveValue(`${folder}/plans`);
@@ -82,7 +82,7 @@ test("moving a folder uses the folder field and does not flag the rename as a ty
   await expect(page.locator("[data-test=folder-status] .folder-path .new")).toHaveText(["moveme2"]);
   await expect(page.locator("[data-test=folder-typo]")).toHaveCount(0);
   await input.press("Enter");
-  await expect(page.locator(".toolbar .title")).toHaveText("moveme2");
+  await expect(page.locator("header .crumbs")).toContainText("moveme2");
 });
 
 test("the navigation is rooted at the current folder, with an up row and a filter for wide levels", async ({ page }) => {
@@ -107,7 +107,7 @@ test("the navigation is rooted at the current folder, with an up row and a filte
   // a caret expands in place without navigating
   await page.locator(`.tree .row[data-folder="${wide}/part-12"] .caret`).click();
   await expect(page.locator(`.tree .row[data-folder="${wide}/part-12/sub"]`)).toBeVisible();
-  await expect(page.locator(".toolbar .title")).toHaveText("wide");
+  await expect(page.locator("header .crumbs")).toContainText("wide");
 
   // up returns to the parent, which becomes the top again
   await page.locator("[data-test=nav-up]").click();
@@ -148,7 +148,7 @@ test("the overview says when subfolders hold more than the folder itself", async
   await post("/entries", { path: nest, type: "req", title: `Nest top ${id}`, fields: { priority: "low" } });
   for (const sub of ["a", "b", "b/c"]) await post("/entries", { path: `${nest}/${sub}`, type: "req", title: `Nest ${sub} ${id}`, fields: { priority: "low" } });
   await page.goto(`/folder/${nest}`);
-  await expect(page.locator(".toolbar .hint")).toContainText("1 artifact here");
+  await expect(page.locator(".toolbar .hint")).toContainText("1 entry or doc here");
   await expect(page.locator("[data-test=show-subtree]")).toHaveText("4 incl. subfolders");
   // the tree count is the subtree count, and its tooltip says how it splits
   await page.locator("[data-test=nav-up]").click();
@@ -159,6 +159,6 @@ test("the overview says when subfolders hold more than the folder itself", async
   await page.locator(`.tree .row[data-folder="${nest}"]`).click();
   await page.locator("[data-test=show-subtree]").click();
   await expect(page.locator("[data-test=subtree]")).toBeChecked();
-  await expect(page.locator(".toolbar .hint")).toContainText("4 artifacts incl. subfolders");
+  await expect(page.locator(".toolbar .hint")).toContainText("4 entries and docs incl. subfolders");
   await expect(page.locator("[data-test=show-subtree]")).toHaveCount(0);
 });

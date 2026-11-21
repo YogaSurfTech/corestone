@@ -41,7 +41,7 @@ test.beforeAll(async () => {
 
 async function openFolder(page: Page) {
   await page.goto(`/folder/${folder}`);
-  await expect(page.locator(".toolbar .title")).toHaveText(folder);
+  await expect(page.locator("header .crumbs")).toContainText(folder);
 }
 
 test("create an entry through the + button with a schema-generated form", async ({ page }) => {
@@ -313,15 +313,15 @@ test("search, filters, subtree toggle and deep links", async ({ page }) => {
   await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   // the folder tree shows the subfolder and selecting it narrows the view
   await page.locator(`.tree .row[data-folder="${folder}/sub"]`).click();
-  await expect(page.locator(".toolbar .title")).toHaveText("sub");
+  await expect(page.locator("header .crumbs")).toContainText("sub");
   // by-type navigation
   await page.locator(".tree .row[data-type=req]").click();
-  await expect(page.locator(".toolbar .title")).toContainText("Requirement");
+  await expect(page.locator(".toolbar .hint")).toContainText("Requirement");
   await expect(page).toHaveURL(/type=req/);
   // reloading the deep link restores the same state
   const url = page.url();
   await page.goto(url);
-  await expect(page.locator(".toolbar .title")).toContainText("Requirement");
+  await expect(page.locator(".toolbar .hint")).toContainText("Requirement");
 });
 
 test("delete removes the artifact and its links", async ({ page }) => {

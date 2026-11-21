@@ -222,12 +222,12 @@ test("links: Ctrl+K links the selection; the bubble edits and removes; bad addre
   const area = page.locator(".cs-area .ProseMirror");
   await area.click();
   await page.keyboard.type("see the spec here");
-  // select "spec"
-  await page.evaluate(() => {
-    const t = document.querySelector(".cs-area .ProseMirror p")!.firstChild!;
-    const r = document.createRange(); r.setStart(t, 8); r.setEnd(t, 12);
-    const s = getSelection()!; s.removeAllRanges(); s.addRange(r);
-  });
+  // select "spec" with the keyboard: a selection set by script reaches the editor only with
+  // the browser's next selection event, which Ctrl+K could overtake on a slow machine
+  await page.keyboard.press("Home");
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
+  await expect.poll(() => page.evaluate(() => getSelection()!.toString())).toBe("spec");
   await page.keyboard.press("Control+k");
   const pop = page.locator(".cs-linkpop");
   await expect(pop).toBeVisible();

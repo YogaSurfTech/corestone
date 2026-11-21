@@ -76,11 +76,61 @@ corestone-sidebar, .nav-scrim { grid-column: 1; grid-row: 2; }
 /* ---- sidebar ---- */
 corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border-right: 1px solid var(--border); }
 .nav-search { padding: 12px 12px 6px; display: flex; flex-direction: column; gap: 8px; }
-/* The query field fills the toolbar between its left and right ends; what
-   the server says about the query hangs below it, over the table. */
-.query-field { flex: 1; min-width: 160px; position: relative; }
-.query-field input { width: 100%; }
-.query-field input.invalid { border-color: var(--danger); }
+/* The query field fills the toolbar between "New" and the count; its
+   menus and what the server says about the query hang below it, over the table. */
+.query-field { flex: 1; min-width: 200px; position: relative; margin-left: 8px; } /* 16px after "New", with the toolbar's gap */
+.qf-box { display: flex; align-items: center; gap: 2px; min-height: 32px; padding: 1px 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.qf-box:focus-within { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.qf-box.invalid { border-color: var(--danger); }
+.qf-box input[type=search] { flex: 1; min-width: 60px; border: none; outline: none; background: transparent; padding: 4px; }
+.qf-btn { border: none; background: none; border-radius: 6px; padding: 2px 7px; cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.qf-btn:hover { background: var(--panel-2); color: inherit; }
+.qb-clauses { flex: 1; display: flex; flex-wrap: wrap; align-items: center; row-gap: 3px; min-width: 0; }
+.qb-clause { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); font-size: 12.5px; max-width: 100%; }
+.qb-clause button { border: none; background: none; cursor: pointer; padding: 2px 6px; }
+.qb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.qb-not { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; color: var(--muted); opacity: 0.45; border-right: 1px solid var(--border) !important; }
+.qb-not.on { opacity: 1; color: var(--danger); }
+.qb-head { justify-content: space-between; }
+.qb-not.standalone { border: 1px solid var(--border) !important; border-radius: 6px; background: none; cursor: pointer; padding: 2px 7px; }
+.qb-not.standalone.on { border-color: var(--danger) !important; }
+.qb-remove { color: var(--muted); }
+.qb-remove:hover, .qb-label:hover { color: var(--accent); }
+/* what binds closer stands closer: AND, then XOR, then OR */
+.qb-join { border: none; background: none; cursor: pointer; font-size: 10.5px; font-weight: 700; color: var(--accent); padding: 2px 3px; border-radius: 5px; }
+.qb-join:hover { background: var(--accent-soft); }
+.qb-join.and { margin: 0 1px; }
+.qb-join.xor { margin: 0 6px; }
+.qb-join.or { margin: 0 12px; }
+.qb-pop { position: absolute; z-index: 40; min-width: 240px; max-width: min(460px, 90vw); max-height: 60vh; overflow: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.qb-pop[hidden] { display: none !important; } /* stronger than the display of .menu-like and .qb-two */
+.qb-pop.menu-like { min-width: 96px; padding: 6px; display: flex; flex-direction: column; }
+.qb-editor { display: flex; flex-direction: column; gap: 8px; }
+.menu-like { display: flex; flex-direction: column; }
+/* the items of a menu built by @corestone/ui, and the history's */
+.qb-pop :is(.mi, .item) { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; position: relative; }
+.qb-pop :is(.mi, .item):is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
+.qb-pop .mi[aria-checked=true] { font-weight: 700; color: var(--accent); }
+.qb-pop .group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 6px 10px 2px; }
+.qb-pop.qb-two:not([hidden]) { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
+.qb-col { display: flex; flex-direction: column; min-width: 200px; }
+.qb-history { border-left: 1px solid var(--border); padding-left: 8px; min-width: 220px; max-width: 320px; }
+.qb-kept { display: flex; align-items: center; }
+.qb-kept .item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qb-pin { border: none; background: none; cursor: pointer; padding: 4px 6px; border-radius: 6px; color: var(--muted); opacity: 0.4; }
+.qb-pin:hover { opacity: 1; background: var(--panel-2); }
+.qb-pin.on { opacity: 1; color: var(--accent); }
+.qb-find { width: 100%; margin-bottom: 4px; position: sticky; top: 0; }
+.qb-none { padding: 6px 10px; }
+.qb-title { font-weight: 600; }
+.qb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qb-row.end { justify-content: flex-end; }
+.qb-option { display: flex; align-items: center; gap: 6px; padding: 3px 2px; font-size: 13px; cursor: pointer; }
+.qb-date { display: inline-flex; align-items: center; gap: 4px; position: relative; }
+.qb-date input[type=text] { width: 190px; }
+.qb-cal { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; }
+/* the date input only carries the browser's picker; it is opened from the button and takes no room */
+.qb-date .qb-day { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .query-notes { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.14); }
 .query-note { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .query-note.error { color: var(--danger); }
@@ -519,6 +569,7 @@ corestone-enum { display: block; min-width: 0; max-width: 100%; }
 .enum-marker { display: inline-block; flex: none; width: 16px; height: 16px; }
 .enum-remove, .enum-trigger { background: transparent; border: 0; cursor: pointer; }
 .enum-trigger { display: flex; justify-content: space-between; gap: 8px; flex: 1; text-align: left; min-width: 24px; align-self: stretch; }
+.enum-trigger[hidden] { display: none; }
 .enum-dropdown { border-top: 1px solid var(--border); padding: 6px; }
 .enum-search { display: flex; gap: 4px; }
 .enum-search input { flex: 1; min-width: 0; }

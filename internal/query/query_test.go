@@ -37,6 +37,9 @@ func show(n *Node) string {
 		return s + ")"
 	}
 	s := n.Field
+	if n.Reverse {
+		s = "~" + s
+	}
 	if n.Sub != "" {
 		s += "." + n.Sub
 	}
@@ -90,6 +93,8 @@ func TestParse(t *testing.T) {
 		{"folder:specs/brakes", "folder:specs/brakes"},
 		{"folder~1:specs", "folder~1:specs"},
 		{"folder:specs/*", "folder:specs/*"},
+		{"~base:REQ-1 base:NULL", "(~base:REQ-1 or base:NULL)"},
+		{"NOT ~base:(REQ-1 REQ-2)", "NOT (~base:REQ-1 or ~base:REQ-2)"},
 		{"status.transition:approve AND status.previous:review", "(status.transition:approve AND status.previous:review)"},
 		{"owner:ann@example.org v:1.2+3", "(owner:ann@example.org or v:1.2+3)"},
 		{"type:task has_link:(depends_on, created:<2026-11-01)", "(type:task or has_link:(depends_on, created:<2026-11-01))"},
