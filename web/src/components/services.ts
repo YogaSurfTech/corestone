@@ -1,4 +1,4 @@
-import type { FolderInfo, Schema } from "../types";
+import type { FolderInfo, Schema, Summary } from "../types";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with
@@ -17,10 +17,17 @@ export interface FolderSource {
   children(path: string): Promise<FolderInfo[]>;
 }
 
+/** The artifacts a dynamic enumeration offers. */
+export interface OptionSource {
+  /** The artifacts a field of a type offers as its options in a folder, in the source's order. */
+  options(type: string, field: string, folder: string): Promise<Summary[]>;
+}
+
 /** The providers a component may ask for. */
 export interface Services {
   types: TypeSource;
   folders: FolderSource;
+  options: OptionSource;
 }
 
 const ASK = "cs-services";

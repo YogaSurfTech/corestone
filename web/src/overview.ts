@@ -9,6 +9,7 @@ import { queryFields } from "./components/query-field";
 import type { QueryField, QuerySource } from "./components/query-model";
 import { fieldValue } from "./components/sorting";
 import { hasSource, knownOptions, withMissing } from "./components/options";
+import { services } from "./services";
 import { kindIcon, kindLabel, workflowStates } from "./components/util";
 import type { TableColumn, TableContext } from "./components/table";
 import "./components/table";
@@ -237,7 +238,7 @@ export class Overview extends LightElement {
         render: (row) => {
           const field = this.schemaOf(row)?.fields?.find((f) => f.id === c.id);
           const value = fieldValue(row, c.id);
-          const options = field && hasSource(field) ? withMissing(knownOptions(row.type, field.id, row.folder, () => this.requestUpdate()) ?? [], row.fields?.[c.id]) : field?.options ?? [];
+          const options = field && hasSource(field) ? withMissing(knownOptions(services.options, row.type, field.id, row.folder, () => this.requestUpdate()) ?? [], row.fields?.[c.id]) : field?.options ?? [];
           return field?.type === "enum" ? html`<corestone-enum .options=${options} .value=${row.fields?.[c.id]}
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),

@@ -22,6 +22,9 @@ export const services: Services = {
       return p;
     },
   },
+  options: {
+    options: (type, field, folder) => api.options(type, field, folder).then((r) => r.options),
+  },
   folders: {
     children: (path) => api.tree(path, false, 1).then((t) => t.folders),
   },
