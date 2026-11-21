@@ -1,7 +1,7 @@
 import { button, el } from "./lib/dom";
-import type { Point } from "./overlay";
+import { Overlay, type Below, type Point } from "./overlay";
 
-// Menus: items with icons, submenus, check marks and hidden or disabled items. Arrow
+// Menus: items with icons, headings, submenus, check marks and hidden or disabled items. Arrow
 // keys move through them, → opens a submenu, ← / Escape closes it.
 
 export interface MenuEntry {
@@ -17,6 +17,10 @@ export interface MenuEntry {
   disabled?: boolean;
   /** Left out of the menu. */
   hidden?: boolean;
+  /** A heading shown above this item, for the group that starts with it. */
+  group?: string;
+  /** The item's data-test hook. */
+  test?: string;
 }
 
 /** The items of a menu; act runs a chosen item. */
@@ -24,7 +28,13 @@ export function buildMenu(items: MenuEntry[], act: (it: MenuEntry) => void = (it
   const out: HTMLElement[] = [];
   for (const it of items) {
     if (it.hidden) continue;
+    if (it.group !== undefined) {
+      const group = el("div", "group");
+      group.textContent = it.group;
+      out.push(group);
+    }
     const b = button({ cls: "mi" + (it.danger ? " danger" : ""), text: it.label });
+    if (it.test) b.dataset.test = it.test;
     if (it.icon) {
       const icon = el("span", "mi-icon");
       icon.setAttribute("aria-hidden", "true");
@@ -80,6 +90,61 @@ export function buildMenu(items: MenuEntry[], act: (it: MenuEntry) => void = (it
     all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length].focus();
   });
   return out;
+}
+
+export interface DropMenuOptions {
+  /** The accessible name of the menu. */
+  label: string;
+  /** The items, asked for at each opening. */
+  items(): MenuEntry[];
+  /** Classes of the panel, besides "ui-pop ui-menu". */
+  cls?: string;
+  /** The panel's data-test hook. */
+  test?: string;
+  align?: Below["align"];
+}
+
+/**
+ * A menu that opens below the control it belongs to (a "New" or "⋯" button):
+ * toggle() is that control's click. Choosing an item or Escape closes the menu
+ * and gives the focus back to the control, whose aria-expanded follows.
+ */
+export class DropMenu {
+  private overlay?: Overlay;
+  private panel?: HTMLElement;
+  private anchor?: HTMLElement;
+
+  constructor(private readonly o: DropMenuOptions) {}
+
+  get isOpen(): boolean { return !!this.overlay?.isOpen; }
+
+  /** root: the positioned element the menu is placed in, by default the control's parent. */
+  toggle(anchor: HTMLElement, root: HTMLElement = anchor.parentElement!): void {
+    if (!this.overlay || !this.panel || this.panel.parentElement !== root) {
+      // the first opening, or the page drew the control anew
+      this.overlay?.close();
+      this.panel?.remove();
+      this.overlay = new Overlay({
+        root,
+        onClose: () => this.anchor?.setAttribute("aria-expanded", "false"),
+        onEscape: () => this.anchor?.focus(),
+      });
+      this.panel = this.overlay.panel("ui-pop ui-menu" + (this.o.cls ? " " + this.o.cls : ""), "menu", this.o.label);
+      if (this.o.test) this.panel.dataset.test = this.o.test;
+    }
+    if (!this.panel.hidden) { this.overlay.close(); return; }
+    this.anchor = anchor;
+    this.panel.replaceChildren(...buildMenu(this.o.items(), (it) => {
+      this.close();
+      anchor.focus();
+      it.run?.();
+    }));
+    this.overlay.openBelow(this.panel, anchor, { align: this.o.align });
+    anchor.setAttribute("aria-expanded", "true");
+    (this.panel.querySelector<HTMLElement>("[aria-checked=true]") ?? this.panel.querySelector<HTMLElement>("button:not(:disabled)"))?.focus();
+  }
+
+  close(): void { this.overlay?.close(); }
 }
 
 /** Shows a menu of items at a point of the page, inside root; a click

@@ -1,5 +1,5 @@
 import { html, nothing, type TemplateResult } from "lit";
-import { LightElement, deepEqual, drag, errorText, fmtSize, fmtTime, prefs } from "@corestone/ui";
+import { deepEqual, drag, DropMenu, errorText, fmtSize, fmtTime, LightElement, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -112,7 +112,13 @@ export class Detail extends LightElement {
   @state() private commentText = "";
   @state() private showDiagram: string | null = null;
   @state() private historyLoaded = false;
-  @state() private actionsOpen = false;
+  private readonly actions = new DropMenu({
+    label: "Actions", cls: "actions-pop", align: "end",
+    items: () => [
+      { label: "Move…", test: "move", run: () => this.move() },
+      { label: "Delete", test: "delete", danger: true, run: () => this.deleteArtifact() },
+    ],
+  });
   /** A base change shown for review: the new base (null removes it) and that base's effective fields. */
   @state() private baseChange: { to: Summary | null; next: OverlayView | null; keep: boolean } | null = null;
   /** A new base being set up from fields this entry sets itself: its title and the fields that move. */
@@ -138,7 +144,6 @@ export class Detail extends LightElement {
   override connectedCallback() {
     super.connectedCallback();
     setLeaveGuard(this.leaveGuard);
-    document.addEventListener("click", this.closeActions);
     this.unsub = store.subscribe((s) => {
       this.s = s;
       if (s.refreshTick !== this.lastTick) {
@@ -148,8 +153,7 @@ export class Detail extends LightElement {
       this.requestUpdate();
     });
   }
-  private closeActions = () => { if (this.actionsOpen) this.actionsOpen = false; };
-  override disconnectedCallback() { this.unsub?.(); document.removeEventListener("click", this.closeActions); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.unsub?.(); this.actions.close(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
     if ((changed.has("guid") || changed.has("version") || changed.has("at")) && this.guid) {
       // A deep link to a section (?tab=history) opens it.
@@ -222,7 +226,7 @@ export class Detail extends LightElement {
   }
 
   private async load(soft: boolean, guid: string, stale: () => boolean) {
-    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.pending = noPending(); this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyMore = false; this.historyLoaded = false; this.workflows = []; this.historic = null; this.actionsOpen = false; this.baseChange = null; this.underlay = null; }
+    if (!soft) { this.loading = true; this.view = null; this.draft = null; this.pending = noPending(); this.schema = null; this.overlay = null; this.baseOverlay = null; this.documents = []; this.rel = null; this.endpoints = null; this.subject = null; this.comments = []; this.history = []; this.historyMore = false; this.historyLoaded = false; this.workflows = []; this.historic = null; this.actions.close(); this.baseChange = null; this.underlay = null; }
     this.error = "";
     try {
       if (this.version) return await this.loadVersion(guid, stale);
@@ -682,12 +686,8 @@ export class Detail extends LightElement {
       <div class="dh-top">
         <span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>
         <span class="dh-actions" ?hidden=${!!this.historic}>
-          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded=${this.actionsOpen}
-            @click=${(e: Event) => { e.stopPropagation(); this.actionsOpen = !this.actionsOpen; }}>⋯</button>
-          ${this.actionsOpen ? html`<div class="menu" role="menu">
-            <button class="item" role="menuitem" @click=${() => { this.actionsOpen = false; this.move(); }}>Move…</button>
-            <button class="item danger" role="menuitem" data-test="delete" @click=${() => { this.actionsOpen = false; this.deleteArtifact(); }}>Delete</button>
-          </div>` : nothing}
+          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
+            @click=${(e: Event) => this.actions.toggle(e.currentTarget as HTMLElement)}>⋯</button>
         </span>
       </div>
       <div class="dh-title">

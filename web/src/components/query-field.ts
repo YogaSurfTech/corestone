@@ -96,7 +96,6 @@ export class QueryFieldElement extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    document.addEventListener("mousedown", this.pressed, true); // before the overlay's own listener
     const kept = prefs.json<Remembered[]>(HISTORY, []);
     this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
   }
@@ -115,7 +114,6 @@ export class QueryFieldElement extends LightElement {
   }
   override disconnectedCallback() {
     this.overlay?.close();
-    document.removeEventListener("mousedown", this.pressed, true);
     window.clearTimeout(this.timer);
     super.disconnectedCallback();
   }
@@ -129,11 +127,6 @@ export class QueryFieldElement extends LightElement {
   /** The control a panel opens below. */
   private anchor: HTMLElement | null = null;
   private opening = false;
-  /** The press on "+" found the list of fields open (the overlay closes it on that press): the click must not open it again. */
-  private pressedOpen = false;
-  private pressed = (e: MouseEvent) => {
-    this.pressedOpen = this.open?.kind === "fields" && !!(e.target as Element).closest?.("[data-test=query-add]") && this.contains(e.target as Node);
-  };
   /** The built list of fields, kept while it holds the same fields: its items keep the focus. */
   private fieldMenu: { key: string; items: HTMLElement[] } | null = null;
 
@@ -149,8 +142,8 @@ export class QueryFieldElement extends LightElement {
         onClose: () => { if (!this.opening && this.open) this.open = null; },
         onEscape: () => this.querySelector<HTMLElement>("[data-test=query-add]")?.focus(),
       });
-      this.panel = this.overlay.panel("qb-pop", "dialog", "Criterion");
-      this.menu = this.overlay.panel("qb-pop menu-like", "menu", "Operator");
+      this.panel = this.overlay.panel("ui-pop qb-pop", "dialog", "Criterion");
+      this.menu = this.overlay.panel("ui-pop ui-menu", "menu", "Operator");
     }
     const o = this.open;
     if (!o) {
@@ -160,19 +153,17 @@ export class QueryFieldElement extends LightElement {
     const target = o.kind === "join" ? this.menu : this.panel;
     if (o.kind === "join") {
       const items = buildMenu(JOINS.map((j) => ({
-        label: j, checked: this.clauses[o.index]?.join === j,
+        label: j, checked: this.clauses[o.index]?.join === j, test: "query-join-" + j.toLowerCase(),
         run: () => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c))),
       })));
-      items.forEach((b, i) => { b.dataset.test = "query-join-" + JOINS[i].toLowerCase(); });
       this.menu.replaceChildren(...items);
     } else {
       this.panel.classList.toggle("qb-two", o.kind === "fields");
       render(o.kind === "editor" ? this.editor(o.field) : this.fieldList(), this.panel);
     }
     if (target.hidden) {
-      const r = (this.anchor?.isConnected ? this.anchor : this).getBoundingClientRect();
       this.opening = true;
-      this.overlay.open(target, { x: r.left, y: r.bottom + 4 });
+      this.overlay.openBelow(target, this.anchor?.isConnected ? this.anchor : this);
       this.opening = false;
       if (o.kind === "join") (this.menu.querySelector("[aria-checked=true]") as HTMLElement | null)?.focus();
     }
@@ -404,7 +395,7 @@ export class QueryFieldElement extends LightElement {
         <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
           @click=${(e: Event) => {
             // a second click closes the list: the press already closed it, so it is not opened again
-            if (this.pressedOpen) { this.pressedOpen = false; return; }
+            if (this.open?.kind === "fields") { this.open = null; return; } // a second click closes the list
             this.find = "";
             this.show({ kind: "fields" }, e.currentTarget as HTMLElement);
             void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=query-find]")?.focus());

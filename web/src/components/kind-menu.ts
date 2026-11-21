@@ -1,7 +1,7 @@
 import { html } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { customElement, property } from "lit/decorators.js";
-import { LightElement, Overlay, buildMenu } from "@corestone/ui";
+import { DropMenu, LightElement } from "@corestone/ui";
 import type { Kind } from "../types";
 import { kindMark } from "./util";
 
@@ -24,57 +24,26 @@ const icons = (kinds: Kind[]) => kinds.map(kindMark).join("");
 @customElement("corestone-kind-menu")
 export class KindMenu extends LightElement {
   @property() kind = "";
-  private overlay?: Overlay;
-  private menu!: HTMLElement;
-  /** The press on the button found the menu open (the overlay closes it on that press): the click must not open it again. */
-  private pressedOpen = false;
-  private pressed = (e: MouseEvent) => {
-    this.pressedOpen = !!this.overlay?.isOpen && !!(e.target as Element).closest?.("[data-test=kind]") && this.contains(e.target as Node);
-  };
+  private readonly menu = new DropMenu({
+    label: "Show", cls: "kind-pop", test: "kind-menu", align: "end",
+    items: () => VIEWS.map((v) => ({
+      label: v.name, icon: icons(v.icons), checked: v.kind === this.kind, test: "kind-" + (v.kind || "all"),
+      run: () => { if (v.kind !== this.kind) this.dispatchEvent(new CustomEvent("kind-change", { detail: v.kind, bubbles: true })); },
+    })),
+  });
 
-  override connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener("mousedown", this.pressed, true); // before the overlay's own listener
-  }
   override disconnectedCallback() {
-    this.overlay?.close();
-    document.removeEventListener("mousedown", this.pressed, true);
+    this.menu.close();
     super.disconnectedCallback();
   }
 
-  private get button(): HTMLButtonElement { return this.querySelector("[data-test=kind]") as HTMLButtonElement; }
-
-  private toggle() {
-    if (this.pressedOpen) { this.pressedOpen = false; return; }
-    if (!this.overlay) {
-      this.overlay = new Overlay({ root: this, onClose: () => this.button?.setAttribute("aria-expanded", "false"), onEscape: () => this.button.focus() });
-      this.menu = this.overlay.panel("qb-pop menu-like kind-pop", "menu", "Show");
-      this.menu.dataset.test = "kind-menu";
-    }
-    const items = buildMenu(VIEWS.map((v) => ({
-      label: v.name, icon: icons(v.icons), checked: v.kind === this.kind,
-      run: () => {
-        this.overlay!.close();
-        this.button.focus();
-        if (v.kind !== this.kind) this.dispatchEvent(new CustomEvent("kind-change", { detail: v.kind, bubbles: true }));
-      },
-    })));
-    items.forEach((b, i) => { b.dataset.kind = VIEWS[i].kind || "all"; });
-    this.menu.replaceChildren(...items);
-    const r = this.button.getBoundingClientRect();
-    this.overlay.open(this.menu, { x: r.left, y: r.bottom + 4 });
-    // the button stands at the right of the toolbar: the menu opens towards the left
-    this.menu.style.left = "auto";
-    this.menu.style.right = "0";
-    this.button.setAttribute("aria-expanded", "true");
-    (this.menu.querySelector("[aria-checked=true]") as HTMLElement | null)?.focus();
-  }
+  private toggle(e: Event) { this.menu.toggle(e.currentTarget as HTMLElement, this); }
 
   override render() {
     const v = VIEWS.find((x) => x.kind === this.kind) ?? VIEWS[0];
     return html`<button type="button" class="btn sm kind-button" data-test="kind" data-kind=${v.kind || "all"} title=${"Showing: " + v.name}
       aria-label=${"Showing: " + v.name} aria-haspopup="menu" aria-expanded="false" @click=${this.toggle}
-      @keydown=${(e: KeyboardEvent) => { if (e.key === "ArrowDown" && !this.overlay?.isOpen) { e.preventDefault(); this.toggle(); } }}>
+      @keydown=${(e: KeyboardEvent) => { if (e.key === "ArrowDown" && !this.menu.isOpen) { e.preventDefault(); this.toggle(e); } }}>
       ${unsafeHTML(icons(v.icons))}<span class="caret">▾</span></button>`;
   }
 }
