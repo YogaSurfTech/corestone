@@ -18,3 +18,4 @@ export { attachTooltips, setTip, tipOf, type Tip, type TooltipOptions } from "./
 export { tint, type ColorChoices, type Palette, type StripePreset } from "./palette";
 export { customColor, recentSwatches, swatch } from "./swatches";
 export { section, type SectionBadge, type SectionOptions } from "./section";
+export { ButtonBar, type BarItem, type ButtonBarOptions } from "./button-bar";

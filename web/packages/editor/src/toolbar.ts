@@ -1,5 +1,5 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
-import { attachTooltips, customColor, prefs, recentSwatches, setTip, swatch, tint, tipOf, type ColorChoices, type Palette, type StripePreset, type Tip } from "@corestone/ui";
+import { ButtonBar, customColor, prefs, recentSwatches, setTip, swatch, tint, type ColorChoices, type Palette, type StripePreset, type Tip } from "@corestone/ui";
 import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
@@ -79,42 +79,22 @@ const store = prefs.setJson;
 
 export class Toolbar {
   readonly el: HTMLElement;
-  private readonly tip: HTMLElement;
-  private readonly updaters: ((s: EditorState) => void)[] = [];
-  private last: Record<string, string> = load(LAST_KEY, {});
+  /** The bar's mechanics: buttons, split buttons with their menus, tooltips, the choices used last. */
+  private readonly bar: ButtonBar<EditorState>;
   private history: string[] = load(HISTORY_KEY, []);
   private pointer?: { x: number; y: number };
   private readonly historyViews: (() => void)[] = [];
 
   constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE) {
-    this.el = document.createElement("div");
-    this.el.className = "cs-tb";
-    this.el.setAttribute("role", "toolbar");
-    this.el.setAttribute("aria-label", "Formatting");
-    // tooltips after 0.5 s on hover or focus; unavailable buttons say why
-    this.tip = attachTooltips(this.el, { selector: ".b, .c, .sz, .sw, .f", cls: "cs-tip" });
+    this.bar = new ButtonBar<EditorState>({ cls: "cs-tb", label: "Formatting", chevron: icon("chev", 12), state: () => this.host.state(), lastKey: LAST_KEY, tipCls: "cs-tip" });
+    this.el = this.bar.el;
     this.build();
     // where the last click on the toolbar was (none for keyboard use), for panels that open there
     this.el.addEventListener("click", (e) => { this.pointer = e.detail ? { x: e.clientX, y: e.clientY } : undefined; }, true);
-    // Clicking the toolbar must not take the focus (and the selection) from the text.
-    this.el.addEventListener("mousedown", (e) => {
-      if (!(e.target as HTMLElement).closest("input")) e.preventDefault();
-    });
-    document.addEventListener("click", () => this.closeMenus());
   }
 
   /** Brings every button in line with the editor state. */
-  update(state: EditorState) {
-    for (const u of this.updaters) u(state);
-    this.el.querySelectorAll<HTMLElement>(".b, .f").forEach((b) => {
-      const r = tipOf(b)?.disabled?.();
-      if (r) b.setAttribute("aria-disabled", "true");
-      else b.removeAttribute("aria-disabled");
-      // the reason also as the button's own hover text (when the tooltip is not shown)
-      if (r) b.title = "Unavailable: " + r;
-      else b.removeAttribute("title");
-    });
-  }
+  update(state: EditorState) { this.bar.update(state); }
 
   private run(cmd: Command) { this.host.run(cmd); }
   private can(cmd: Command) { return cmd(this.host.state()); }
@@ -194,51 +174,12 @@ export class Toolbar {
 
   // --- building blocks ---
 
-  private add(el: HTMLElement) { this.el.insertBefore(el, this.tip); }
-  private sep() { const s = document.createElement("span"); s.className = "sep"; this.add(s); }
-
-  private button(name: string, tip: Tip, act: () => void): Btn {
-    const b: Btn = document.createElement("button");
-    b.type = "button";
-    b.className = "b";
-    b.innerHTML = icon(name);
-    b.setAttribute("aria-label", tip.text);
-    b.dataset.cmd = name;
-    setTip(b, tip);
-    b.onclick = (e) => { e.stopPropagation(); if (tipOf(b)?.disabled?.()) return; act(); };
-    return b;
-  }
-
-  private chevron(label: string, menu: HTMLElement): HTMLElement {
-    const c: Btn = document.createElement("button");
-    c.type = "button";
-    c.className = "c";
-    c.innerHTML = icon("chev", 12);
-    c.setAttribute("aria-label", "More: " + label);
-    c.setAttribute("aria-expanded", "false");
-    setTip(c, { text: label + " options" });
-    c.onclick = (e) => {
-      e.stopPropagation();
-      const open = !menu.classList.contains("open");
-      this.closeMenus();
-      if (open) { menu.classList.add("open"); c.setAttribute("aria-expanded", "true"); }
-    };
-    return c;
-  }
-
-  private wrap(main: HTMLElement, label: string, menu: HTMLElement, extra = "") {
-    const w = document.createElement("div");
-    w.className = "sp " + extra;
-    w.append(main, this.chevron(label, menu), menu);
-    this.add(w);
-  }
-
-  private closeMenus() {
-    this.el.querySelectorAll(".pop.open").forEach((p) => p.classList.remove("open"));
-    this.el.querySelectorAll(".c").forEach((c) => c.setAttribute("aria-expanded", "false"));
-  }
-
-  private remember(key: string, v: string) { this.last[key] = v; store(LAST_KEY, this.last); }
+  private add(el: HTMLElement) { this.bar.add(el); }
+  private sep() { this.bar.sep(); }
+  private button(name: string, tip: Tip, act: () => void): Btn { return this.bar.button(name, icon(name), tip, act); }
+  private wrap(main: HTMLElement, label: string, menu: HTMLElement, extra = "") { this.bar.group(main, label, menu, extra); }
+  private closeMenus() { this.bar.closeMenus(); }
+  private remember(key: string, v: string) { this.bar.remember(key, v); }
 
   /** The Entries group: Insert entries…, a convert button per entry type the host offers (its
    *  icon, its name on hover) and Turn into text. The main button repeats the last used (the
@@ -255,11 +196,11 @@ export class Toolbar {
     const ins: Item = { key: "insert", icon: svg(insert.i), tip: insert.tip, run: insert.run };
     let offer = st.entryTypes();
     const convert = (t: EntryTypeChoice): Item => ({ key: "to:" + t.id, icon: t.icon, run: () => st.convert(t.id), tip: { text: `Convert selection to ${t.name}`, disabled: whyNot } });
-    const lastType = () => offer.types.find((t) => t.id === this.last["entrytype:" + offer.remember]) ?? offer.types[0];
+    const lastType = () => offer.types.find((t) => t.id === this.bar.last("entrytype:" + offer.remember)) ?? offer.types[0];
     // the main button: insert, the last type's convert, or turn into text
     // (s absent: while the toolbar is built, before the editor has a state)
     const mainItem = (s?: EditorState): Item => {
-      const used = this.last.entries;
+      const used = this.bar.last("entries");
       // convert and turn into text are one action that follows the selection: a placed entry
       // selected turns into text, otherwise the selection converts (to the last type)
       if (used === "unmark" || used === "convert") return (s && onEntry(s)) || !lastType() ? unmark : convert(lastType()!);
@@ -294,7 +235,7 @@ export class Toolbar {
     show(mainItem());
     this.wrap(main, "Entries", menu);
     let known = JSON.stringify(offer.types.map((t) => t.id)) + offer.remember;
-    this.updaters.push((s) => {
+    this.bar.onUpdate((s) => {
       const next = st.entryTypes();
       const sig = JSON.stringify(next.types.map((t) => t.id)) + next.remember;
       if (sig !== known) { known = sig; offer = next; fill(); }
@@ -305,41 +246,14 @@ export class Toolbar {
 
   /** A split button: the main part repeats the last-used item, ▾ shows them all. */
   private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean }[], main0?: string) {
-    const menu = document.createElement("div");
-    menu.className = "pop";
-    let current = items.find((x) => x.i === this.last[key]) ?? items.find((x) => x.i === main0) ?? items[0];
-    const main = this.button(current.i, current.tip, () => current.run());
-    const show = () => {
-      main.innerHTML = icon(current.i);
-      main.dataset.cmd = current.i;
-      main.setAttribute("aria-label", current.tip.text);
-      setTip(main, current.tip);
-    };
-    const buttons = items.map((it) => {
-      const b = this.button(it.i, it.tip, () => {
-        it.run();
-        current = it;
-        this.remember(key, it.i);
-        show();
-        this.closeMenus();
-        this.update(this.host.state());
-      });
-      menu.append(b);
-      return b;
-    });
-    this.wrap(main, label, menu);
-    this.updaters.push((s) => {
-      items.forEach((it, n) => { if (it.pressed) buttons[n].setAttribute("aria-pressed", String(it.pressed(s))); });
-      if (current.pressed) main.setAttribute("aria-pressed", String(current.pressed(s)));
-      else main.removeAttribute("aria-pressed");
-    });
+    this.bar.split(key, label, items.map((it) => ({ id: it.i, icon: icon(it.i), tip: it.tip, run: it.run, pressed: it.pressed })), main0);
   }
 
   /** Font or background colour: the main button applies the last colour, ▾ opens palette, picker and history. */
   private colour(mark: "color" | "bg", name: string, label: string, fallback: string) {
     const type = schema.marks[mark];
     const colors = this.colors(mark);
-    let c = this.last[mark] ?? fallback;
+    let c = this.bar.last(mark) ?? fallback;
     // a font colour remembered as background from before markers had their own colours: its marker
     const ink = this.palette.colors.indexOf(c);
     if (mark === "bg" && ink >= 0 && colors[ink] !== c) c = colors[ink];
@@ -420,7 +334,7 @@ export class Toolbar {
     }
     main.onclick = (e) => { e.stopPropagation(); (main.nextElementSibling as HTMLElement).click(); };
     this.wrap(main, "Font", menu, "gap");
-    this.updaters.push((s) => {
+    this.bar.onUpdate((s) => {
       const v = valueAt(s, type) as string | null;
       main.innerHTML = '<span class="fn"></span>';
       main.firstElementChild!.textContent = v ?? "Default";
@@ -459,7 +373,7 @@ export class Toolbar {
       menu.append(o);
     }
     this.wrap(input, "Font size", menu);
-    this.updaters.push((s) => {
+    this.bar.onUpdate((s) => {
       if (document.activeElement === input) return; // never overwrite what is being typed
       const v = valueAt(s, type);
       input.value = v === null ? "" : String(v);
