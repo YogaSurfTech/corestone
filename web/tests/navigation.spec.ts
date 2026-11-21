@@ -485,6 +485,18 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(1);
   await page.locator("[data-test=query-clear]").click();
   await expect(rows).toHaveCount(4);
+  // a date: typed, or a day from the browser's picker behind the calendar button
+  await page.locator("[data-test=query-add]").click();
+  await page.locator("[data-test=query-fields] .item[data-field=created]").click();
+  await expect(page.locator("[data-test=query-calendar] svg")).toBeVisible();
+  await page.locator("[data-test=query-editor] .qb-day").evaluate((el: HTMLInputElement) => { el.value = "2020-02-03"; el.dispatchEvent(new Event("change", { bubbles: true })); });
+  await expect(page.locator("[data-test=query-editor] [data-test=query-value]")).toHaveValue("2020-02-03");
+  await page.locator("[data-test=query-compare]").selectOption(">=");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText(["Created ≥ 2020-02-03"]);
+  await expect(rows).toHaveCount(4);
+  await page.locator("[data-test=query-as-text]").click();
+  await expect(page.locator("[data-test=search]")).toHaveValue("created:>=2020-02-03");
   // with text in the field, a criterion joins it as text
   await page.locator("[data-test=search]").fill("title:beta");
   await page.locator("[data-test=query-add]").click();
