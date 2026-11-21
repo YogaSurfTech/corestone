@@ -423,7 +423,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(page.locator("[data-test=query-fields]")).toContainText("No field with this name");
   await page.locator("[data-test=query-find]").fill("prio");
   await page.keyboard.press("Enter"); // the first one found
-  await page.locator("[data-test=query-editor] input[data-value=high]").check();
+  await page.locator("[data-test=query-editor] .enum-option[data-value=high]").click();
   await page.locator("[data-test=query-apply]").click();
   await expect(clauses).toHaveText(["Priority: high"]);
   await expect(rows).toHaveCount(1);
@@ -449,7 +449,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(3);
   // a criterion opens its editor again; the criteria survive a reload
   await clauses.first().click();
-  await page.locator("[data-test=query-editor] input[data-value=low]").check();
+  await page.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
   await page.locator("[data-test=query-apply]").click();
   await expect(clauses.first()).toHaveText("Priority: low, high");
   await expect.poll(() => new URL(page.url()).searchParams.get("q")).toContain("priority:(low high)"); // the query runs
@@ -468,7 +468,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   // NOT is also set in the editor, so a criterion with NOT can be made in one go, and pinned
   await page.locator("[data-test=query-fields] .item[data-field=priority]").click();
   await page.locator("[data-test=query-editor-not]").click();
-  await page.locator("[data-test=query-editor] input[data-value=low]").check();
+  await page.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
   await page.locator("[data-test=query-apply]").click();
   await expect(clauses).toHaveText(["Priority: low"]);
   await expect(page.locator("[data-test=query-not]")).toHaveAttribute("aria-pressed", "true");

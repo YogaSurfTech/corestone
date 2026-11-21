@@ -9,6 +9,7 @@ import { api } from "./api";
 import { store } from "./store";
 import type { EnumOption, QueryWarning, Schema, Summary } from "./types";
 import { hidLabel } from "./util";
+import "./enum-control";
 import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type Value } from "./query-model";
 
 const INPUT: Record<string, Input> = {
@@ -41,7 +42,7 @@ export function queryFields(schemas: Schema[], folder: string, type: string): Qu
       } else if (f.type === "enum") {
         field.options = f.options ?? [];
       } else if (f.type === "workflow") {
-        field.load = () => api.workflowDef(f.workflow ?? "", s.type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id })));
+        field.load = () => api.workflowDef(f.workflow ?? "", s.type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation })));
       } else if (field.input === "artifact") {
         field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes };
       }
@@ -73,6 +74,8 @@ export class QueryFieldElement extends LightElement {
   /** The query that runs (the route's). */
   @property() value = "";
   @property({ attribute: false }) fields: QueryField[] = [];
+  /** The folder of the view: where the icons of enumeration values are looked up. */
+  @property() folder = "";
 
   @state() private text = "";
   @state() private clauses: Clause[] = [];
@@ -115,7 +118,12 @@ export class QueryFieldElement extends LightElement {
     window.clearTimeout(this.timer);
     super.disconnectedCallback();
   }
-  private close = () => { if (this.open) this.open = null; };
+  /** A click outside the field, or in it beside its menus and controls, closes what is open. */
+  private close = (e: Event) => {
+    if (!this.open) return;
+    const inside = e.composedPath().includes(this);
+    if (!inside || !(e.target as Element).closest?.(".qb-pop, button, input, select, label")) this.open = null;
+  };
 
   override willUpdate(changed: PropertyValues) {
     if (!changed.has("value")) return;
@@ -189,7 +197,9 @@ export class QueryFieldElement extends LightElement {
       field.load().then((o) => { if (this.open?.kind === "editor" && this.open.field === field) this.options = o; },
         (e) => { this.options = []; store.toast(errorText(e), "error"); });
     }
-    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".qb-editor :is(input, select, button):not(.qb-not)")?.focus());
+    void this.updateComplete.then(() => {
+      (this.querySelector<HTMLElement>(".qb-editor .enum-search input") ?? this.querySelector<HTMLElement>(".qb-editor :is(input, select, button):not(.qb-not)"))?.focus();
+    });
   }
 
   /** The field of a criterion, as offered here; a field that is gone keeps what the criterion knows. */
@@ -213,9 +223,9 @@ export class QueryFieldElement extends LightElement {
     return null;
   }
 
-  private apply(value: Value | null) {
-    if (this.open?.kind !== "editor" || !value) return;
-    const { field, index } = this.open;
+  private apply(value: Value | null, target = this.open) {
+    if (target?.kind !== "editor" || !value) return;
+    const { field, index } = target;
     const clause: Clause = index === null
       ? { field: { id: field.id, name: field.name, input: field.input }, not: this.draft.not, join: "AND", value }
       : { ...this.clauses[index], not: this.draft.not, value };
@@ -238,14 +248,15 @@ export class QueryFieldElement extends LightElement {
   private pick(field: QueryField) {
     const p = field.picker;
     if (!p) return;
-    store.set({ picker: { kind: "pick", ...p, onPick: (s: Summary) => this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }) } });
+    const target = this.open; // the picker is a dialog of its own: a click in it closes this editor
+    store.set({ picker: { kind: "pick", ...p, onPick: (s: Summary) => this.apply({ kind: "artifact", id: s.hid ?? s.guid, label: s.hid ?? s.title ?? s.guid }, target) } });
   }
 
   private editor(field: QueryField) {
     const d = this.draft;
     const set = (patch: Partial<typeof d>) => { this.draft = { ...d, ...patch }; };
     const value = this.draftValue(field);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); this.apply(this.draftValue(field)); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target as Element).closest("corestone-enum")) { e.preventDefault(); this.apply(this.draftValue(field)); } };
     const input = (key: "a" | "b", label: string) => field.input === "number"
       ? html`<input type="number" step="any" aria-label=${label} data-test="query-value" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />`
       : html`<span class="qb-date"><input type="text" aria-label=${label} data-test="query-value" placeholder="2026-11-17, 2026-11 or 2026" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />
@@ -264,8 +275,8 @@ export class QueryFieldElement extends LightElement {
         break;
       case "enum":
         body = this.options === null ? html`<div class="muted small">Loading…</div>` : !this.options.length ? html`<div class="muted small">No values.</div>`
-          : html`<div class="qb-options">${this.options.map((o) => html`<label class="qb-option"><input type="checkbox" data-value=${o.value} .checked=${d.values.has(o.value)} ?disabled=${d.empty}
-              @change=${(e: Event) => { const values = new Set(d.values); if ((e.target as HTMLInputElement).checked) values.add(o.value); else values.delete(o.value); set({ values }); }} />${o.label ?? o.value}</label>`)}</div>`;
+          : html`<corestone-enum multiple expanded .options=${this.options} .value=${[...d.values]} .folder=${this.folder} .label=${field.name}
+              @enum-change=${(e: CustomEvent<string[] | null>) => set({ values: new Set(e.detail ?? []), empty: false })}></corestone-enum>`;
         break;
       case "bool":
         body = html`<div class="qb-row">${[true, false].map((b) => html`<button class="btn sm" data-test=${b ? "query-yes" : "query-no"} @click=${() => this.apply({ kind: "bool", value: b })}>${b ? "Yes" : "No"}</button>`)}</div>`;
@@ -282,7 +293,7 @@ export class QueryFieldElement extends LightElement {
         body = nothing;
     }
     const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty";
-    return html`<div class="qb-pop qb-editor" data-test="query-editor" @click=${(e: Event) => e.stopPropagation()} @keydown=${onKey}>
+    return html`<div class="qb-pop qb-editor" data-test="query-editor" @keydown=${onKey}>
       <div class="qb-row qb-head"><span class="qb-title">${field.name}</span>
         <button class="qb-not standalone ${d.not ? "on" : ""}" data-test="query-editor-not" aria-pressed=${d.not ? "true" : "false"}
           title=${d.not ? "Not: switched on. The criterion finds what does not match." : "Not: switched off"} @click=${() => set({ not: !d.not })}>NOT</button></div>
@@ -301,7 +312,7 @@ export class QueryFieldElement extends LightElement {
     if (!o) return nothing;
     if (o.kind === "editor") return this.editor(o.field);
     if (o.kind === "join") {
-      return html`<div class="qb-pop menu-like" @click=${(e: Event) => e.stopPropagation()}>
+      return html`<div class="qb-pop menu-like">
         ${JOINS.map((j) => html`<button class="item ${this.clauses[o.index]?.join === j ? "on" : ""}" data-test="query-join-${j.toLowerCase()}"
           @click=${() => this.built(this.clauses.map((c, i) => (i === o.index ? { ...c, join: j as Join } : c)))}>${j}</button>`)}
       </div>`;
@@ -309,7 +320,7 @@ export class QueryFieldElement extends LightElement {
     // a field stays if its name holds what is typed, anywhere in it
     const find = this.find.trim().toLowerCase();
     const found = this.fields.filter((f) => f.name.toLowerCase().includes(find));
-    return html`<div class="qb-pop qb-two" @click=${(e: Event) => e.stopPropagation()}>
+    return html`<div class="qb-pop qb-two">
      <div class="menu-like qb-col" data-test="query-fields">
       <input type="search" class="qb-find" data-test="query-find" placeholder="Find a field…" aria-label="Find a field" .value=${this.find}
         @input=${(e: Event) => { this.find = (e.target as HTMLInputElement).value; }}

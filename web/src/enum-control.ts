@@ -23,6 +23,8 @@ export class EnumControl extends LightElement {
   @property({ type: Boolean }) multiple = false;
   @property({ type: Boolean }) extendable = false;
   @property({ type: Boolean }) readonly = false;
+  /** The list of values is always shown (inside a panel that is itself a popup). */
+  @property({ type: Boolean }) expanded = false;
   @state() private open = false;
   @state() private query = "";
 
@@ -111,10 +113,11 @@ export class EnumControl extends LightElement {
               this.emit(this.selected().filter((x) => x !== v));
             }}>×</button>` : nothing}</span>`)}
         <button type="button" class="enum-trigger" aria-label=${this.label || "Select value"} aria-haspopup="listbox" aria-expanded=${this.open}
+          ?hidden=${this.expanded && selected.length > 0}
           @click=${() => { if (this.open) this.close(true); else this.open = true; }}>
           ${selected.length ? nothing : html`<span class="muted">Select…</span>`}<span>▾</span></button>
       </div>
-      ${this.open ? html`<div class="enum-dropdown">
+      ${this.open || this.expanded ? html`<div class="enum-dropdown">
         <div class="enum-search"><input type="search" aria-label=${"Search " + this.label} placeholder=${this.extendable ? "Search or add value…" : "Search…"}
           .value=${this.query} @input=${(e: Event) => this.search((e.target as HTMLInputElement).value)}
           @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); if (this.extendable) this.add(); else if (filtered[0]) this.choose(filtered[0].value); } }} />

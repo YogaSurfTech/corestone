@@ -121,7 +121,6 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-title { font-weight: 600; }
 .qb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qb-row.end { justify-content: flex-end; }
-.qb-options { display: flex; flex-direction: column; max-height: 240px; overflow: auto; }
 .qb-option { display: flex; align-items: center; gap: 6px; padding: 3px 2px; font-size: 13px; cursor: pointer; }
 .qb-date { display: inline-flex; align-items: center; gap: 4px; position: relative; }
 .qb-date input[type=text] { width: 190px; }
@@ -566,6 +565,7 @@ corestone-enum { display: block; min-width: 0; max-width: 100%; }
 .enum-marker { display: inline-block; flex: none; width: 16px; height: 16px; }
 .enum-remove, .enum-trigger { background: transparent; border: 0; cursor: pointer; }
 .enum-trigger { display: flex; justify-content: space-between; gap: 8px; flex: 1; text-align: left; min-width: 24px; align-self: stretch; }
+.enum-trigger[hidden] { display: none; }
 .enum-dropdown { border-top: 1px solid var(--border); padding: 6px; }
 .enum-search { display: flex; gap: 4px; }
 .enum-search input { flex: 1; min-width: 0; }

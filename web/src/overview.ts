@@ -294,7 +294,7 @@ export class Overview extends LightElement {
           <button class="btn primary" data-test="new" @click=${(e: Event) => { e.stopPropagation(); this.menu = !this.menu; }}>＋ New</button>
           ${this.menu ? this.newMenu() : nothing}
         </div>
-        <corestone-query-field class="query-field" .value=${r.q} .fields=${this.queryFields()}
+        <corestone-query-field class="query-field" .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()}
           @query-change=${(e: CustomEvent<{ text: string; replace: boolean }>) => navigate({ q: e.detail.text, guid: null }, e.detail.replace)}></corestone-query-field>
         <span class="hint" data-test="count">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} ${this.counted(total)}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
