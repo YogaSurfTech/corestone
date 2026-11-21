@@ -1,12 +1,12 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
-import { attachTooltips, prefs, setTip, tipOf, type Tip } from "@corestone/ui";
+import { attachTooltips, customColor, prefs, recentSwatches, setTip, swatch, tint, tipOf, type ColorChoices, type Palette, type StripePreset, type Tip } from "@corestone/ui";
 import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
 import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
-import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, hexColor, schema, type Align, type Flag } from "./schema";
+import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, schema, type Align, type Flag } from "./schema";
 import { codeActive, codeAt, toggleCode } from "./code";
 import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, selectedText, styleAt } from "./structure";
 
@@ -51,34 +51,6 @@ export interface ToolbarHost {
   };
 }
 
-/** A colour palette, e.g. from company design guidelines. */
-export interface Palette {
-  /** Font colours. */
-  colors: string[];
-  /** Background (marker) colours, in the same order: a light tint of each font colour, so the
-   *  same swatch gives dark ink on a light marker; a light font colour (white) gets a dark marker.
-   *  No marker should equal a font colour, or text can be made unreadable (blacked out).
-   *  Missing ones are derived from the font colours. */
-  backgrounds?: string[];
-  names?: string[];
-  /** false: only palette colours, no picker and no history. */
-  allowCustom?: boolean;
-  /** The colour pairs offered for striped tables (first and second stripe). */
-  stripes?: StripePreset[];
-}
-
-export interface StripePreset { name: string; colors: [string, string] }
-
-/** The colours a table dialog offers: the marker swatches, the picker and history when the
- *  palette allows them, and the stripe presets. */
-export interface ColorChoices {
-  swatches: string[];
-  custom: boolean;
-  recent(): string[];
-  addRecent(v: string): void;
-  presets: StripePreset[];
-}
-
 export const DEFAULT_STRIPES: StripePreset[] = [
   { name: "Grey", colors: ["#ffffff", "#f3f4f6"] },
   { name: "Blue", colors: ["#ffffff", "#e3f2fd"] },
@@ -98,16 +70,6 @@ export const DEFAULT_PALETTE: Palette = {
 /** An entry type "Convert selection to entry" can make. */
 export interface EntryTypeChoice { id: string; name: string; icon: () => HTMLElement }
 type Btn = HTMLButtonElement;
-
-/** The marker for a font colour: a light tint (three quarters white), or for a light
- *  colour a dark shade (three fifths black), so the ink stays readable on it. */
-function tint(c: string): string {
-  const n = parseInt(c.slice(1), 16);
-  const rgb = [n >> 16, (n >> 8) & 255, n & 255];
-  const light = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 > 0.8;
-  const mix = (v: number) => Math.round(light ? v * 0.4 : v + (255 - v) * 0.75).toString(16).padStart(2, "0");
-  return "#" + rgb.map(mix).join("");
-}
 
 const LAST_KEY = "cs-editor-last";
 const HISTORY_KEY = "cs-editor-colors";
@@ -394,49 +356,16 @@ export class Toolbar {
       if (v) { c = v; this.remember(mark, v); draw(); }
       this.closeMenus();
     };
-    const swatch = (v: string, name?: string) => {
-      const s: Btn = document.createElement("button");
-      s.type = "button";
-      s.className = "sw";
-      s.style.background = v;
-      s.setAttribute("aria-label", name ?? v);
-      setTip(s, { text: name ? `${name} (${v})` : v });
-      s.onclick = (e) => { e.stopPropagation(); pick(v); };
-      return s;
-    };
-    colors.forEach((v, n) => menu.append(swatch(v, this.palette.names?.[n])));
-    const custom = this.palette.allowCustom !== false;
-    if (custom) {
-      const picker: HTMLElement = document.createElement("label");
-      picker.className = "b";
-      picker.innerHTML = icon("pick") + '<input type="color" tabindex="-1">';
-      setTip(picker, { text: "Custom color…" });
-      const input = picker.querySelector("input")!;
-      input.onchange = () => { const v = hexColor(input.value); if (v) { this.addHistory(v); pick(v); } };
-      picker.onclick = (e) => e.stopPropagation();
-      menu.append(picker);
-      const slots: Btn[] = [];
-      for (let k = 0; k < 8; k++) {
-        const h: Btn = document.createElement("button");
-        h.type = "button";
-        h.onclick = (e) => { e.stopPropagation(); if (this.history[k]) pick(this.history[k]); };
-        slots.push(h);
-        menu.append(h);
-      }
+    colors.forEach((v, n) => { const name = this.palette.names?.[n]; menu.append(swatch(v, pick, name ?? v, name ? `${name} (${v})` : v)); });
+    if (this.palette.allowCustom !== false) {
+      menu.append(customColor("b", icon("pick"), (v) => { this.addHistory(v); pick(v); }));
+      const recent = recentSwatches(8, () => this.history, pick);
+      menu.append(...recent.slots);
       const bin = this.button("trash", { text: "Clear color history",
         disabled: () => (this.history.length ? null : "No colors in the history yet. Colors you pick with the color picker appear here.") },
       () => { this.history = []; store(HISTORY_KEY, this.history); this.historyViews.forEach((f) => f()); });
       menu.append(bin);
-      const render = () => slots.forEach((h, k) => {
-        const v = this.history[k];
-        h.className = "sw" + (v ? "" : " empty");
-        h.style.background = v ?? "";
-        h.setAttribute("aria-label", v ? "Recent color " + v : "Empty slot");
-        setTip(h, v ? { text: "Recent: " + v } : null);
-        h.disabled = !v;
-      });
-      this.historyViews.push(render);
-      render();
+      this.historyViews.push(recent.render);
     }
     const none = this.button("none", { text: mark === "color" ? "Automatic color" : "No background",
       disabled: () => (valueAt(this.host.state(), type) ? null : "No color set here.") }, () => pick(null));
