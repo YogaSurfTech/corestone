@@ -80,7 +80,7 @@ export class Overview extends LightElement {
   private filter(): TableFilter {
     const r = this.s.route;
     return {
-      q: r.q || undefined, path: r.folder, subtree: !!r.subtree, type: r.type || undefined,
+      query: r.q || undefined, path: r.folder, subtree: !!r.subtree, type: r.type || undefined,
       kind: r.kind ? [r.kind as Kind] : ["entry", "document"],
     };
   }

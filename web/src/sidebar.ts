@@ -1,10 +1,10 @@
 import { html, nothing, type TemplateResult } from "lit";
-import { LightElement } from "@corestone/ui";
+import { LightElement, errorText } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
-import type { FolderInfo, Schema } from "./types";
+import type { FolderInfo, QueryWarning, Schema } from "./types";
 import { displayName, kindPlural } from "./util";
 
 // Repository navigation (design guide §7.3): search, subtree toggle, the
@@ -33,6 +33,11 @@ export class Sidebar extends LightElement {
   private lastFolder: string | null = null;
   private lastRouteQ: string | null = null;
   private timer = 0;
+  /** What the server says about the query: why it cannot be read, or what in it matches nothing. */
+  @state() private queryError = "";
+  @state() private queryWarnings: QueryWarning[] = [];
+  private checks = 0;
+  private checked: string | null = null;
   @state() private filter = "";
   private rootSeq = 0;
 
@@ -50,11 +55,41 @@ export class Sidebar extends LightElement {
         this.rootAt(s.route.folder);
         this.loadTypes(s.route.folder);
       }
-      if (s.route.q !== this.lastRouteQ) { this.lastRouteQ = s.route.q; this.q = s.route.q; } // never wipe text being typed
+      if (s.route.q !== this.lastRouteQ) { // never wipe text being typed
+        this.lastRouteQ = s.route.q;
+        this.q = s.route.q;
+        if (s.route.q !== this.checked) void this.check(s.route.q);
+      }
       this.requestUpdate();
     });
   }
   override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
+
+  /** Have the server read the query: its problems show below the field. False if it cannot be read. */
+  private async check(text: string): Promise<boolean | null> {
+    const check = ++this.checks;
+    let error = "";
+    let warnings: QueryWarning[] = [];
+    if (text.trim()) {
+      try {
+        warnings = (await api.parseQuery(text)).warnings;
+      } catch (e) {
+        error = errorText(e);
+      }
+    }
+    if (check !== this.checks) return null; // typed on meanwhile
+    this.checked = text;
+    this.queryError = error;
+    this.queryWarnings = warnings;
+    return !error;
+  }
+
+  /** Run the query once it can be read; a half-typed one leaves the table as it is. */
+  private async search(replace: boolean) {
+    window.clearTimeout(this.timer);
+    const text = this.q;
+    if (await this.check(text)) navigate({ q: text, guid: null }, replace);
+  }
 
   private async reloadAll() {
     await this.rootAt(this.s.route.folder);
@@ -170,9 +205,13 @@ export class Sidebar extends LightElement {
     for (const t of this.types) if (t.kind === "entry" || t.kind === "document") (groups[t.kind] ??= []).push(t);
     return html`
       <div class="nav-search">
-        <input type="search" placeholder="Search (title, HID, text)…  /" .value=${this.q} data-test="search"
-          @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => navigate({ q: this.q, guid: null }, true), 250); }}
-          @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") { window.clearTimeout(this.timer); navigate({ q: this.q, guid: null }); } }} />
+        <input type="search" placeholder="Search or query: priority:high  /" .value=${this.q} data-test="search"
+          class=${this.queryError ? "invalid" : ""} aria-invalid=${this.queryError ? "true" : "false"}
+          title="Words find title, HID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
+          @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.search(true), 250); }}
+          @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.search(false); }} />
+        ${this.queryError ? html`<div class="query-note error" role="alert" data-test="query-error">${this.queryError}</div>` : nothing}
+        ${this.queryWarnings.map((w) => html`<div class="query-note" data-test="query-warning">${w.message}</div>`)}
         <label class="nav-toggle"><span>Include subfolders (subtree)</span>
           <input type="checkbox" .checked=${r.subtree} data-test="subtree" @change=${(e: Event) => navigate({ subtree: (e.target as HTMLInputElement).checked })} /></label>
       </div>

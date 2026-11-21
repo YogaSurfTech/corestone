@@ -1,5 +1,5 @@
 import type {
-  Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
+  Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, QueryWarning, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
   Workflow, WorkflowEval,
 } from "./types";
 import { prefs } from "@corestone/ui";
@@ -124,8 +124,11 @@ export const api = {
   /** The sorted GUIDs of every match (generic tables); rows come from details. */
   /** A sort level goes out as its column, with "~" in front for descending. */
   query: (body: { filter?: TableFilter; sort?: SortLevel[]; limit?: number }, signal?: AbortSignal) =>
-    request<{ total: number; ids: string[]; truncated: boolean }>("POST", "/repository/query",
+    request<{ total: number; ids: string[]; truncated: boolean; warnings?: QueryWarning[] }>("POST", "/repository/query",
       { ...body, sort: body.sort?.map((l) => (l.dir === "desc" ? "~" : "") + l.col) }, {}, signal),
+  /** Check a query of the query language without running it; one that cannot be parsed is refused. */
+  parseQuery: (query: string, signal?: AbortSignal) =>
+    request<{ tree: unknown; warnings: QueryWarning[] }>("POST", "/repository/query/parse", { query }, {}, signal),
   details: (ids: string[], columns?: string[], signal?: AbortSignal) =>
     request<TableRows>("POST", "/artifacts/details", { ids, columns }, {}, signal),
   hid: (hid: string) => request<{ records: { guid: string; hid: string; current: boolean }[] }>("GET", "/repository/hids/" + encodeURIComponent(hid)),

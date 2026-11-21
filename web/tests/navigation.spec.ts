@@ -119,7 +119,21 @@ test("search: text, HID, results across folders, clearing", async ({ page }) => 
   const hid = (await (await fetch(`${api}/entries/${guids.b}`)).json()).meta.hid as string;
   await page.locator("[data-test=search]").fill(hid);
   await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Beta two ${id}` })).toHaveCount(1);
+  // the field takes a query: fields by name, combined
+  await page.locator("[data-test=search]").fill(`title:beta AND NOT title:gamma`);
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
+  await expect(page.locator("corestone-overview table.grid tbody tr", { hasText: `Beta two ${id}` })).toHaveCount(1);
+  // a half-typed query leaves the table as it is and says what is wrong
+  await page.locator("[data-test=search]").fill(`title:beta AND (`);
+  await expect(page.locator("[data-test=query-error]")).toContainText("position");
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
+  // what cannot match gives a note, and the rest of the query still runs
+  await page.locator("[data-test=search]").fill(`title:beta OR nosuchfield:1`);
+  await expect(page.locator("[data-test=query-error]")).toHaveCount(0);
+  await expect(page.locator("[data-test=query-warning]")).toContainText("nosuchfield");
+  await expect(page.locator("corestone-overview table.grid tbody tr")).toHaveCount(1);
   await page.locator("[data-test=search]").fill("");
+  await expect(page.locator("[data-test=query-warning]")).toHaveCount(0);
   await expect(page.locator(".toolbar .title")).toHaveText(folder);
   await expect(page).not.toHaveURL(/q=/);
 });
