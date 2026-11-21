@@ -8,7 +8,6 @@ packages/editor/src/files.ts: uses fetch
 # or reach into the store (refactoring plan, phase 4 and step A.6).
 src/components/fields.ts: imports src/api
 src/components/fields.ts: imports src/store
-src/components/folder-field.ts: imports src/api
 src/components/options.ts: imports src/api
 src/components/table.ts: imports src/api
 src/components/table.ts: imports src/store

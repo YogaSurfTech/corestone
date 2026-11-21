@@ -1,7 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import { api } from "../api";
+import { servicesFor } from "./services";
 import type { FolderInfo } from "../types";
 
 // Folder input (design guide §7.3): folders exist only through what they
@@ -45,7 +45,8 @@ export class FolderField extends LightElement {
   private subfolders(path: string): Promise<FolderInfo[]> {
     let p = this.cache.get(path);
     if (!p) {
-      p = api.tree(path, false, 1).then((t) => t.folders);
+      // the folders come from the page (services.ts); without a provider there are none to offer
+      p = servicesFor(this).folders?.children(path) ?? Promise.resolve([]);
       p.catch(() => this.cache.delete(path));
       this.cache.set(path, p);
     }

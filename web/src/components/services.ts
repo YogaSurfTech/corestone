@@ -1,4 +1,4 @@
-import type { Schema } from "../types";
+import type { FolderInfo, Schema } from "../types";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with
@@ -11,9 +11,16 @@ export interface TypeSource {
   types(folder: string): Promise<Schema[]>;
 }
 
+/** The folders of the repository. */
+export interface FolderSource {
+  /** The folders directly inside a folder ("" is the repository). */
+  children(path: string): Promise<FolderInfo[]>;
+}
+
 /** The providers a component may ask for. */
 export interface Services {
   types: TypeSource;
+  folders: FolderSource;
 }
 
 const ASK = "cs-services";

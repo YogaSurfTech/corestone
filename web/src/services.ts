@@ -22,4 +22,7 @@ export const services: Services = {
       return p;
     },
   },
+  folders: {
+    children: (path) => api.tree(path, false, 1).then((t) => t.folders),
+  },
 };
