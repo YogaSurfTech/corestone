@@ -5,8 +5,9 @@ import { prefs } from "./lib/prefs";
 export interface ResizerOptions {
   /** The key the size is remembered under. */
   key: string;
-  /** The size when none is remembered, and after a double click. */
-  fallback: number;
+  /** The size when none is remembered, and after a double click. Without it the box then has its own size: the value is 0,
+   *  and the bar must follow the box it sizes. */
+  fallback?: number;
   min: number;
   max: number;
   /** x: a bar dragged left and right; y: one dragged up and down. */
@@ -24,13 +25,14 @@ export interface ResizerOptions {
 /**
  * A size the user sets with a bar: by dragging it, with the arrow keys, or
  * back to the default with a double click. The size is kept between min and
- * max and remembered in the browser.
+ * max and remembered in the browser. A resizer without a default starts with
+ * the value 0, which says that the box has its own size.
  */
 export class Resizer {
   value: number;
 
   constructor(readonly o: ResizerOptions) {
-    this.value = Number(prefs.text(o.key)) || o.fallback;
+    this.value = Number(prefs.text(o.key)) || (o.fallback ?? 0);
   }
 
   set(value: number, remember = true): void {
@@ -39,7 +41,12 @@ export class Resizer {
     this.o.changed();
   }
 
-  readonly reset = (): void => this.set(this.o.fallback);
+  readonly reset = (): void => {
+    if (this.o.fallback !== undefined) return this.set(this.o.fallback);
+    this.value = 0;
+    prefs.remove(this.o.key);
+    this.o.changed();
+  };
 
   readonly pointerdown = (e: PointerEvent): void => {
     const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
@@ -56,6 +63,11 @@ export class Resizer {
     const dir = e.key === less ? -1 : e.key === more ? 1 : 0;
     if (!dir) return;
     e.preventDefault();
+    // a box with its own size (no default) starts from the size it has: it is the element before the bar
+    if (!this.value) {
+      const box = (e.currentTarget as HTMLElement).previousElementSibling?.getBoundingClientRect();
+      this.value = (this.o.axis === "x" ? box?.width : box?.height) ?? 0;
+    }
     this.set(this.value + dir * this.o.step * (this.o.reverse ? -1 : 1));
   };
 }

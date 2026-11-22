@@ -1,5 +1,5 @@
 import { html, nothing, type TemplateResult } from "lit";
-import { deepEqual, drag, DropMenu, errorText, fmtSize, fmtTime, LightElement, prefs, section } from "@corestone/ui";
+import { deepEqual, DropMenu, errorText, fmtSize, fmtTime, LightElement, prefs, Resizer, section, splitter } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
@@ -43,36 +43,6 @@ const OPEN_KEY = "corestone.detail.sections";
 
 function readOpenPrefs(): Record<string, boolean> {
   return prefs.json<Record<string, boolean>>(OPEN_KEY, {}, { session: true });
-}
-
-/** The height the user dragged a resizable area to (per name), if any. */
-const heightKey = (name: string) => `corestone.height.${name}`;
-function savedHeight(name: string): string {
-  const h = Number(prefs.text(heightKey(name)));
-  return h > 0 ? `height:${h}px` : "";
-}
-
-/** Drags the bottom edge of the area before the grip; double-click goes back to the default. */
-function heightGrip(name: string) {
-  const start = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const grip = e.currentTarget as HTMLElement;
-    const area = grip.previousElementSibling as HTMLElement;
-    const h0 = area.getBoundingClientRect().height, y0 = e.clientY;
-    let h = h0;
-    drag(e, {
-      move: (m) => { h = Math.round(Math.max(60, h0 + m.clientY - y0)); area.style.height = `${h}px`; area.style.maxHeight = "none"; },
-      end: () => prefs.setText(heightKey(name), String(h)),
-    });
-  };
-  const reset = (e: Event) => {
-    const area = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;
-    area.style.height = area.style.maxHeight = "";
-    prefs.remove(heightKey(name));
-  };
-  return html`<div class="height-grip" data-test=${`${name}-resize`} title="Drag to resize, double-click to reset"
-    @pointerdown=${start} @dblclick=${reset}></div>`;
 }
 
 @customElement("corestone-detail")
@@ -1085,6 +1055,13 @@ export class Detail extends LightElement {
     finally { this.busy = false; }
   };
 
+  /** The height of the comparison in the base change preview, px; 0 while it has its own height. */
+  private readonly diffHeight = new Resizer({
+    key: "corestone.height.baseDiff", min: 60, get max() { return window.innerHeight; }, axis: "y", step: 16,
+    at: (m, box) => m.clientY - box.top,
+    changed: () => this.requestUpdate(),
+  });
+
   private async previewBase(to: Summary | null) {
     try {
       const next = to ? await api.overlay(to.guid) : null;
@@ -1127,11 +1104,11 @@ export class Detail extends LightElement {
         : same ? html`<div class="muted small">This already is the base; nothing changes.</div>` : html`
         ${!c.to ? html`<label class="keep small"><input type="checkbox" data-test="keep-values" .checked=${c.keep}
           @change=${(e: Event) => { this.baseChange = { ...c, keep: (e.target as HTMLInputElement).checked }; }}> Keep the inherited values in this entry</label>` : nothing}
-        ${changed.length ? html`<div class="resizable-area"><div class="base-diff-wrap" data-test="base-diff-wrap" style=${savedHeight("baseDiff") ? savedHeight("baseDiff") + ";max-height:none" : ""}>
+        ${changed.length ? html`<div class="resizable-area"><div class="base-diff-wrap" data-test="base-diff-wrap" style=${this.diffHeight.value ? `height:${this.diffHeight.value}px;max-height:none` : ""}>
           <table class="base-diff" data-test="base-diff"><thead><tr><th>Field</th><th>Now</th><th>After the change</th></tr></thead>
           <tbody>${changed.map((r) => html`<tr data-field=${r.id}><td>${r.name}</td>
             <td>${show(r.before)} ${r.beforeFrom ? html`<small class="muted">from ${r.beforeFrom}</small>` : nothing}</td>
-            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table></div>${heightGrip("baseDiff")}</div>`
+            <td>${show(r.after)} ${r.afterFrom ? html`<small class="muted">from ${r.afterFrom}</small>` : nothing}</td></tr>`)}</tbody></table></div>${splitter(this.diffHeight, "height-grip", "baseDiff-resize")}</div>`
           : html`<div class="muted small" data-test="base-no-change">No effective value changes.</div>`}
         <div class="muted small">${ownCount === 1 ? "1 value set in this entry stays" : `${ownCount} values set in this entry stay`} as ${ownCount === 1 ? "it is" : "they are"}.${
           overlays ? ` ${overlays === 1 ? "Its overlay inherits" : `Its ${overlays} overlays inherit`} the new values too.` : ""}</div>`}
