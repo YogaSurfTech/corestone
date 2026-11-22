@@ -1,7 +1,9 @@
 import type { EditorView } from "prosemirror-view";
 import { linkAt, removeLink, setLink, type LinkTarget } from "./commands";
+import type { Feature } from "./feature";
 import type { EntryFiles } from "./files";
-import { safeHref } from "./schema";
+import type { ImagesFeature } from "./features/images";
+import { safeHref, schema } from "./schema";
 import { button, el, Overlay } from "@corestone/ui";
 
 // Links: the popover that sets one (Ctrl+K or the toolbar), the bubble that
@@ -28,7 +30,7 @@ export function openLink(t: LinkTarget, newTab: boolean, items: ItemLinks | unde
 
 const BAD_ADDRESS = "Enter a web address (https://…), a mail address (mailto:…) or ftp://…";
 
-export class LinkUI {
+class LinkUI {
   private readonly pop: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly msg: HTMLElement;
@@ -189,3 +191,42 @@ export class LinkUI {
 
   destroy() { this.close(false); }
 }
+
+/** Links: the Link button and Ctrl+K with the popover, the bubble at a link, opening links, and pasted addresses. */
+export const linksFeature: Feature = (ctx) => {
+  const ui = new LinkUI(ctx.view, ctx.root, ctx.items, ctx.files,
+    (chosen) => { void (ctx.feature("images") as ImagesFeature | undefined)?.pick({ images: false, chosen: (name) => chosen(name) }); });
+  return {
+    id: "links",
+    keys: { "Mod-k": () => { if (ctx.readonly()) return false; ui.edit(); return true; } },
+    toolbar: [{ group: "ins", id: "link", tip: { text: "Link…", shortcut: "Ctrl+K" }, run: () => ui.edit(), pressed: (s) => !!linkAt(s) }],
+    // links open on a click when reading, and on Ctrl/⌘+click while editing
+    click(view, e) {
+      const a = (e.target as HTMLElement).closest("a");
+      if (!a || !view.dom.contains(a)) return false;
+      e.preventDefault();
+      const newTab = e.ctrlKey || e.metaKey;
+      if (!ctx.readonly() && !newTab) return false;
+      openLink({ href: a.getAttribute("href"), ref: a.getAttribute("data-ref"), file: a.getAttribute("data-file") }, newTab, ctx.items(), ctx.files());
+      return true;
+    },
+    // a pasted web address links the selected text, or is inserted as a link
+    paste(view, data, drop) {
+      if (drop) return false;
+      const text = data.getData("text/plain").trim();
+      const href = /\n/.test(text) ? null : safeHref(text);
+      if (!href) return false;
+      const link = schema.marks.link.create({ href });
+      const { empty, from, to } = view.state.selection;
+      const tr = view.state.tr;
+      if (empty) tr.replaceSelectionWith(schema.text(text, link.addToSet(view.state.storedMarks ?? view.state.selection.$from.marks())), false);
+      else tr.removeMark(from, to, schema.marks.link).addMark(from, to, link);
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    },
+    update: (view) => ui.update(view, ctx.readonly()),
+    blur: () => ui.hideBubble(),
+    setReadonly: (on) => { if (on) { ui.close(false); ui.hideBubble(); } },
+    destroy: () => ui.destroy(),
+  };
+};

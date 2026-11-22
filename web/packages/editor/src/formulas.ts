@@ -3,6 +3,7 @@ import { NodeSelection, Plugin, type Command, type EditorState } from "prosemirr
 import type { EditorView, NodeView } from "prosemirror-view";
 import type { EntryFiles } from "./files";
 import { icon } from "./icons";
+import type { Feature } from "./feature";
 import { openMenu, type MenuItem } from "./menu";
 import { MAX_FORMULA } from "./model";
 import { schema } from "./schema";
@@ -223,7 +224,7 @@ export function selectedFormula(state: EditorState): { pos: number; node: Node }
 }
 
 /** The formula dialog (LaTeX with a live preview) and the formula menu. */
-export class FormulaUI {
+class FormulaUI {
   private readonly dialog: HTMLElement;
   private readonly menu: HTMLElement;
   private readonly overlay: Overlay;
@@ -373,3 +374,32 @@ export class FormulaUI {
 
   destroy() { this.close(); URL.revokeObjectURL(this.previewUrl); }
 }
+
+/** Formulas: their view and pictures, the Formula button with the dialog, the menu. */
+export const formulasFeature: Feature = (ctx) => {
+  const ui = new FormulaUI(ctx.view, ctx.root);
+  return {
+    id: "formulas",
+    nodeViews: { formula: (node) => new FormulaView(node, ctx.files) },
+    plugins: [formulaPictures(ctx.files, ctx.notice)],
+    nodes: { formula: { selector: ".cs-formula",
+      menu: (hit) => ui.openMenu(hit.at!),
+      open: (hit) => ui.edit(hit.at && { x: hit.at.x, y: hit.at.y + 12 }) } },
+    clipboard: { formula: (n) => {
+      // a formula carries its LaTeX (its picture is made again where it is pasted) and,
+      // for other programs, the address of its picture
+      const img = document.createElement("img");
+      img.setAttribute("data-latex", n.attrs.latex);
+      if (n.attrs.display) img.setAttribute("data-display", "");
+      const u = n.attrs.png ? ctx.files()?.url(n.attrs.png) : null;
+      if (u) img.src = new URL(u, location.href).href;
+      img.alt = n.attrs.latex;
+      return img;
+    } },
+    toolbar: [{ group: "ins", id: "formula",
+      tip: { text: "Formula…", disabled: () => (ctx.files() ? null : "Formulas are kept with a saved item; not available here.") },
+      run: (at) => ui.edit(at) }],
+    setReadonly: (on) => { if (on) ui.close(); },
+    destroy: () => ui.destroy(),
+  };
+};

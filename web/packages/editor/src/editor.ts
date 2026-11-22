@@ -14,15 +14,14 @@ import {
   PlacementView, TocView, XrefView, backspaceStructure, insertToc, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
   renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
 } from "./structure";
-import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
 import type { EntryFiles } from "./files";
-import { ImageView, imagesFeature, pictureForClipboard, type ImagesFeature } from "./features/images";
+import { imagesFeature } from "./features/images";
 import { fileLinksFeature } from "./features/file-links";
-import { DiagramUI } from "./diagrams";
-import { FormulaUI, FormulaView, formulaPictures } from "./formulas";
-import { LinkUI, openLink, type ItemLinks } from "./links";
-import { StyledTableView, TableUI, flattenNestedTables, nextCell, prevCell, tableAt, tableEdges } from "./tables";
-import { safeHref, schema } from "./schema";
+import { diagramsFeature } from "./diagrams";
+import { formulasFeature } from "./formulas";
+import { linksFeature, type ItemLinks } from "./links";
+import { tablesFeature } from "./tables";
+import { schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar } from "./toolbar";
 import type { Palette } from "@corestone/ui";
 
@@ -56,14 +55,9 @@ export class RichTextEditor {
   private readonly toolbar: Toolbar;
   private readonly root: HTMLElement;
   private readonly: boolean;
-  private readonly links: LinkUI;
-  private readonly tables: TableUI;
-  private readonly images: ImagesFeature;
   /** Short messages at the bottom of the editor. */
   private readonly note = document.createElement("div");
   private noteTimer?: number;
-  private readonly formulas: FormulaUI;
-  private readonly diagrams: DiagramUI;
   private readonly doc?: DocumentUI;
   /** The features, in the order their plugins and toolbar buttons take. */
   private readonly features: EditorFeature[];
@@ -80,14 +74,11 @@ export class RichTextEditor {
     const ctx: FeatureContext = {
       view: () => this.view, root: this.root, readonly: () => this.readonly, run: (cmd) => this.run(cmd),
       notice: (m) => this.notice(m), files, items,
+      colors: () => this.toolbar.colorChoices(), feature: (id) => this.features.find((f) => f.id === id),
     };
-    this.images = imagesFeature(ctx);
-    this.features = [codeFeature(ctx), this.images, fileLinksFeature(ctx)];
-    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), files: () => !!files(),
- table: (at) => this.tables.openGrid(at),
-      formula: (at) => this.formulas.edit(at),
-      diagrams: () => !!files() && !!opts.diagrams?.(), diagram: () => { void this.diagrams.edit(); },
-      structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
+    // (files before links: pasted files are files even when an address comes with them)
+    this.features = [codeFeature, fileLinksFeature, linksFeature, tablesFeature, imagesFeature, diagramsFeature(() => opts.diagrams?.()), formulasFeature].map((make) => make(ctx));
+    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd),       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
         toc: () => { this.run(insertToc); },
         // (offered when the host can make entries and give their text)
         ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
@@ -104,31 +95,14 @@ export class RichTextEditor {
     this.note.setAttribute("role", "status");
     this.note.hidden = true;
     this.root.append(this.note);
-    this.links = new LinkUI(() => this.view, this.root, items, files,
-      (chosen) => { void this.images.pick({ images: false, chosen: (name) => chosen(name) }); });
-    this.tables = new TableUI(() => this.view, this.root, this.toolbar.colorChoices());
-    this.formulas = new FormulaUI(() => this.view, this.root);
-    this.diagrams = new DiagramUI(() => this.view, this.root, files, () => opts.diagrams?.(), (m) => this.notice(m));
     const docHost = () => opts.document?.();
     if (opts.document) this.doc = new DocumentUI(() => this.view, this.root, docHost, (m) => this.notice(m));
-    // copied images carry the address of their file, so another entry can take a copy
+    // what copied nodes carry to the clipboard (e.g. a picture the address of its file)
     const base = DOMSerializer.fromSchema(schema);
-    const clipboardSerializer = new DOMSerializer({ ...base.nodes, formula: (n) => {
-      // a formula carries its LaTeX (its picture is made again where it is pasted) and,
-      // for other programs, the address of its picture
-      const img = document.createElement("img");
-      img.setAttribute("data-latex", n.attrs.latex);
-      if (n.attrs.display) img.setAttribute("data-display", "");
-      const u = n.attrs.png ? files()?.url(n.attrs.png) : null;
-      if (u) img.src = new URL(u, location.href).href;
-      img.alt = n.attrs.latex;
-      return img;
-    }, diagram: (n) => pictureForClipboard(n, files, "data-diagram"), // (with the diagram inside its PNG)
-      ...Object.assign({}, ...this.features.map((f) => f.clipboard)) }, base.marks);
+    const clipboardSerializer = new DOMSerializer({ ...base.nodes, ...Object.assign({}, ...this.features.map((f) => f.clipboard)) }, base.marks);
     this.view = new EditorView(area, {
       state: this.state(opts.value, files),
       nodeViews: {
-        diagram: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files),
         placement: (node, _view, _getPos, decorations) => new PlacementView(node, docHost, decorations),
         xref: (node, view) => new XrefView(node, view, docHost), toc: (node, view) => new TocView(node, view),
         ...Object.assign({}, ...this.features.map((f) => f.nodeViews)) },
@@ -137,7 +111,7 @@ export class RichTextEditor {
       dispatchTransaction: (tr) => {
         this.view.updateState(this.view.state.apply(tr));
         this.toolbar.update(this.view.state);
-        this.links.update(this.view, this.readonly);
+        for (const f of this.features) f.update?.(this.view);
         if (tr.docChanged) {
           if (!tr.getMeta("cs-host")) opts.onChange?.(this.value); // not the host's own change
           if (opts.onOutline) opts.onOutline(this.outline());
@@ -164,13 +138,7 @@ export class RichTextEditor {
             e.preventDefault();
             return revealSection(view, row.dataset.section ?? "");
           }
-          const a = (e.target as HTMLElement).closest("a");
-          if (!a || !area.contains(a)) return false;
-          e.preventDefault();
-          const newTab = e.ctrlKey || e.metaKey;
-          if (!this.readonly && !newTab) return false;
-          openLink({ href: a.getAttribute("href"), ref: a.getAttribute("data-ref"), file: a.getAttribute("data-file") }, newTab, items(), files());
-          return true;
+          return this.features.some((f) => f.click?.(view, e));
         },
         // the right mouse button on selected cells keeps them selected (to merge them)
         mousedown: (view, e) => {
@@ -188,59 +156,36 @@ export class RichTextEditor {
           view.focus();
           return true;
         },
-        // the table menu on the right mouse button; outside tables the browser's own menu
+        // the menu of what the pointer is on, on the right mouse button; elsewhere the browser's own menu
         contextmenu: (view, e) => {
           if (this.readonly) return false;
           // a node with a menu of its own (a placed entry, a picture, a formula, …)
           if (this.onNode(view, e, "menu")) return true;
-          // a feature's menu for what the pointer is on (a code listing)
+          // a feature's menu for what the pointer is on (a code listing, a table)
           if (this.features.some((f) => f.contextMenu?.(e))) { e.preventDefault(); return true; }
-          if (!(e.target as HTMLElement).closest("td, th")) return false;
-          const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
-          // a click outside the selected cells moves the cursor there; inside, the selection stays (merge)
-          if (hit && !(e.target as HTMLElement).closest(".selectedCell")) {
-            view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(hit.pos))));
-          }
-          if (!tableAt(view.state)) return false;
-          e.preventDefault();
-          this.tables.openMenu({ x: e.clientX, y: e.clientY });
-          return true;
+          return false;
         },
         // a double click opens what it is on: a placed entry, a diagram, a formula
         dblclick: (view, e) => this.onNode(view, e, "open"),
-        focus: (view) => { this.links.update(view, this.readonly); return false; },
-        blur: () => { this.links.hideBubble(); return false; },
+        focus: (view) => { for (const f of this.features) f.update?.(view); return false; },
+        blur: () => { for (const f of this.features) f.blur?.(); return false; },
       },
-      // pasted tables keep what the editor supports; a table in a table becomes lines of text
-      transformPastedHTML: flattenNestedTables,
+      transformPastedHTML: (html) => this.features.reduce((h, f) => f.transformPasted?.(h) ?? h, html),
       handleDrop: (view, e, _slice, moved) => {
         if (moved || this.readonly) return false;
         const at = view.posAtCoords({ left: e.clientX, top: e.clientY });
-        if (!this.pasted(view, e.dataTransfer, at?.pos)) return false;
+        if (!this.pasted(view, e.dataTransfer, true, at?.pos)) return false;
         e.preventDefault();
         return true;
       },
-      // a pasted web address links the selected text, or is inserted as a link
-      handlePaste: (view, e) => {
-        if (this.pasted(view, e.clipboardData)) return true;
-        const text = e.clipboardData?.getData("text/plain").trim() ?? "";
-        const href = /\n/.test(text) ? null : safeHref(text);
-        if (!href) return false;
-        const link = schema.marks.link.create({ href });
-        const { empty, from, to } = view.state.selection;
-        const tr = view.state.tr;
-        if (empty) tr.replaceSelectionWith(schema.text(text, link.addToSet(view.state.storedMarks ?? view.state.selection.$from.marks())), false);
-        else tr.removeMark(from, to, schema.marks.link).addMark(from, to, link);
-        view.dispatch(tr.scrollIntoView());
-        return true;
-      },
+      handlePaste: (view, e) => this.pasted(view, e.clipboardData, false),
     });
     this.toolbar.update(this.view.state);
   }
 
   /** Pasted or dropped data a feature takes (files become pictures and links). */
-  private pasted(view: EditorView, data: DataTransfer | null, pos?: number): boolean {
-    return !!data && this.features.some((f) => f.paste?.(view, data, pos));
+  private pasted(view: EditorView, data: DataTransfer | null, drop: boolean, pos?: number): boolean {
+    return !!data && this.features.some((f) => f.paste?.(view, data, drop, pos));
   }
 
   /** A short message at the bottom of the editor. */
@@ -286,7 +231,7 @@ export class RichTextEditor {
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
     this.toolbarHost?.classList.toggle("readonly", on);
-    if (on) { this.links.close(false); this.links.hideBubble(); this.tables.close(); this.formulas.close(); this.diagrams.close(); this.doc?.close(); }
+    if (on) this.doc?.close();
     for (const f of this.features) f.setReadonly?.(on);
     this.view.setProps({}); // editable is asked again
   }
@@ -332,18 +277,12 @@ export class RichTextEditor {
   }
   private toolbarHost?: HTMLElement;
 
-  destroy() { this.toolbarHost?.remove(); this.links.destroy(); this.tables.destroy(); for (const f of this.features) f.destroy?.(); window.clearTimeout(this.noteTimer); this.formulas.destroy(); this.diagrams.destroy(); this.doc?.destroy(); this.view.destroy(); this.root.remove(); }
-
-  private tableMenu(state: EditorState): boolean {
-    if (this.readonly || !tableAt(state)) return false;
-    this.tables.openMenu();
-    return true;
-  }
+  destroy() { this.toolbarHost?.remove(); for (const f of this.features) f.destroy?.(); window.clearTimeout(this.noteTimer); this.doc?.destroy(); this.view.destroy(); this.root.remove(); }
 
   /** The menu of what the cursor is in, from the keyboard: a code listing's, else a table's. */
-  private contextKey(state: EditorState): boolean {
+  private contextKey(): boolean {
     if (this.readonly) return false;
-    return this.features.some((f) => f.contextMenu?.()) || this.tableMenu(state);
+    return this.features.some((f) => f.contextMenu?.());
   }
 
   /** What happens on the nodes that have a menu or open (by node type); the features' once they are features. */
@@ -353,12 +292,6 @@ export class RichTextEditor {
       // (only with the pointer: Enter on a selected entry is the text's)
       open: (hit) => { if (!hit.at) return false; this.opts.document?.()?.openEntry(hit.node.attrs.guid, hit.newTab); } },
     toc: { selector: ".cs-toc", menu: (hit) => { if (!this.doc) return false; this.doc.openTocMenu(hit.at!); } },
-    diagram: { selector: ".cs-img",
-      menu: (hit) => this.images.openMenu(hit.at!, this.diagramsOn() ? () => { void this.diagrams.edit(); } : undefined),
-      open: () => { if (!this.diagramsOn()) return false; void this.diagrams.edit(); } },
-    formula: { selector: ".cs-formula",
-      menu: (hit) => this.formulas.openMenu(hit.at!),
-      open: (hit) => this.formulas.edit(hit.at && { x: hit.at.x, y: hit.at.y + 12 }) },
   };
 
   /** The actions on nodes of every type: the features' and the ones above. */
@@ -375,9 +308,6 @@ export class RichTextEditor {
     e.preventDefault();
     return true;
   }
-
-  /** Whether diagrams can be drawn: the entry's files and draw.io are there. */
-  private diagramsOn() { return !!this.opts.files?.() && !!this.opts.diagrams?.(); }
 
   private run(cmd: Command) {
     cmd(this.view.state, this.view.dispatch);
@@ -400,10 +330,10 @@ export class RichTextEditor {
       "Mod-,": toggleFlag("sub"), "Mod-.": toggleFlag("sup"), "Mod-\\": clearFormatting,
       "Mod-l": setAlign("left"), "Mod-e": setAlign("center"), "Mod-r": setAlign("right"), "Mod-j": setAlign("justify"),
       // a new paragraph or list item keeps the alignment of the one it was split from (below: Enter)
-      // in a list: indent; in a table: the next / previous cell
-      "Tab": chainCommands(indent, nextCell), "Shift-Tab": chainCommands(outdent, prevCell),
+      // in a list: indent (in a table the tables' keys follow: the next / previous cell)
+      "Tab": indent, "Shift-Tab": outdent,
       // the table menu from the keyboard
-      "ContextMenu": (state) => this.contextKey(state), "Shift-F10": (state) => this.contextKey(state),
+      "ContextMenu": () => this.contextKey(), "Shift-F10": () => this.contextKey(),
       // Enter on a selected formula or diagram opens it
       "Enter": (state, dispatch) => {
         const sel = state.selection;
@@ -411,7 +341,6 @@ export class RichTextEditor {
         if (!this.readonly && actions?.open && actions.open({ node: (sel as NodeSelection).node, pos: sel.from, newTab: false }) !== false) return true;
         return keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter))(state, dispatch);
       },
-      "Mod-k": () => { if (this.readonly) return false; this.links.edit(); return true; },
       "Shift-Enter": (state, dispatch) => {
         dispatch?.(state.tr.replaceSelectionWith(schema.nodes.hard_break.create()).scrollIntoView());
         return true;
@@ -419,14 +348,10 @@ export class RichTextEditor {
     };
     // a feature's key: the editor's own command for it first, the feature's when that does not apply
     for (const f of this.features) for (const [key, cmd] of Object.entries(f.keys ?? {})) keys[key] = keys[key] ? chainCommands(keys[key], cmd) : cmd;
-    // (in today's order, until every feature brings its plugins)
-    const plugins = (id: string) => this.features.find((f) => f.id === id)?.plugins ?? [];
     const state = EditorState.create({ doc: isDoc ? documentFromStorage(value as DocNode[], title) : fromStorage(value as RichText),
-      plugins: [history(), ...plugins("code"), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, ...plugins("images"),
-        formulaPictures(files, (m) => this.notice(m)), ...(isDoc ? [structurePlugin(() => this.opts.document?.()), keymap(docKeys)] : []),
+      plugins: [history(), ...this.features.flatMap((f) => f.plugins ?? []), ...(isDoc ? [structurePlugin(() => this.opts.document?.()), keymap(docKeys)] : []),
         keymap(keys), keymap(baseKeymap)] });
-    // irregular stored tables (rows of different lengths) are completed, outside the undo history
-    const fix = fixTables(state);
-    return fix ? state.apply(fix.setMeta("addToHistory", false)) : state;
+    // what the features repair in a loaded text, outside the undo history
+    return this.features.reduce((st, f) => { const fix = f.normalize?.(st); return fix ? st.apply(fix.setMeta("addToHistory", false)) : st; }, state);
   }
 }

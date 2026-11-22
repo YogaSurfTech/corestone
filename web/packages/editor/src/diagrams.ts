@@ -2,7 +2,8 @@ import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import type { Node } from "prosemirror-model";
 import type { EntryFiles } from "./files";
-import { isPicture } from "./features/images";
+import type { Feature } from "./feature";
+import { ImageView, isPicture, pictureForClipboard, type ImagesFeature } from "./features/images";
 import { icon } from "./icons";
 import { schema } from "./schema";
 import { button, dataUrlToBlob, dialogHead, el } from "@corestone/ui";
@@ -53,7 +54,7 @@ function fromDataUrl(uri: string): Blob {
 }
 
 /** The diagram dialog: draw.io in a large panel, for a new diagram or the selected one. */
-export class DiagramUI {
+class DiagramUI {
   private readonly panel: HTMLElement;
   private frame?: HTMLIFrameElement;
   private listener?: (e: MessageEvent) => void;
@@ -210,3 +211,30 @@ function isDark(at: HTMLElement): boolean {
   if (scheme === "light") return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
+
+/** Diagrams: pictures drawn in draw.io (at the address the host names; none: no diagrams). */
+export const diagramsFeature = (address: () => string | undefined): Feature => (ctx) => {
+  const ui = new DiagramUI(ctx.view, ctx.root, ctx.files, address, ctx.notice);
+  /** Whether diagrams can be drawn: the entry's files and draw.io are there. */
+  const on = () => !!ctx.files() && !!address();
+  return {
+    id: "diagrams",
+    nodeViews: { diagram: (node, view, getPos) => new ImageView(node, view, getPos, ctx.files) },
+    nodes: { diagram: { selector: ".cs-img",
+      // a diagram is a picture: its menu is the picture's, with "Edit diagram…"
+      menu: (hit) => {
+        const images = ctx.feature("images") as ImagesFeature | undefined;
+        if (!images) return false;
+        images.openMenu(hit.at!, on() ? () => { void ui.edit(); } : undefined);
+      },
+      open: () => { if (!on()) return false; void ui.edit(); } } },
+    // (a copied diagram carries the address of its PNG, with the diagram inside)
+    clipboard: { diagram: (n) => pictureForClipboard(n, ctx.files, "data-diagram") },
+    toolbar: [{ group: "ins", id: "diagram",
+      tip: { text: "Diagram…", disabled: () => (on() ? null
+        : ctx.files() ? "Diagrams are not available: draw.io is not installed on this server." : "Diagrams are kept with a saved item; not available here.") },
+      run: () => { void ui.edit(); } }],
+    setReadonly: (on) => { if (on) ui.close(); },
+    destroy: () => ui.destroy(),
+  };
+};

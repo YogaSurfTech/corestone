@@ -42,7 +42,7 @@ export async function addFiles(view: EditorView, files: EntryFiles, list: File[]
  *  the selection) is pasted as text instead. */
 export const fileLinksFeature: Feature = (ctx) => ({
   id: "file-links",
-  paste(view, data, pos) {
+  paste(view, data, _drop, pos) {
     const list = [...data.files];
     if (!list.length) return false;
     const html = data.getData("text/html");

@@ -2,10 +2,11 @@ import type { Node } from "prosemirror-model";
 import { Plugin, TextSelection, type Command, type EditorState } from "prosemirror-state";
 import {
   addColumn, addColumnAfter, addColumnBefore, addRow, addRowAfter, addRowBefore, cellAround, CellSelection, deleteColumn,
-  deleteRow, deleteTable, goToNextCell, isInTable, mergeCells, removeColumn, removeRow, splitCell, TableMap, TableView,
+  columnResizing, deleteRow, deleteTable, fixTables, goToNextCell, isInTable, mergeCells, removeColumn, removeRow, splitCell, tableEditing, TableMap, TableView,
 } from "prosemirror-tables";
 import type { EditorView } from "prosemirror-view";
 import { icon } from "./icons";
+import type { Feature } from "./feature";
 import { buildMenu, runItem, type MenuItem } from "./menu";
 import { schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
 import { button, customColor, dialogHead, el, Overlay, swatch, type ColorChoices } from "@corestone/ui";
@@ -179,14 +180,14 @@ export class StyledTableView extends TableView {
 
 /** The table's context menu (right mouse button, the menu key or Shift+F10) and its
  *  Properties dialog; the toolbar's table button opens the size grid. */
-export class TableUI {
+class TableUI {
   private readonly grid: HTMLElement;
   private readonly menu: HTMLElement;
   private readonly props: HTMLElement;
   private readonly colorPop: HTMLElement;
   private readonly overlay: Overlay;
 
-  constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly colors: ColorChoices) {
+  constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly colors: () => ColorChoices) {
     // the size grid
     this.overlay = new Overlay({
       root, keepFocus: "input, select",
@@ -269,7 +270,7 @@ export class TableUI {
     const cur = propsOf(this.view().state);
     if (!cur) return;
     let stripes = cur.stripes, borders = cur.borders;
-    let colors: [string, string] = cur.colors ?? this.colors.presets[0]?.colors ?? ["#ffffff", "#f3f4f6"];
+    let colors: [string, string] = cur.colors ?? this.colors().presets[0]?.colors ?? ["#ffffff", "#f3f4f6"];
     let themed = !cur.colors; // no own colours: the theme's stripes
 
     const { head } = dialogHead("Table Properties", icon("close", 20), () => { this.close(); this.view().focus(); });
@@ -328,10 +329,10 @@ export class TableUI {
     });
     const preset = el("select", "preset") as HTMLSelectElement;
     preset.setAttribute("aria-label", "Stripe colors");
-    preset.append(new Option("Theme", "theme"), ...this.colors.presets.map((p, k) => new Option(p.name, String(k))), new Option("Custom", "custom"));
+    preset.append(new Option("Theme", "theme"), ...this.colors().presets.map((p, k) => new Option(p.name, String(k))), new Option("Custom", "custom"));
     preset.addEventListener("change", () => {
       if (preset.value === "theme") themed = true;
-      else if (preset.value !== "custom") { colors = [...this.colors.presets[+preset.value].colors]; themed = false; }
+      else if (preset.value !== "custom") { colors = [...this.colors().presets[+preset.value].colors]; themed = false; }
       sync();
     });
     const colorRow = el("div", "colors");
@@ -359,7 +360,7 @@ export class TableUI {
         b.classList.toggle("theme", themed);
         b.title = themed ? "Theme color" : colors[k];
       });
-      const k = this.colors.presets.findIndex((p) => p.colors[0] === colors[0] && p.colors[1] === colors[1]);
+      const k = this.colors().presets.findIndex((p) => p.colors[0] === colors[0] && p.colors[1] === colors[1]);
       preset.value = themed ? "theme" : k >= 0 ? String(k) : "custom";
     };
     sync();
@@ -397,10 +398,10 @@ export class TableUI {
     const done = (v: string) => { this.colorPop.hidden = true; set(v); };
     // the dialog has no tooltips of its own: the browser's show the labels
     const titled = <T extends HTMLElement>(b: T, label: string) => { b.title = label; return b; };
-    this.colorPop.append(...this.colors.swatches.map((v) => titled(swatch(v, done), v)));
-    if (this.colors.custom) {
-      const picker = titled(customColor("pick", icon("pick", 16), (v) => { this.colors.addRecent(v); done(v); }), "Custom color…");
-      this.colorPop.append(picker, ...this.colors.recent().map((v) => titled(swatch(v, done, "Recent: " + v), "Recent: " + v)));
+    this.colorPop.append(...this.colors().swatches.map((v) => titled(swatch(v, done), v)));
+    if (this.colors().custom) {
+      const picker = titled(customColor("pick", icon("pick", 16), (v) => { this.colors().addRecent(v); done(v); }), "Custom color…");
+      this.colorPop.append(picker, ...this.colors().recent().map((v) => titled(swatch(v, done, "Recent: " + v), "Recent: " + v)));
     }
     this.colorPop.hidden = false;
     const p = this.props.getBoundingClientRect(), a = anchor.getBoundingClientRect();
@@ -429,3 +430,37 @@ export function tableAt(state: EditorState): { node: Node; pos: number } | null 
   }
   return null;
 }
+
+/** Tables: cells and their keys, the Table button with the size grid, the menu and the properties. */
+export const tablesFeature: Feature = (ctx) => {
+  const ui = new TableUI(ctx.view, ctx.root, ctx.colors);
+  return {
+    id: "tables",
+    plugins: [columnResizing({ View: StyledTableView }), tableEditing(), tableEdges],
+    // (after the editor's own Tab, which indents in a list) the next / previous cell
+    keys: { "Tab": nextCell, "Shift-Tab": prevCell },
+    toolbar: [{ group: "ins", id: "table",
+      tip: { text: "Table…", disabled: () => (isInTable(ctx.view().state) ? "No tables in tables. Right-click the table for rows, columns and its properties." : null) },
+      run: (at) => ui.openGrid(at) }],
+    // the table menu: on the right mouse button in a cell, or from the keyboard with the cursor in one
+    contextMenu(e) {
+      const view = ctx.view();
+      if (e) {
+        const target = e.target as HTMLElement;
+        if (!target.closest("td, th")) return false;
+        const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
+        // a click outside the selected cells moves the cursor there; inside, the selection stays (merge)
+        if (hit && !target.closest(".selectedCell")) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(hit.pos))));
+      }
+      if (!tableAt(view.state)) return false;
+      ui.openMenu(e && { x: e.clientX, y: e.clientY });
+      return true;
+    },
+    // pasted tables keep what the editor supports; a table in a table becomes lines of text
+    transformPasted: flattenNestedTables,
+    // irregular stored tables (rows of different lengths) are completed
+    normalize: (state) => fixTables(state),
+    setReadonly: (on) => { if (on) ui.close(); },
+    destroy: () => ui.destroy(),
+  };
+};

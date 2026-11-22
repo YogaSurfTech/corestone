@@ -2,9 +2,8 @@ import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
 import { ButtonBar, customColor, prefs, recentSwatches, setTip, swatch, tint, type ColorChoices, type Palette, type StripePreset, type Tip } from "@corestone/ui";
 import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import {
-  alignAt, clearFormatting, flagActive, indent, linkAt, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
+  alignAt, clearFormatting, flagActive, indent, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
-import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, schema, type Align, type Flag } from "./schema";
 import type { ToolbarItem } from "./feature";
@@ -19,18 +18,6 @@ import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promot
 export interface ToolbarHost {
   state(): EditorState;
   run(cmd: Command): void;
-  /** Opens the link popover for the selection. */
-  link(): void;
-  /** Whether the entry's files are available (images, file links). */
-  files(): boolean;
-  /** Opens the table size grid, at the mouse pointer when the toolbar was clicked. */
-  table(at?: { x: number; y: number }): void;
-  /** Opens the formula dialog (for the selected formula, or a new one). */
-  formula(at?: { x: number; y: number }): void;
-  /** Whether diagrams can be drawn (the entry's files and draw.io are there). */
-  diagrams(): boolean;
-  /** Opens draw.io for a new diagram. */
-  diagram(): void;
   /** In a document: placing entries and cross-references (absent in a field). */
   structure?: {
     /** Lets the user pick entries and places them at the cursor. */
@@ -153,20 +140,10 @@ export class Toolbar {
     this.split("align", "Alignment", aligns.map((x) => ({ i: x.i, tip: { text: x.t, shortcut: x.k }, run: () => this.run(setAlign(x.a)),
       pressed: (s: EditorState) => alignAt(s) === x.a })));
     this.sep();
-    // (the features' buttons take their place in today's order, until every button is a feature's)
-    const INS = ["link", "table", "image", "diagram", "formula", "xref", "toc"];
     this.split("ins", "Insert", [...this.added("ins"),
-      { i: "link", tip: { text: "Link…", shortcut: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
-      { i: "table", tip: { text: "Table…", disabled: () => (isInTable(S()) ? "No tables in tables. Right-click the table for rows, columns and its properties." : null) },
-        run: () => this.host.table(this.pointer) },
-      { i: "diagram", tip: { text: "Diagram…", disabled: () => (this.host.diagrams() ? null
-        : this.host.files() ? "Diagrams are not available: draw.io is not installed on this server." : "Diagrams are kept with a saved item; not available here.") },
-        run: () => this.host.diagram() },
-      { i: "formula", tip: { text: "Formula…", disabled: () => (this.host.files() ? null : "Formulas are kept with a saved item; not available here.") },
-        run: () => this.host.formula(this.pointer) },
       ...(st ? [{ i: "xref", tip: { text: "Cross-reference…" }, run: () => st.xref(this.pointer) },
         { i: "toc", tip: { text: "Table of contents", disabled: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.toc() }] : []),
-    ].sort((a, b) => INS.indexOf(a.i) - INS.indexOf(b.i)));
+    ]);
   }
 
   // --- building blocks ---

@@ -1,7 +1,7 @@
 import type { Node } from "prosemirror-model";
-import type { Command, EditorState, Plugin } from "prosemirror-state";
+import type { Command, EditorState, Plugin, Transaction } from "prosemirror-state";
 import type { EditorView, NodeViewConstructor } from "prosemirror-view";
-import type { Point, Tip } from "@corestone/ui";
+import type { ColorChoices, Point, Tip } from "@corestone/ui";
 import type { EntryFiles } from "./files";
 import type { ItemLinks } from "./links";
 
@@ -24,6 +24,10 @@ export interface FeatureContext {
   files(): EntryFiles | undefined;
   /** Links to items of the host application (asked each time). */
   items(): ItemLinks | undefined;
+  /** The colours the editor offers (its palette and the ones used lately). */
+  colors(): ColorChoices;
+  /** Another feature of the same editor, by its id; absent when the editor has none such. */
+  feature(id: string): EditorFeature | undefined;
 }
 
 /** A node the user pointed at or selected. */
@@ -77,8 +81,18 @@ export interface EditorFeature {
   toolbar?: ToolbarItem[];
   /** Shows the feature's menu for where the pointer (e) or else the cursor is; true when it did. Never called while read-only. */
   contextMenu?(e?: MouseEvent): boolean;
-  /** Pasted or dropped data the feature takes; true when it did. */
-  paste?(view: EditorView, data: DataTransfer, pos: number | undefined): boolean;
+  /** Pasted or dropped data the feature takes; true when it did. pos: where it was dropped (absent: pasted at the selection). */
+  paste?(view: EditorView, data: DataTransfer, drop: boolean, pos?: number): boolean;
+  /** Changes pasted HTML before it is read. */
+  transformPasted?(html: string): string;
+  /** Repairs a text that was just loaded; the change stays out of the undo history. */
+  normalize?(state: EditorState): Transaction | undefined;
+  /** A click in the text the feature takes; true when it did. */
+  click?(view: EditorView, e: MouseEvent): boolean;
+  /** Called after every change of the text or the selection, and when the text gets the focus. */
+  update?(view: EditorView): void;
+  /** The text lost the focus. */
+  blur?(): void;
   setReadonly?(on: boolean): void;
   destroy?(): void;
 }
