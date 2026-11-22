@@ -221,7 +221,7 @@ test("theme choice in the name dialog: preview, cancel, persist", async ({ page 
   await page.locator(".dialog [data-theme-choice=dark]").click();
   expect(await theme()).toBe("dark");
   expect(await bgSum()).toBeLessThan(200);
-  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  await page.locator(".dialog [data-test=dialog-close]").click();
   expect(await theme()).toBe("auto");
   expect(await bgSum()).toBeGreaterThan(600);
   // Save keeps it, across reloads

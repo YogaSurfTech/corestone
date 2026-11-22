@@ -406,7 +406,7 @@ test("delete asks for confirmation and can be cancelled", async ({ page }) => {
   await page.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await expect(page.locator(".dialog")).toContainText("Delete");
-  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  await page.locator(".dialog [data-test=dialog-close]").click();
   await expect(page.locator(".dialog")).toHaveCount(0);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Keep me ${id}`);
   await page.locator("[data-test=actions]").click();

@@ -196,11 +196,10 @@ export class Picker extends LightElement {
           if (this.multi) { this.toggle(e.detail); return; }
           this.pick(e.detail); }}></corestone-table>
       <div class="picker-count muted small" data-test="picker-count">${this.total < 0 ? "" : `${this.total} ${this.total === 1 ? "match" : "matches"}`}</div>
-      <div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
+      ${actions.length || this.multi ? html`<div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
           @click=${() => { this.cancel(); a.run(); }}><span class="act-icon" aria-hidden="true">${a.tone === "add" ? "＋" : "✕"}</span>${a.label}</button>`)}
         <span class="grow"></span>
-        ${this.multi ? this.multiButtons(this.multi.verb) : nothing}
-        <button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
+        ${this.multi ? this.multiButtons(this.multi.verb) : nothing}</div>` : nothing}`;
   }
 
   private multiButtons(verb: string) {

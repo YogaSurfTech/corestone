@@ -136,7 +136,7 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
   await page.mouse.up();
   const after = (await dialog.boundingBox())!;
   expect(after.height).toBeGreaterThan(before.height + 80);
-  await page.locator(".dialog [data-test=dialog-cancel]").click();
+  await page.locator(".dialog [data-test=dialog-close]").click();
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");
   // Overwrite saves it over theirs
   await page.locator("[data-test=save]").click();
@@ -276,7 +276,7 @@ test("documents: compose from entries and edit in the document editor", async ({
   await expect(again).toContainText("already in this document");
   await again.click({ force: true });
   await expect(page.locator("corestone-picker")).toBeVisible();
-  await page.locator("corestone-picker .foot button", { hasText: "Cancel" }).click();
+  await page.locator(".dialog.picker [data-test=dialog-close]").click();
   await expect(page.locator(".entry-card")).toHaveCount(1);
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "saved" })).toBeVisible();

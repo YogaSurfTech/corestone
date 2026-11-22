@@ -33,7 +33,7 @@ for (const choice of ["cancel", "alt", "confirm"] as const) {
     await expect(dialog).toBeVisible();
     await expect(title).toHaveValue(edited);
     await expect(page).toHaveURL(currentURL);
-    await dialog.locator(`[data-test=dialog-${choice}]`).click();
+    await dialog.locator(`[data-test=dialog-${choice === "cancel" ? "close" : choice}]`).click();
 
     if (choice === "cancel") {
       await expect(dialog).toHaveCount(0);
@@ -68,7 +68,7 @@ test("browser back and forward to history protect edits of the same artifact", a
   await page.goBack();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await expect(dialog).toBeVisible();
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(currentURL);
   await expect(title).toHaveValue(edited);
 
@@ -97,7 +97,7 @@ test("an entry with unsaved changes asks before another artifact opens", async (
   await title.fill(`First edited ${id}`);
   await other.click();
   await expect(dialog).toContainText(`First ${id}`);
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(new RegExp(guids.a));
   await expect(title).toHaveValue(`First edited ${id}`);
 
@@ -127,7 +127,7 @@ test("the browser's back button asks too", async ({ page }) => {
   await page.locator("corestone-detail [data-test=title]").fill(`Back edit ${id}`);
   await page.goBack();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(new RegExp(guids.a));
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Back edit ${id}`);
 });
