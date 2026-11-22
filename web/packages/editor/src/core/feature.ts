@@ -73,6 +73,27 @@ export interface ToolbarItem {
   pressed?(state: EditorState): boolean;
 }
 
+/** The toolbar's building blocks, for a feature that builds a group of its own. */
+export interface ToolbarKit {
+  state(): EditorState;
+  /** A button with the icon of that name. */
+  button(name: string, tip: Tip, act: () => void): HTMLButtonElement;
+  /** Adds a control to the bar. */
+  add(el: HTMLElement): void;
+  /** Adds a group: its main control, and behind ▾ its menu. */
+  group(main: HTMLElement, label: string, menu: HTMLElement): void;
+  /** What was remembered under a key (the choice used last). */
+  last(key: string): string | undefined;
+  remember(key: string, value: string): void;
+  closeMenus(): void;
+  /** Called whenever the bar is brought in line with the text. */
+  onUpdate(f: (state: EditorState) => void): void;
+  /** Brings the bar in line with the text now. */
+  refresh(): void;
+}
+/** Builds a group of the toolbar. */
+export type ToolbarGroup = (kit: ToolbarKit) => void;
+
 /**
  * A feature as one editor has it. Features are listed in an order that
  * counts: their plugins and their toolbar buttons follow it.
@@ -89,6 +110,8 @@ export interface EditorFeature {
   /** What a copied node carries to the clipboard, by node type. */
   clipboard?: Record<string, (node: Node) => HTMLElement>;
   toolbar?: ToolbarItem[];
+  /** A group of the toolbar the feature builds itself (after the paragraph styles). */
+  toolbarGroup?: ToolbarGroup;
   /** Shows the feature's menu for where the pointer (e) or else the cursor is; true when it did. Never called while read-only. */
   contextMenu?(e?: MouseEvent): boolean;
   /** Pasted or dropped data the feature takes; true when it did. pos: where it was dropped (absent: pasted at the selection). */

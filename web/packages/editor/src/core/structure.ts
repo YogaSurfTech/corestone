@@ -5,12 +5,14 @@ import { chainCommands } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import type { Feature } from "./feature";
 import { fromStorage, newSectionId, type RichText } from "./model";
-import type { EntryTypeChoice } from "./toolbar";
 import { schema } from "./schema";
 
 // Documents (docs/design/Corestone documents.md): a tree of sections under the document's
 // root, entries placed in it, numbers (1.2.3 for sections, 1.2.3-2 for entries, 0-n in the
 // introduction) and the commands that change the structure the way a word processor does.
+
+/** An entry type "Convert selection to entry" can make. */
+export interface EntryTypeChoice { id: string; name: string; icon: () => HTMLElement }
 
 /** What the host application does for a document's editor. The editor knows nothing about
  *  entries: the host picks them, shows them and opens them. */

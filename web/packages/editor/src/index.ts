@@ -18,7 +18,7 @@ export { DEFAULT_PALETTE, DEFAULT_STRIPES } from "./core/toolbar";
 export type { Palette, StripePreset } from "@corestone/ui";
 export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./core/schema";
 export { numbering, type DocumentHost, type OutlineItem, type Placed } from "./core/structure";
-export type { EntryTypeChoice } from "./core/toolbar";
+export type { EntryTypeChoice } from "./core/structure";
 
 /** <cs-richtext>: set .value (and optionally .palette, readonly) and listen for "change" (detail: the value). */
 export class RichTextElement extends HTMLElement {

@@ -1,15 +1,17 @@
 import { Fragment } from "prosemirror-model";
-import { NodeSelection } from "prosemirror-state";
+import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { openMenu, type MenuItem } from "../core/menu";
 import { schema } from "../core/schema";
 import { fileNames, toStorage } from "../core/model";
-import { entryToText, placeEntries, placedEntries, replaceWithEntry, selectedText, type DocumentHost } from "../core/structure";
-import { Overlay } from "@corestone/ui";
+import { PlacementView, canPlace, entryToText, placeEntries, placedEntries, replaceWithEntry, selectedText, type DocumentHost, type EntryTypeChoice } from "../core/structure";
+import type { Feature, ToolbarKit } from "../core/feature";
+import { icon } from "../core/icons";
+import { Overlay, setTip, type Tip } from "@corestone/ui";
 
 // The document's panels for placed entries: placing, converting, and the menu of a placed entry.
 
-export class DocumentUI {
+class DocumentUI {
   private readonly menu: HTMLElement;
   private readonly overlay: Overlay;
 
@@ -112,3 +114,92 @@ export function shortTitle(text: string, min = 40): string {
   const end = t.slice(min).search(/\s/);
   return end < 0 ? t : t.slice(0, min + end);
 }
+
+/** The Entries group of the toolbar: Insert entries…, a convert button per entry type the host offers (its
+ *  icon, its name on hover) and Turn into text. The main button repeats the last used (the
+ *  last type, remembered per host name); a convert with a placed entry selected turns that
+ *  entry into text instead. The type buttons follow the host's list (it may come later). */
+function entriesGroup(kit: ToolbarKit, st: { entryTypes(): { remember: string; types: EntryTypeChoice[] }; convert(type: string): void; unmark(): void },
+insert: { i: string; tip: Tip; run: () => void }) {
+const S = () => kit.state();
+  const onEntry = (s: EditorState) => s.selection instanceof NodeSelection && s.selection.node.type === schema.nodes.placement;
+  const whyNot = () => { const r = selectedText(S()); return typeof r === "string" ? r : null; };
+  type Item = { key: string; tip: Tip; run: () => void; icon: () => Node };
+  const svg = (name: string) => () => { const t = document.createElement("template"); t.innerHTML = icon(name); return t.content; };
+  const unmark: Item = { key: "unmark", icon: svg("unentry"), run: () => st.unmark(),
+    tip: { text: "Turn the entry into text", disabled: () => (onEntry(S()) ? null : "Select a placed entry first.") } };
+  const ins: Item = { key: "insert", icon: svg(insert.i), tip: insert.tip, run: insert.run };
+  let offer = st.entryTypes();
+  const convert = (t: EntryTypeChoice): Item => ({ key: "to:" + t.id, icon: t.icon, run: () => st.convert(t.id), tip: { text: `Convert selection to ${t.name}`, disabled: whyNot } });
+  const lastType = () => offer.types.find((t) => t.id === kit.last("entrytype:" + offer.remember)) ?? offer.types[0];
+  // the main button: insert, the last type's convert, or turn into text
+  // (s absent: while the toolbar is built, before the editor has a state)
+  const mainItem = (s?: EditorState): Item => {
+    const used = kit.last("entries");
+    // convert and turn into text are one action that follows the selection: a placed entry
+    // selected turns into text, otherwise the selection converts (to the last type)
+    if (used === "unmark" || used === "convert") return (s && onEntry(s)) || !lastType() ? unmark : convert(lastType()!);
+    return ins;
+  };
+  const menu = document.createElement("div");
+  menu.className = "pop";
+  const main = kit.button("entry", ins.tip, () => shown.run());
+  let shown = ins;
+  const show = (it: Item) => {
+    shown = it;
+    main.replaceChildren(it.icon());
+    main.dataset.cmd = it.key;
+    main.setAttribute("aria-label", it.tip.text);
+    setTip(main, it.tip);
+  };
+  const fill = () => {
+    const items = [ins, ...offer.types.map(convert), unmark];
+    menu.replaceChildren(...items.map((it) => {
+      const b = kit.button(it.key, it.tip, () => {
+        it.run();
+        kit.remember("entries", it.key === "insert" ? "insert" : it.key === "unmark" ? "unmark" : "convert");
+        if (it.key.startsWith("to:")) kit.remember("entrytype:" + offer.remember, it.key.slice(3));
+        kit.closeMenus();
+        kit.refresh();
+      });
+      b.replaceChildren(it.icon());
+      return b;
+    }));
+  };
+  fill();
+  show(mainItem());
+  kit.group(main, "Entries", menu);
+  let known = JSON.stringify(offer.types.map((t) => t.id)) + offer.remember;
+  kit.onUpdate((s) => {
+    const next = st.entryTypes();
+    const sig = JSON.stringify(next.types.map((t) => t.id)) + next.remember;
+    if (sig !== known) { known = sig; offer = next; fill(); }
+    const it = mainItem(s);
+    if (it.key !== shown.key) show(it);
+  });
+}
+
+/** Entries placed in a document: their view (the host shows them), placing and converting,
+ *  the Entries group of the toolbar, and the menu of a placed entry. */
+export const entriesFeature = (host: () => DocumentHost | undefined): Feature => (ctx) => {
+  const ui = new DocumentUI(ctx.view, ctx.root, host, ctx.notice);
+  return {
+    id: "entries",
+    nodeViews: { placement: (node, _view, _getPos, decorations) => new PlacementView(node, host, decorations) },
+    nodes: { placement: { selector: ".cs-placement", openReadonly: true,
+      menu: (hit) => ui.openMenu(hit.at!),
+      // (only with the pointer: Enter on a selected entry is the text's)
+      open: (hit) => { if (!hit.at) return false; host()?.openEntry(hit.node.attrs.guid, hit.newTab); } } },
+    toolbarGroup(kit) {
+      const insert = { i: "entry", tip: { text: "Insert entries…", disabled: () => (canPlace(kit.state()) ? null : "Place the cursor in the text first.") }, run: () => { void ui.insertEntry(); } };
+      const h = host();
+      // (converting is offered when the host can make entries and give their text)
+      if (h?.convertToEntry && h.entryAsText && h.entryTypes) {
+        entriesGroup(kit, { entryTypes: () => host()?.entryTypes?.() ?? { remember: "", types: [] },
+          convert: (type) => { void ui.convert(type); }, unmark: () => { void ui.unmark(); } }, insert);
+      } else kit.add(kit.button(insert.i, insert.tip, insert.run));
+    },
+    setReadonly: (on) => { if (on) ui.close(); },
+    destroy: () => ui.destroy(),
+  };
+};

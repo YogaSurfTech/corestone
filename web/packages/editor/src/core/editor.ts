@@ -7,9 +7,8 @@ import { EditorState, NodeSelection, TextSelection, type Command } from "prosemi
 import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toStorage, type DocNode, type RichText } from "./model";
-import { DocumentUI } from "../features/entries";
 import { mergeKeys, nodeUnder, type EditorFeature, type Feature, type FeatureContext, type ItemLinks, type NodeActions } from "./feature";
-import { PlacementView, moveSection, renameEntries, revealSection, structureKey, type DocumentHost, type OutlineItem } from "./structure";
+import { moveSection, renameEntries, revealSection, structureKey, type DocumentHost, type OutlineItem } from "./structure";
 import type { EntryFiles } from "./files";
 import { builtinFeatures } from "../features/index";
 import { schema } from "./schema";
@@ -51,7 +50,6 @@ export class RichTextEditor {
   /** Short messages at the bottom of the editor. */
   private readonly note = document.createElement("div");
   private noteTimer?: number;
-  private readonly doc?: DocumentUI;
   /** The features, in the order their plugins and toolbar buttons take. */
   private readonly features: EditorFeature[];
 
@@ -70,12 +68,9 @@ export class RichTextEditor {
       colors: () => this.toolbar.colorChoices(), feature: (id) => this.features.find((f) => f.id === id),
     };
     this.features = (opts.features ?? builtinFeatures({ diagrams: opts.diagrams, document: opts.document })).map((make) => make(ctx));
-    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd),       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); },
-        // (offered when the host can make entries and give their text)
-        ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
-          ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
-            entryTypes: () => opts.document?.()?.entryTypes?.() ?? { remember: "", types: [] } } : {}) } : undefined },
-      opts.palette ?? DEFAULT_PALETTE, this.features.flatMap((f) => f.toolbar ?? []));
+    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd) },
+      opts.palette ?? DEFAULT_PALETTE, this.features.flatMap((f) => f.toolbar ?? []),
+      this.features.flatMap((f) => (f.toolbarGroup ? [f.toolbarGroup] : [])));
     this.root.classList.toggle("cs-document", !!opts.document);
     const area = document.createElement("div");
     area.className = "cs-area";
@@ -86,16 +81,12 @@ export class RichTextEditor {
     this.note.setAttribute("role", "status");
     this.note.hidden = true;
     this.root.append(this.note);
-    const docHost = () => opts.document?.();
-    if (opts.document) this.doc = new DocumentUI(() => this.view, this.root, docHost, (m) => this.notice(m));
     // what copied nodes carry to the clipboard (e.g. a picture the address of its file)
     const base = DOMSerializer.fromSchema(schema);
     const clipboardSerializer = new DOMSerializer({ ...base.nodes, ...Object.assign({}, ...this.features.map((f) => f.clipboard)) }, base.marks);
     this.view = new EditorView(area, {
       state: this.state(opts.value, files),
-      nodeViews: {
-        placement: (node, _view, _getPos, decorations) => new PlacementView(node, docHost, decorations),
-        ...Object.assign({}, ...this.features.map((f) => f.nodeViews)) },
+      nodeViews: Object.assign({}, ...this.features.map((f) => f.nodeViews)),
       clipboardSerializer,
       editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
@@ -203,7 +194,6 @@ export class RichTextEditor {
     this.readonly = on;
     this.root.classList.toggle("readonly", on);
     this.toolbarHost?.classList.toggle("readonly", on);
-    if (on) this.doc?.close();
     for (const f of this.features) f.setReadonly?.(on);
     this.view.setProps({}); // editable is asked again
   }
@@ -249,7 +239,7 @@ export class RichTextEditor {
   }
   private toolbarHost?: HTMLElement;
 
-  destroy() { this.toolbarHost?.remove(); for (const f of this.features) f.destroy?.(); window.clearTimeout(this.noteTimer); this.doc?.destroy(); this.view.destroy(); this.root.remove(); }
+  destroy() { this.toolbarHost?.remove(); for (const f of this.features) f.destroy?.(); window.clearTimeout(this.noteTimer); this.view.destroy(); this.root.remove(); }
 
   /** The menu of what the cursor is in, from the keyboard: a code listing's, else a table's. */
   private contextKey(): boolean {
@@ -257,16 +247,8 @@ export class RichTextEditor {
     return this.features.some((f) => f.contextMenu?.());
   }
 
-  /** What happens on the nodes that have a menu or open (by node type); the features' once they are features. */
-  private readonly nodes: Record<string, NodeActions> = {
-    placement: { selector: ".cs-placement", openReadonly: true,
-      menu: (hit) => { if (!this.doc) return false; this.doc.openMenu(hit.at!); },
-      // (only with the pointer: Enter on a selected entry is the text's)
-      open: (hit) => { if (!hit.at) return false; this.opts.document?.()?.openEntry(hit.node.attrs.guid, hit.newTab); } },
-  };
-
-  /** The actions on nodes of every type: the features' and the ones above. */
-  private get allNodes(): Record<string, NodeActions> { return Object.assign({}, this.nodes, ...this.features.map((f) => f.nodes)); }
+  /** What happens on nodes with a menu or open, by node type: the features'. */
+  private get allNodes(): Record<string, NodeActions> { return Object.assign({}, ...this.features.map((f) => f.nodes)); }
 
   /** A pointer event on a node with an action of that kind: the node is selected and the action runs. */
   private onNode(view: EditorView, e: MouseEvent, kind: "menu" | "open"): boolean {

@@ -3,6 +3,7 @@ import { structureFeature, type DocumentHost } from "../core/structure";
 import { codeFeature } from "./code";
 import { contentsFeature } from "./contents";
 import { diagramsFeature } from "./diagrams";
+import { entriesFeature } from "./entries";
 import { fileLinksFeature } from "./file-links";
 import { formulasFeature } from "./formulas";
 import { imagesFeature } from "./images";
@@ -24,7 +25,7 @@ export function builtinFeatures(o: {
     codeFeature,
     fileLinksFeature, // (before links: pasted files are files even when an address comes with them)
     linksFeature, tablesFeature, imagesFeature, diagramsFeature(() => o.diagrams?.()), formulasFeature,
-    // a document: its structure (its keys go before the text's own, so it is the last with plugins), and what it generates from it
-    ...(o.document ? [structureFeature(o.document), contentsFeature(o.document)] : []),
+    // a document: its structure (its keys go before the text's own, so it is the last with plugins), what it generates from it, and the entries placed in it
+    ...(o.document ? [structureFeature(o.document), contentsFeature(o.document), entriesFeature(o.document)] : []),
   ];
 }

@@ -1,13 +1,12 @@
 import { redo, redoDepth, undo, undoDepth } from "prosemirror-history";
 import { ButtonBar, customColor, prefs, recentSwatches, setTip, swatch, tint, type ColorChoices, type Palette, type StripePreset, type Tip } from "@corestone/ui";
-import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
+import type { Command, EditorState } from "prosemirror-state";
 import {
   alignAt, clearFormatting, flagActive, indent, listAt, outdent, setAlign, setValue, toggleFlag, toggleList, valueAt,
 } from "./commands";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, schema, type Align, type Flag } from "./schema";
-import type { ToolbarItem } from "./feature";
-import { canPlace, selectedText } from "./structure";
+import type { ToolbarGroup, ToolbarItem, ToolbarKit } from "./feature";
 
 // The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
 // without paragraph styles and entries, in a document with them; split buttons
@@ -18,18 +17,6 @@ import { canPlace, selectedText } from "./structure";
 export interface ToolbarHost {
   state(): EditorState;
   run(cmd: Command): void;
-  /** In a document: placing entries and cross-references (absent in a field). */
-  structure?: {
-    /** Lets the user pick entries and places them at the cursor. */
-    entry(): void;
-    /** Makes an entry of the selected text, of an entry type (absent: the host cannot). */
-    convert?(type: string): void;
-    /** The entry types convert offers (each with its name and an icon element), and the name
-     *  the last one used is remembered under (e.g. the document's type). */
-    entryTypes?(): { remember: string; types: EntryTypeChoice[] };
-    /** Turns the selected placed entry into text (absent: the host cannot). */
-    unmark?(): void;
-  };
 }
 
 export const DEFAULT_STRIPES: StripePreset[] = [
@@ -48,8 +35,6 @@ export const DEFAULT_PALETTE: Palette = {
   stripes: DEFAULT_STRIPES,
 };
 
-/** An entry type "Convert selection to entry" can make. */
-export interface EntryTypeChoice { id: string; name: string; icon: () => HTMLElement }
 type Btn = HTMLButtonElement;
 
 const LAST_KEY = "cs-editor-last";
@@ -66,8 +51,9 @@ export class Toolbar {
   private pointer?: { x: number; y: number };
   private readonly historyViews: (() => void)[] = [];
 
-  /** items: the buttons the editor's features add to the groups, in their order. */
-  constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE, private readonly items: ToolbarItem[] = []) {
+  /** items: the buttons the editor's features add to the groups, in their order; groups: the groups features build themselves. */
+  constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE, private readonly items: ToolbarItem[] = [],
+    private readonly groups: ToolbarGroup[] = []) {
     this.bar = new ButtonBar<EditorState>({ cls: "cs-tb", label: "Formatting", chevron: icon("chev", 12), state: () => this.host.state(), lastKey: LAST_KEY, tipCls: "cs-tip" });
     this.el = this.bar.el;
     this.build();
@@ -91,16 +77,9 @@ export class Toolbar {
     this.sep();
     // paragraph style (documents): the main button repeats the last used (at first H), like the other groups
     if (this.added("style").length) this.split("heading", "Heading level", this.added("style"), "heading");
-    // entries (documents)
-    const st = this.host.structure;
-    if (st) {
-      // entries: insert; and one button that makes an entry of the selected text, or (a placed
-      // entry selected) turns that entry into text
-      const insert = { i: "entry", tip: { text: "Insert entries…", disabled: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.entry() };
-      if (st.convert && st.unmark && st.entryTypes) this.entriesGroup(st as Required<NonNullable<ToolbarHost["structure"]>>, insert);
-      else this.add(this.button(insert.i, insert.tip, insert.run));
-      this.sep();
-    }
+    // the groups features build themselves (documents: entries)
+    for (const build of this.groups) build(this.kit);
+    if (this.added("style").length || this.groups.length) this.sep();
     // character formatting
     const flags: { i: Flag; t: string; k?: string }[] = [
       { i: "bold", t: "Bold", k: "Ctrl+B" }, { i: "italic", t: "Italic", k: "Ctrl+I" }, { i: "underline", t: "Underline", k: "Ctrl+U" },
@@ -134,6 +113,19 @@ export class Toolbar {
 
   // --- building blocks ---
 
+  /** The bar's building blocks, for a feature that builds a group of its own. */
+  private readonly kit: ToolbarKit = {
+    state: () => this.host.state(),
+    button: (name, tip, act) => this.button(name, tip, act),
+    add: (el) => this.add(el),
+    group: (main, label, menu) => this.wrap(main, label, menu),
+    last: (key) => this.bar.last(key),
+    remember: (key, value) => this.remember(key, value),
+    closeMenus: () => this.closeMenus(),
+    onUpdate: (f) => this.bar.onUpdate(f),
+    refresh: () => this.update(this.host.state()),
+  };
+
   /** The buttons the features add to a group. */
   private added(group: ToolbarItem["group"]) {
     return this.items.filter((it) => it.group === group).map((it) => ({ i: it.id, tip: it.tip, run: () => it.run(this.pointer), pressed: it.pressed }));
@@ -145,69 +137,6 @@ export class Toolbar {
   private wrap(main: HTMLElement, label: string, menu: HTMLElement, extra = "") { this.bar.group(main, label, menu, extra); }
   private closeMenus() { this.bar.closeMenus(); }
   private remember(key: string, v: string) { this.bar.remember(key, v); }
-
-  /** The Entries group: Insert entries…, a convert button per entry type the host offers (its
-   *  icon, its name on hover) and Turn into text. The main button repeats the last used (the
-   *  last type, remembered per host name); a convert with a placed entry selected turns that
-   *  entry into text instead. The type buttons follow the host's list (it may come later). */
-  private entriesGroup(st: Required<NonNullable<ToolbarHost["structure"]>>, insert: { i: string; tip: Tip; run: () => void }) {
-    const S = () => this.host.state();
-    const onEntry = (s: EditorState) => s.selection instanceof NodeSelection && s.selection.node.type === schema.nodes.placement;
-    const whyNot = () => { const r = selectedText(S()); return typeof r === "string" ? r : null; };
-    type Item = { key: string; tip: Tip; run: () => void; icon: () => Node };
-    const svg = (name: string) => () => { const t = document.createElement("template"); t.innerHTML = icon(name); return t.content; };
-    const unmark: Item = { key: "unmark", icon: svg("unentry"), run: () => st.unmark(),
-      tip: { text: "Turn the entry into text", disabled: () => (onEntry(S()) ? null : "Select a placed entry first.") } };
-    const ins: Item = { key: "insert", icon: svg(insert.i), tip: insert.tip, run: insert.run };
-    let offer = st.entryTypes();
-    const convert = (t: EntryTypeChoice): Item => ({ key: "to:" + t.id, icon: t.icon, run: () => st.convert(t.id), tip: { text: `Convert selection to ${t.name}`, disabled: whyNot } });
-    const lastType = () => offer.types.find((t) => t.id === this.bar.last("entrytype:" + offer.remember)) ?? offer.types[0];
-    // the main button: insert, the last type's convert, or turn into text
-    // (s absent: while the toolbar is built, before the editor has a state)
-    const mainItem = (s?: EditorState): Item => {
-      const used = this.bar.last("entries");
-      // convert and turn into text are one action that follows the selection: a placed entry
-      // selected turns into text, otherwise the selection converts (to the last type)
-      if (used === "unmark" || used === "convert") return (s && onEntry(s)) || !lastType() ? unmark : convert(lastType()!);
-      return ins;
-    };
-    const menu = document.createElement("div");
-    menu.className = "pop";
-    const main = this.button("entry", ins.tip, () => shown.run());
-    let shown = ins;
-    const show = (it: Item) => {
-      shown = it;
-      main.replaceChildren(it.icon());
-      main.dataset.cmd = it.key;
-      main.setAttribute("aria-label", it.tip.text);
-      setTip(main, it.tip);
-    };
-    const fill = () => {
-      const items = [ins, ...offer.types.map(convert), unmark];
-      menu.replaceChildren(...items.map((it) => {
-        const b = this.button(it.key, it.tip, () => {
-          it.run();
-          this.remember("entries", it.key === "insert" ? "insert" : it.key === "unmark" ? "unmark" : "convert");
-          if (it.key.startsWith("to:")) this.remember("entrytype:" + offer.remember, it.key.slice(3));
-          this.closeMenus();
-          this.update(S());
-        });
-        b.replaceChildren(it.icon());
-        return b;
-      }));
-    };
-    fill();
-    show(mainItem());
-    this.wrap(main, "Entries", menu);
-    let known = JSON.stringify(offer.types.map((t) => t.id)) + offer.remember;
-    this.bar.onUpdate((s) => {
-      const next = st.entryTypes();
-      const sig = JSON.stringify(next.types.map((t) => t.id)) + next.remember;
-      if (sig !== known) { known = sig; offer = next; fill(); }
-      const it = mainItem(s);
-      if (it.key !== shown.key) show(it);
-    });
-  }
 
   /** A split button: the main part repeats the last-used item, ▾ shows them all. */
   private split(key: string, label: string, items: { i: string; tip: Tip; run: () => void; pressed?: (s: EditorState) => boolean }[], main0?: string) {
