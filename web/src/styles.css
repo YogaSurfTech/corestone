@@ -86,6 +86,8 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qf-btn { border: none; background: none; border-radius: 6px; padding: 2px 7px; cursor: pointer; color: var(--muted); font-size: 12.5px; }
 .qf-btn:hover { background: var(--panel-2); color: inherit; }
 .qb-clauses { flex: 1; display: flex; flex-wrap: wrap; align-items: center; row-gap: 3px; min-width: 0; }
+/* beside the criteria: words or a query, joined to them by AND */
+.qf-box .qb-clauses input.qb-typed { flex: 1 1 140px; min-width: 100px; margin-left: 4px; }
 .qb-clause { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); font-size: 12.5px; max-width: 100%; }
 .qb-clause button { border: none; background: none; cursor: pointer; padding: 2px 6px; }
 /* a criterion the picker is opened with: always applies, its title says why */

@@ -151,3 +151,14 @@ test("the kind a row of criteria asks for: one value, not negated, joined by AND
   assert.equal(kindOf([kind(["link"]), other({ join: "OR" })]), "");
   assert.equal(kindOf([kind(["link"]), kind(["entry"])]), "");
 });
+
+test("criteria and typed text run together, joined by AND, in brackets where needed", async () => {
+  const { combine } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const fin = clause(field("finished", "Finished", "bool"), { kind: "bool", value: false });
+  const pri = clause(field("priority"), text("high"), { join: "OR" });
+  assert.equal(combine([], "  pump "), "pump");
+  assert.equal(combine([fin], ""), "finished:false");
+  assert.equal(combine([fin], "pump"), "finished:false AND pump");
+  assert.equal(combine([fin], "pump valve"), "finished:false AND (pump valve)");
+  assert.equal(combine([fin, pri], "type:task"), "(finished:false OR priority:high) AND type:task");
+});

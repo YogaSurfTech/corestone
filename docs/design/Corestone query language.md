@@ -352,8 +352,10 @@ counting links.
 Decided 2026-11-21, and built for the overview. This replaces the earlier proposal (one query in
 two views, explicit brackets).
 
-- The query field stands in the overview's toolbar, between "New" and the count. It holds either
-  a typed text or built criteria.
+- The query field stands in the overview's toolbar, between "New" and the count. It holds built
+  criteria and, always beside them, a text to type words or a query into (decided 2026-11-22). What
+  runs is the criteria AND the typed text: `(a OR b) AND (pump valve)`, each in brackets where
+  it needs them. A single word can always be searched without touching the criteria.
 - "+" at the left inside the field lists the fields that can be asked here: the general ones
   (text, type, title, ID, folder, created, modified, author, finished, based on, base of) and the
   fields of the types of the folder, or of the one type the view is filtered by. The links view
@@ -398,7 +400,8 @@ two views, explicit brackets).
 - The whole query can be turned into text. A text is never turned back into criteria. The
   criteria of a built query are kept in the browser beside their text, so they survive a reload
   there; elsewhere the same link shows the query as text.
-- While a text is typed in the field, a criterion from "+" joins it as text, with AND.
+- A criterion from "+" joins the criteria; what is typed stays beside them. Removing the last
+  criterion leaves the typed text as the whole query.
 - Not in the builder: `has_link`, `kind` (the kind buttons beside the field do that), `folder~n`,
   `valid`, `guid`.
 

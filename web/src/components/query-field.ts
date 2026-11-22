@@ -1,7 +1,7 @@
-// The query field of the overview: a query typed as text, or built from
-// criteria. "+" offers the fields; a criterion is a button that opens its
-// editor, with NOT to switch on and off and the operator between two
-// criteria to choose. The builder writes the query text, which is what runs.
+// The query field of the overview: criteria built with "+", and beside them
+// always a text to type words or a query into. A criterion is a button that
+// opens its editor, with NOT to switch on and off and the operator between two
+// criteria to choose. What runs is the criteria AND the typed text.
 import { html, nothing, render, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
@@ -9,7 +9,7 @@ import type { EnumOption, Kind, QueryWarning, Schema } from "./types";
 import { markIcon } from "./icons";
 import { hidLabel, kindLabel } from "./artifact";
 import "./enum-control";
-import { COMPARES, JOINS, clauseLabel, kindOf, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
+import { COMPARES, JOINS, clauseLabel, combine, kindOf, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 
 const INPUT: Record<string, Input> = {
   enum: "enum", workflow: "enum", boolean: "bool", integer: "number", float: "number", currency: "number",
@@ -104,7 +104,7 @@ export class QueryFieldElement extends LightElement {
   /** Criteria shown before the query, which always apply and cannot be changed or removed. */
   @property({ attribute: false }) locked: LockedCriterion[] = [];
   /** The criteria the value was built from, when they are known (the query of an end being edited again). */
-  @property({ attribute: false }) builtFrom: Clause[] | null = null;
+  @property({ attribute: false }) builtFrom: { clauses: Clause[]; typed: string } | null = null;
 
   @state() private text = "";
   @state() private clauses: Clause[] = [];
@@ -117,14 +117,14 @@ export class QueryFieldElement extends LightElement {
   // the editor's draft
   @state() private options: EnumOption[] | null = null;
   @state() private draft: { not: boolean; empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string;
-    query: { text: string; clauses: Clause[] | null } } = this.blank();
+    query: { text: string; clauses: Clause[] | null; typed: string } } = this.blank();
   /** The fields of the artifact at an end, while its query is edited. */
   private endFields: QueryField[] = [];
   private timer = 0;
   private checks = 0;
   private checked: string | null = null;
 
-  private blank() { return { not: false, empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "", query: { text: "", clauses: null as Clause[] | null } }; }
+  private blank() { return { not: false, empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "", query: { text: "", clauses: null as Clause[] | null, typed: "" } }; }
 
   override connectedCallback() {
     super.connectedCallback();
@@ -211,12 +211,14 @@ export class QueryFieldElement extends LightElement {
     // another kind shown: its own criteria used last
     if (changed.has("historyKey") && changed.get("historyKey") !== undefined) this.loadHistory();
     if (!changed.has("value")) return;
-    if (this.clauses.length && toText(this.clauses) === this.value) return; // our own query came back
+    if (this.clauses.length && this.query() === this.value) return; // our own query came back
     // the criteria of a built query survive a reload; any other text is text
-    const kept = this.builtFrom ? { text: toText(this.builtFrom), clauses: this.builtFrom }
-      : this.keepKey ? prefs.json<{ text: string; clauses: Clause[] } | null>(this.keepKey, null) : null;
-    this.clauses = this.value && kept?.text === this.value && Array.isArray(kept.clauses) ? kept.clauses : [];
-    if (this.text !== this.value || this.clauses.length) this.text = this.value; // never wipe text being typed
+    const kept = this.builtFrom ? { text: combine(this.builtFrom.clauses, this.builtFrom.typed), ...this.builtFrom }
+      : this.keepKey ? prefs.json<{ text: string; clauses: Clause[]; typed?: string } | null>(this.keepKey, null) : null;
+    const restore = !!this.value && kept?.text === this.value && Array.isArray(kept.clauses) && kept.clauses.length > 0;
+    this.clauses = restore ? kept!.clauses : [];
+    const typed = restore ? kept!.typed ?? "" : this.value;
+    if (this.text !== typed || this.clauses.length) this.text = typed; // never wipe text being typed
     if (this.value !== this.checked) void this.check(this.value);
   }
 
@@ -239,32 +241,36 @@ export class QueryFieldElement extends LightElement {
     return !error;
   }
 
+  /** The query that runs: the criteria and the typed text. */
+  private query(): string { return combine(this.clauses, this.text); }
+
   /** Run the query once it can be read; a half-typed one leaves the table as it is. */
   private async run(replace: boolean) {
     window.clearTimeout(this.timer);
-    const text = this.text;
+    const text = this.query();
     if (!(await this.check(text))) return;
     // the criteria are kept with the text that runs, so a reload finds them for the query it shows
-    if (this.clauses.length && toText(this.clauses) === text) this.keepCriteria({ text, clauses: this.clauses });
-    const clauses = this.clauses.length && toText(this.clauses) === text ? this.clauses : null;
-    this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace, clauses } }));
+    const clauses = this.clauses.length ? this.clauses : null;
+    const typed = this.text.trim();
+    if (clauses) this.keepCriteria({ text, clauses, typed });
+    this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace, clauses, typed } }));
   }
 
   /** Keep the criteria of the query that runs, where they are kept. */
-  private keepCriteria(kept: { text: string; clauses: Clause[] } | null) {
+  private keepCriteria(kept: { text: string; clauses: Clause[]; typed: string } | null) {
     if (this.keepKey) prefs.setJson(this.keepKey, kept);
   }
 
-  /** The criteria changed: write the text and run it. */
+  /** The criteria changed: run them with the typed text. */
   private built(clauses: Clause[]) {
     this.clauses = clauses;
-    this.text = toText(clauses);
     if (!clauses.length) this.keepCriteria(null);
     this.open = null;
     void this.run(false);
   }
 
   private asText = () => {
+    this.text = this.query();
     this.clauses = [];
     this.keepCriteria(null);
     void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=search]")?.focus());
@@ -281,7 +287,7 @@ export class QueryFieldElement extends LightElement {
     else if (v?.kind === "enum") d.values = new Set(v.values.map((o) => o.value));
     else if (v?.kind === "bool") d.values = new Set([String(v.value)]);
     else if (v?.kind === "range") { d.compare = v.compare; d.a = v.a; d.b = v.b; }
-    else if (v?.kind === "query") d.query = { text: v.text, clauses: v.clauses };
+    else if (v?.kind === "query") d.query = { text: v.text, clauses: v.clauses, typed: v.typed ?? "" };
     this.draft = d;
     this.endFields = field.input === "query" ? field.fields?.(kindOf(d.query.clauses)) ?? [] : [];
     this.options = field.options ?? null;
@@ -312,7 +318,7 @@ export class QueryFieldElement extends LightElement {
       case "number": case "date":
         if (!d.a.trim() || (d.compare === "between" && !d.b.trim())) return null;
         return { kind: "range", compare: d.compare, a: d.a.trim(), b: d.compare === "between" ? d.b.trim() : "" };
-      case "query": return d.query.text.trim() ? { kind: "query", text: d.query.text.trim(), clauses: d.query.clauses } : null;
+      case "query": return d.query.text.trim() ? { kind: "query", text: d.query.text.trim(), clauses: d.query.clauses, ...(d.query.clauses && d.query.typed ? { typed: d.query.typed } : {}) } : null;
     }
     return null;
   }
@@ -329,15 +335,7 @@ export class QueryFieldElement extends LightElement {
 
   /** Put a criterion into the query: in place of the one at index, or as a new one at the end. */
   private place(clause: Clause, index: number | null) {
-    if (!this.clauses.length && this.text.trim()) {
-      // text is being typed: the criterion joins it as text; in brackets, as words side by side
-      // would otherwise bind looser than AND ("a b AND c" is "a OR (b AND c)")
-      const text = this.text.trim();
-      this.text = `${/\s/.test(text) ? `(${text})` : text} AND ${toText([clause])}`;
-      this.open = null;
-      void this.run(false);
-      return;
-    }
+    // (typed text stays where it is, beside the criteria)
     this.built(index === null ? [...this.clauses, clause] : this.clauses.map((c, i) => (i === index ? clause : c)));
   }
 
@@ -390,13 +388,13 @@ export class QueryFieldElement extends LightElement {
         // the artifact at the end matches a query of its own, built the same way
         body = html`<div class="muted small">The artifact there matches:</div>
           <corestone-query-field class="qb-nested" data-test="query-end" keepKey="" historyKey="corestone.query.ends.history" placeholder="Search or query: type:req"
-            .value=${d.query.text} .builtFrom=${d.query.clauses} .folder=${this.folder} .fields=${this.endFields} .source=${this.source}
-            @query-change=${(e: CustomEvent<{ text: string; clauses: Clause[] | null }>) => {
+            .value=${d.query.text} .builtFrom=${d.query.clauses ? { clauses: d.query.clauses, typed: d.query.typed } : null} .folder=${this.folder} .fields=${this.endFields} .source=${this.source}
+            @query-change=${(e: CustomEvent<{ text: string; clauses: Clause[] | null; typed: string }>) => {
               e.stopPropagation();
               // the fields follow the kind asked for
               const kind = kindOf(e.detail.clauses);
               if (kind !== kindOf(d.query.clauses)) this.endFields = field.fields?.(kind) ?? [];
-              set({ query: { text: e.detail.text, clauses: e.detail.clauses } });
+              set({ query: { text: e.detail.text, clauses: e.detail.clauses, typed: e.detail.typed } });
             }}></corestone-query-field>`;
         break;
       default:
@@ -454,6 +452,15 @@ export class QueryFieldElement extends LightElement {
      </div>` : nothing}`;
   }
 
+  /** The text typed beside the criteria (or alone): words or a query, joined to the criteria by AND. */
+  private input(besideCriteria: boolean) {
+    return html`<input type="search" class=${besideCriteria ? "qb-typed" : ""} .value=${this.text} data-test="search" aria-label="Search or query"
+      placeholder=${besideCriteria ? "and words or a query…" : this.placeholder} aria-invalid=${this.error ? "true" : "false"}
+      title="Words find title, ID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
+      @input=${(e: Event) => { this.text = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.run(true), 250); }}
+      @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.run(false); }} />`;
+  }
+
   override render() {
     const built = this.clauses.length > 0;
     return html`
@@ -475,14 +482,10 @@ export class QueryFieldElement extends LightElement {
                 @click=${() => this.built(this.clauses.map((x, j) => (j === i ? { ...x, not: !x.not } : x)))}>NOT</button>
               <button class="qb-label" data-test="query-clause" title="Change" @click=${(e: Event) => this.edit(this.fieldOf(c), i, (e.currentTarget as HTMLElement).parentElement)}>${clauseLabel(c)}</button>
               <button class="qb-remove" data-test="query-remove" aria-label="Remove the criterion" title="Remove" @click=${() => this.built(this.clauses.filter((_, j) => j !== i))}>×</button>
-            </span>`)}</div>
-          <button class="qf-btn" data-test="query-as-text" title="Edit as text. A text cannot be turned back into criteria." @click=${this.asText}>Aa</button>
-          <button class="qf-btn" data-test="query-clear" title="Clear" aria-label="Clear the query" @click=${() => this.built([])}>×</button>`
-        : html`<input type="search" placeholder=${this.placeholder} .value=${this.text} data-test="search" aria-label="Search or query"
-            aria-invalid=${this.error ? "true" : "false"}
-            title="Words find title, ID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
-            @input=${(e: Event) => { this.text = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.run(true), 250); }}
-            @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void this.run(false); }} />`}
+            </span>`)}${this.input(true)}</div>
+          <button class="qf-btn" data-test="query-as-text" title="Edit all as text. A text cannot be turned back into criteria." @click=${this.asText}>Aa</button>
+          <button class="qf-btn" data-test="query-clear" title="Clear" aria-label="Clear the query" @click=${() => { this.text = ""; this.built([]); }}>×</button>`
+        : this.input(false)}
       </div>
       ${!this.open && (this.error || this.warnings.length) ? html`<div class="query-notes">
         ${this.error ? html`<div class="query-note error" role="alert" data-test="query-error">${this.error}</div>` : nothing}

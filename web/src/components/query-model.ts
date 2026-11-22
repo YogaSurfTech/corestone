@@ -52,7 +52,7 @@ export type Value =
   | { kind: "range"; compare: Compare; a: string; b: string }
   | { kind: "artifact"; id: string; label: string }
   /** The artifact at the other end (a link's source or target, a comment's subject) matches a query: built, or typed. */
-  | { kind: "query"; text: string; clauses: Clause[] | null };
+  | { kind: "query"; text: string; clauses: Clause[] | null; typed?: string };
 
 export interface Clause {
   field: { id: string; name: string; input: Input };
@@ -110,6 +110,15 @@ export function kindOf(clauses: Clause[] | null): Kind | "" {
   return v?.kind === "enum" && v.values.length === 1 ? v.values[0].value as Kind : "";
 }
 
+/** The criteria and a typed text as one query, joined by AND; each in brackets when it needs them. */
+export function combine(clauses: Clause[], typed: string): string {
+  const t = typed.trim();
+  if (!clauses.length) return t;
+  const built = toText(clauses);
+  if (!t) return built;
+  return `${clauses.length > 1 ? `(${built})` : built} AND ${/\s/.test(t) ? `(${t})` : t}`;
+}
+
 /** A row of criteria as it reads, with the operators between them. */
 export function rowLabel(clauses: Clause[]): string {
   return clauses.map((c, i) => (i ? ` ${c.join} ` : "") + (c.not ? "NOT " : "") + clauseLabel(c)).join("");
@@ -123,7 +132,7 @@ export function clauseLabel(c: Clause): string {
     case "empty": return `${n} is empty`;
     case "bool": return `${n}: ${v.value ? "yes" : "no"}`;
     case "artifact": return `${n}: ${v.label}`;
-    case "query": return `${n}: ${v.clauses ? rowLabel(v.clauses) : v.text}`;
+    case "query": return `${n}: ${v.clauses ? rowLabel(v.clauses) + (v.typed ? ` AND ${v.typed}` : "") : v.text}`;
     case "enum": return `${n}: ${v.values.map((o) => o.label).join(", ")}`;
     case "text": return `${n}: ${v.text}`;
     case "range": {

@@ -527,7 +527,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(4);
   await page.locator("[data-test=query-as-text]").click();
   await expect(page.locator("[data-test=search]")).toHaveValue("created:>=2020-02-03");
-  // with text in the field, a criterion joins it as text
+  // typed text stays beside the criteria: a criterion added joins it by AND
   await page.locator("[data-test=search]").fill("title:beta");
   // the list of fields is a menu: the arrow keys move through it, Escape closes it
   await page.locator("[data-test=query-add]").click();
@@ -546,7 +546,27 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await page.locator("[data-test=query-no]").click();
-  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
+  await expect(clauses).toHaveText(["Finished: no"]);
+  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta");
+  await expect(rows).toHaveCount(1);
+  await expect(page).toHaveURL(/q=finished%3Afalse\+AND\+title%3Abeta|q=finished%3Afalse%20AND%20title%3Abeta/);
+  // a single word beside the criteria narrows them; Enter runs it, and it survives a reload with them
+  await page.locator("[data-test=search]").fill("alpha");
+  await page.locator("[data-test=search]").press("Enter");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Alpha one ${id}`);
+  await page.locator("[data-test=search]").fill("");
+  await page.locator("[data-test=search]").press("Enter");
+  await expect(page).toHaveURL(/q=finished%3Afalse(&|$)/);
+  await page.reload();
+  await expect(clauses).toHaveText(["Finished: no"]);
+  await expect(page.locator("[data-test=search]")).toHaveValue("");
+  // removing the last criterion keeps what is typed
+  await page.locator("[data-test=search]").fill("gamma");
+  await page.locator("[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-remove]").click();
+  await expect(clauses).toHaveCount(0);
+  await expect(page.locator("[data-test=search]")).toHaveValue("gamma");
   await expect(rows).toHaveCount(1);
 });
 
@@ -685,7 +705,7 @@ test("query builder: links by their ends and role, comments by what they are on,
   await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: high"]);
   await show("all");
   await expect(clauses).toHaveCount(0);
-  await expect(page.locator("corestone-overview .query-field input[data-test=search]")).toHaveValue("");
+  await expect(page.locator("corestone-overview .query-field > .qf-box input[data-test=search]")).toHaveValue("");
   await show("comment");
   await expect(clauses).toHaveText(["On: Kind: Link"]);
 });
