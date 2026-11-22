@@ -45,6 +45,10 @@ at the top of `scripts/check-layers.mjs`.
 - Components of the application extend `LightElement`.
 - A new file states its layer by where it is: a control that shows data goes
   to `src/components/`, a page or dialog directly to `src/`.
+- A view that grows gets a folder beside its file (`detail/`, `document/`): the
+  file stays the shell, the folder holds its state (`state.ts`, a class that
+  renders nothing) and one file per section or sidebar, each a function of
+  that state.
 
 ## The allowlist
 
