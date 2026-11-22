@@ -3,13 +3,13 @@ import { deepEqual, DropMenu, errorText, fmtSize, fmtTime, LightElement, prefs, 
 import { customElement, property, state } from "lit/decorators.js";
 import type { EntryFiles } from "@corestone/editor";
 import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictItem } from "./api";
-import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
+import { navigate } from "./router";
+import { EditSession, fieldsPatch } from "./artifact-state";
 import { createFiles } from "./files";
 import { pickArtifact, store, type Route, type State, toastError } from "./store";
 import type { CommentView, HistoryEntry, OverlayView, Relationships, VersionView, View, WorkflowEval } from "./types";
 import type { PickerAction } from "./components/picker";
 import type { Attachment, Field, Schema, Summary, WorkflowValue } from "./components/types";
-import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/artifact";
 import "./components/type-icon";
 import "./components/table/table";
@@ -106,24 +106,19 @@ export class Detail extends LightElement {
   /** Toggles of changed sections while viewing one historic version; not persisted. */
   @state() private versionOpen: Record<string, boolean> = {};
   private lastTick = -1;
-  private editing = false;
   private loadSeq = 0;
   private softInFlight = false;
   private softPending = false;
 
-  /** Asked by the router before leaving this artifact with unsaved changes. */
-  private leaveGuard: LeaveGuard = {
+  /** The router asks before leaving this artifact with unsaved changes; the others see that it is being edited. */
+  private readonly session = new EditSession(this, () => this.guid, {
     dirty: () => this.dirty,
     save: async () => { await this.save(); return !this.dirty; },
     discard: () => { if (this.view) this.resetDraft(); },
     label: () => (this.view ? hidLabel(this.view.meta) : "This artifact"),
-  };
+  });
 
-  override connectedCallback() {
-    super.connectedCallback();
-    setLeaveGuard(this.leaveGuard);
-  }
-  override disconnectedCallback() { this.actions.close(); clearLeaveGuard(this.leaveGuard); if (this.editing) announceEdit(this.guid, false); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.actions.close(); super.disconnectedCallback(); }
   override willUpdate(changed: Map<string, unknown>) {
     if ((changed.has("guid") || changed.has("version") || changed.has("at")) && this.guid) {
       // A deep link to a section (?tab=history) opens it.
@@ -353,7 +348,7 @@ export class Detail extends LightElement {
     const d = this.view!.data as Record<string, unknown>;
     this.draft = { title: String(d.title ?? ""), hid: String(d.hid ?? ""), fields: structuredClone((d.fields as Record<string, unknown>) ?? {}) };
     this.pending = noPending();
-    if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
+    this.session.done();
   }
 
   /** The entry's files for images and file links in rich text: the stored ones and the ones
@@ -374,7 +369,7 @@ export class Detail extends LightElement {
 
   private touched() {
     if (this.historic) return; // read-only: nobody is editing
-    if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
+    this.session.touch();
   }
 
   private async save(overwrite?: string) {
@@ -385,11 +380,8 @@ export class Detail extends LightElement {
     const patch: Record<string, unknown> = {};
     if (this.draft.title !== (d.title ?? "")) patch.title = this.draft.title;
     if (this.draft.hid !== (d.hid ?? "")) patch.hid = this.draft.hid || null;
-    const fields: Record<string, unknown> = {};
-    const old = (d.fields as Record<string, unknown>) ?? {};
-    for (const [k, v] of Object.entries(this.draft.fields)) if (!deepEqual(v, old[k])) fields[k] = v === undefined ? null : v;
-    for (const k of Object.keys(old)) if (!(k in this.draft.fields)) fields[k] = null;
-    if (Object.keys(fields).length) patch.fields = fields;
+    const fields = fieldsPatch((d.fields as Record<string, unknown>) ?? {}, this.draft.fields);
+    if (fields) patch.fields = fields;
     const p = this.pending;
     const changes: SaveChanges = {
       patch,

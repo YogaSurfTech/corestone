@@ -39,7 +39,7 @@ export const MODULES = [
  * state, and the shell that puts the views together. Every other file directly
  * in src/ is a view, and only the shell imports a view.
  */
-export const APP_BASE = ["src/api.ts", "src/ws.ts", "src/store.ts", "src/router.ts", "src/types.ts", "src/files.ts", "src/services.ts", "src/store-controller.ts"];
+export const APP_BASE = ["src/api.ts", "src/ws.ts", "src/store.ts", "src/router.ts", "src/types.ts", "src/files.ts", "src/services.ts", "src/store-controller.ts", "src/artifact-state.ts"];
 export const APP_SHELL = ["src/app.ts", "src/main.ts"];
 
 /** True for a view of the application: a file directly in src/ that is neither base nor shell. */

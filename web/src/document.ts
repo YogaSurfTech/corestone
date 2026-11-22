@@ -5,12 +5,12 @@ import { live } from "lit/directives/live.js";
 import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server, type SaveChanges } from "./api";
-import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
+import { navigate } from "./router";
 import { pickArtifacts, store, type State, toastError } from "./store";
 import { itemLinks } from "./services";
 import type { CommentView, LogEntry, Relationships, View } from "./types";
 import type { Field, Schema } from "./components/types";
-import { announceEdit } from "./ws";
+import { EditSession, fieldsPatch } from "./artifact-state";
 import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/artifact";
 import { createFiles } from "./files";
 import "./components/type-icon";
@@ -79,7 +79,6 @@ export class DocumentView extends LightElement {
   @state() private pendingFiles: File[] = [];
   @state() private removedFiles: string[] = [];
   private lastTick = -1;
-  private editing = false;
   private loadSeq = 0;
   /** Entries placed in the document, shown lazily and kept while the view lives. */
   private entries = new Map<string, Loaded | "loading">();
@@ -99,13 +98,13 @@ export class DocumentView extends LightElement {
   @state() private dragId: string | null = null;
   @state() private dropAt: number | "end" | null = null;
 
-  /** Asked by the router before leaving this document with unsaved changes. */
-  private leaveGuard: LeaveGuard = {
+  /** The router asks before leaving this document with unsaved changes; the others see that it is being edited. */
+  private readonly session = new EditSession(this, () => this.guid, {
     dirty: () => this.dirty,
     save: async () => { await this.save(); return !this.dirty; },
     discard: () => this.discard(),
     label: () => (this.view ? hidLabel(this.view.meta) : "This document"),
-  };
+  });
 
   private get editor(): DocumentElement | null { return this.querySelector("cs-document"); }
 
@@ -119,12 +118,11 @@ export class DocumentView extends LightElement {
     this.pendingFiles = [];
     this.removedFiles = [];
     if (this.editor) this.editor.value = this.content;
-    if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
+    this.session.done();
   }
 
   override connectedCallback() {
     super.connectedCallback();
-    setLeaveGuard(this.leaveGuard);
     this.observer = new IntersectionObserver((list) => {
       for (const e of list) {
         if (!e.isIntersecting) continue;
@@ -138,8 +136,6 @@ export class DocumentView extends LightElement {
     this.resizes?.disconnect();
     this.watched = undefined;
     this.observer?.disconnect();
-    clearLeaveGuard(this.leaveGuard);
-    if (this.editing) announceEdit(this.guid, false);
     super.disconnectedCallback();
   }
   override willUpdate(changed: Map<string, unknown>) { if (changed.has("guid") && this.guid) this.load(); }
@@ -487,7 +483,7 @@ export class DocumentView extends LightElement {
   };
 
   private touch() {
-    if (!this.editing) { this.editing = true; announceEdit(this.guid, true); }
+    this.session.touch();
   }
 
   private async save() {
@@ -528,13 +524,8 @@ export class DocumentView extends LightElement {
       this.busy = false;
       return;
     }
-    if (!deepEqual(this.fields, d.fields ?? {})) {
-      const f: Record<string, unknown> = {};
-      const old = (d.fields as Record<string, unknown>) ?? {};
-      for (const [k, v] of Object.entries(this.fields)) if (!deepEqual(v, old[k])) f[k] = v ?? null;
-      for (const k of Object.keys(old)) if (!(k in this.fields)) f[k] = null;
-      patch.fields = f;
-    }
+    const changedFields = fieldsPatch((d.fields as Record<string, unknown>) ?? {}, this.fields);
+    if (changedFields) patch.fields = changedFields;
     try {
       const saved = await api.save(this.guid, { patch, removeFiles: this.removedFiles, ...(addEntries.length ? { addEntries } : {}) },
         this.pendingFiles, this.view.etag, entryFiles);
@@ -555,7 +546,7 @@ export class DocumentView extends LightElement {
         if (this.editor) this.editor.value = this.content;
       }
       store.toast("Document saved", "success");
-      if (this.editing) { announceEdit(this.guid, false); this.editing = false; }
+      this.session.done();
       store.refresh();
     } catch (e) {
       this.error = e instanceof ApiError && e.status === 412 ? "Someone else modified this document. Reload to see their version." : errorText(e);
