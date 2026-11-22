@@ -13,6 +13,7 @@ import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/artifact";
 import "./components/type-icon";
 import "./components/table/table";
+import "./components/ref";
 import type { TableColumn } from "./components/table/table";
 import "./components/fields";
 import { OVERLAY_HELP, type OverlayState } from "./components/fields";
@@ -739,7 +740,7 @@ export class Detail extends LightElement {
         @overlay-unlock=${(e: CustomEvent) => this.setOwnField(e.detail.id, structuredClone(ov?.baseValue))}
         @overlay-revert=${(e: CustomEvent) => this.setOwnField(e.detail.id, undefined)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}
-        @open-artifact=${(e: CustomEvent) => navigate({ guid: e.detail })}></corestone-field>`; })}
+        @open-artifact=${this.openRef}></corestone-field>`; })}
       ${extra.map((k) => html`<corestone-field .field=${undeclaredField(k, d.fields[k])} .value=${d.fields[k]} undeclared .files=${this.entryFiles} .readonly=${!!this.historic} .changed=${this.changed("fields." + k)}
         @field-change=${(e: CustomEvent) => { const next = { ...d.fields }; if (e.detail.value == null) delete next[e.detail.id]; else next[e.detail.id] = e.detail.value; this.draft = { ...d, fields: next }; this.touched(); }}></corestone-field>`)}`);
   }
@@ -957,7 +958,7 @@ export class Detail extends LightElement {
     const base = ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
     const sets = (fields: string[]) => html`<small>${fields.length ? "sets " + fields.join(", ") : "sets nothing"}</small>`;
     const node = (guid: string, hid: string | undefined, title: string | undefined, fields: string[]) => html`<div class="node" data-guid=${guid}>
-      <a href=${"/artifact/" + guid} @click=${(e: Event) => { e.preventDefault(); navigate({ guid }); }}>${hid ? html`<span class="hid">${hid}</span> ` : nothing}${title || (hid ? "" : guid.slice(0, 8))}</a>
+      <corestone-ref guid=${guid} .text=${html`${hid ? html`<span class="hid">${hid}</span> ` : nothing}${title || (hid ? "" : guid.slice(0, 8))}`} @open-artifact=${this.openRef}></corestone-ref>
       ${sets(fields)}</div>`;
     const empty = !base && !ov.overlays.length;
     return this.section("overlay", () => html`${this.baseChangePreview()}${this.underlayForm()}${empty ? html`<div class="muted small">This entry is no overlay and has no overlays.</div>` : html`
@@ -1063,6 +1064,9 @@ export class Detail extends LightElement {
     at: (m, box) => m.clientY - box.top,
     changed: () => this.requestUpdate(),
   });
+
+  /** Opens the artifact a reference names. */
+  private openRef = (e: CustomEvent<string>) => navigate({ guid: e.detail });
 
   private async previewBase(to: Summary | null) {
     try {

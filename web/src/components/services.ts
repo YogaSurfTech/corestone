@@ -1,3 +1,4 @@
+import type { ItemLinks } from "@corestone/editor";
 import type { FolderInfo, PickOptions, Schema, SortLevel, Summary, TableFilter, TableRows } from "./types";
 
 // Where the components get their data from. A component imports neither the
@@ -31,6 +32,8 @@ export interface FieldServices {
   values(type: string, field: string, folder: string): Promise<string[]>;
   /** Lets the user pick an artifact; null when they pick none. */
   pick(options: PickOptions): Promise<Summary | null>;
+  /** Links in rich text to items: how one is chosen and what it is called. Without it the editor offers none. */
+  itemLinks?: Required<Pick<ItemLinks, "pick" | "label">>;
   /** Tells the user something, as a passing notice. */
   notify(text: string, level: "info" | "error"): void;
   /** Where the diagram editor is served; nothing when there is none. */

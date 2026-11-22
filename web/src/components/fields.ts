@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { LightElement, safeHref } from "@corestone/ui";
+import { artifactHref } from "./ref";
 import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
@@ -55,14 +56,14 @@ export class FieldEditor extends LightElement {
   @state() private globalUsed: string[] = [];
   private usedKey = "";
   private refCache = new Map<string, Summary | null>();
-  /** Links in rich text to items: chosen with the item picker, opened like references. */
-  private readonly itemLinks: ItemLinks = {
-    pick: () => (this.services?.pick({ title: "Link to an item" }) ?? Promise.resolve(null)).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
-    label: (g) => (this.services?.resolve(g) ?? Promise.reject(new Error("no provider"))).then((s) => label(s)).catch(() => "Missing item"),
-    open: (g, newTab) => {
-      if (newTab) window.open(`/artifact/${g}`, "_blank", "noopener");
-      else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
-    },
+  /** Links in rich text to items: the page says how one is chosen and called; opened like references. */
+  private get itemLinks(): ItemLinks | undefined {
+    const links = this.services?.itemLinks;
+    return links && { ...links, open: this.openItem };
+  }
+  private readonly openItem = (g: string, newTab: boolean) => {
+    if (newTab) window.open(artifactHref(g), "_blank", "noopener");
+    else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
   };
 
   /** What the field needs from the page: artifacts by GUID, the values in use, the picker, notices (services.ts). */
@@ -225,7 +226,7 @@ export class FieldEditor extends LightElement {
     });
     const remove = (g: string) => (multiple ? this.emit(cur.filter((x) => x !== g).length ? cur.filter((x) => x !== g) : null) : this.emit(null));
     return html`<div>
-      ${cur.map((g) => html`<span class="ref-chip"><a href=${"/artifact/" + g} @click=${(e: Event) => { e.preventDefault(); this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true })); }}>${label(this.refCache.get(g)) === "(missing)" ? g.slice(0, 8) + "…" : label(this.refCache.get(g))}</a>
+      ${cur.map((g) => html`<span class="ref-chip"><corestone-ref guid=${g} .text=${label(this.refCache.get(g)) === "(missing)" ? g.slice(0, 8) + "…" : label(this.refCache.get(g))}></corestone-ref>
         ${this.disabled ? nothing : html`<button type="button" title="Remove reference" aria-label="Remove reference" @click=${() => remove(g)}>✕</button>`}</span>`)}
       ${this.disabled ? nothing : html`<button type="button" class="btn sm" @click=${pick}>${multiple || !cur.length ? "＋ Select…" : "Change…"}</button>`}
     </div>`;

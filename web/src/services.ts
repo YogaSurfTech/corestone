@@ -1,5 +1,7 @@
 import { api, server } from "./api";
 import type { Services } from "./components/services";
+import type { ItemLinks } from "@corestone/editor";
+import { label } from "./components/artifact";
 import { pickArtifact, store } from "./store";
 import type { Schema } from "./components/types";
 
@@ -9,6 +11,12 @@ import type { Schema } from "./components/types";
 // whenever the repository changes.
 let types = new Map<string, Promise<Schema[]>>();
 let typesTick = -1;
+
+/** Links in rich text to items: chosen with the artifact picker and called by the artifact's name. A reference may name a part ("guid#part"). */
+export const itemLinks: Required<Pick<ItemLinks, "pick" | "label">> = {
+  pick: () => pickArtifact({ title: "Link to an item" }).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
+  label: (ref) => api.get(ref.split("#")[0]).then((v) => label(v.meta)).catch(() => "Missing item"),
+};
 
 export const services: Services = {
   types: {
@@ -29,6 +37,7 @@ export const services: Services = {
     resolve: (guid) => api.get(guid).then((v) => v.meta),
     values: (type, field, folder) => api.values(type, field, folder).then((r) => r.values.map((v) => v.value)),
     pick: pickArtifact,
+    itemLinks,
     notify: (text, level) => store.toast(text, level),
     diagramsUrl: () => server.diagrams || undefined,
   },

@@ -13,6 +13,7 @@ import { services } from "./services";
 import { kindIcon, kindLabel, workflowStates } from "./components/artifact";
 import type { TableColumn, TableContext } from "./components/table/table";
 import "./components/table/table";
+import "./components/ref";
 import "./components/type-icon";
 import "./components/enum-control";
 import "./components/kind-menu";
@@ -143,13 +144,10 @@ export class Overview extends LightElement {
     this.rowSchemas = next;
   };
 
-  /** Opens an artifact from a cell without selecting the row. */
-  private open(e: MouseEvent, guid: string) {
-    e.stopPropagation();
-    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
-    navigate({ guid, folder: this.s.route.folder, tab: "" });
-  }
+  /** A click on a reference in a cell does not select the row. */
+  private quiet = (e: Event) => e.stopPropagation();
+  /** Opens the artifact a reference in a cell names. */
+  private openRef = (e: CustomEvent<string>) => navigate({ guid: e.detail, folder: this.s.route.folder, tab: "" });
 
   private schemaOf(row: Pick<Summary, "folder" | "type">) { return this.rowSchemas[schemaKey(row)] ?? undefined; }
 
@@ -189,14 +187,14 @@ export class Overview extends LightElement {
   private subject(row: Summary, ctx: TableContext) {
     const s = row.subject ? ctx.related[row.subject] : undefined;
     if (!s) return html`<span class="muted mono" title="This artifact no longer exists">${row.subject ?? "—"}</span>`;
-    if (s.kind === "link") return html`${this.endpoint(s.source, ctx)} <a class="muted" href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>→ ${ctx.typeName(s)} →</a> ${this.endpoint(s.target, ctx)}`;
-    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon><a href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}${s.title || s.guid}</a>`;
+    if (s.kind === "link") return html`${this.endpoint(s.source, ctx)} <corestone-ref look="muted" .artifact=${s} .text=${`→ ${ctx.typeName(s)} →`} @click=${this.quiet}></corestone-ref> ${this.endpoint(s.target, ctx)}`;
+    return html`<corestone-ref icon .artifact=${s} @click=${this.quiet}></corestone-ref>`;
   }
 
   private endpoint(guid: string | undefined, ctx: TableContext) {
     if (!guid) return html`<span class="muted">—</span>`;
     const s = ctx.related[guid];
-    return html`${s ? html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>` : nothing}<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => this.open(e, guid)}>${this.endpointLabel(guid, ctx)}</a>`;
+    return html`<corestone-ref icon .artifact=${s} guid=${guid} .text=${this.endpointLabel(guid, ctx)} @click=${this.quiet}></corestone-ref>`;
   }
 
   /** Link and comment rows show what they connect instead of generic artifact identity. */
@@ -243,7 +241,7 @@ export class Overview extends LightElement {
       ] satisfies Column[] : comments ? [
         created,
         { id: "$details", name: "", sortable: false, render: (row) => html`<button class="btn sm" data-test="comment-details"
-          title="Open this comment on its own" @click=${(e: MouseEvent) => this.open(e, row.guid)}>Details</button>` },
+          title="Open this comment on its own" @click=${(e: MouseEvent) => { e.stopPropagation(); navigate({ guid: row.guid, folder: this.s.route.folder, tab: "" }); }}>Details</button>` },
       ] satisfies Column[] : [
         { id: "$folder", name: "Folder", cls: "muted", render: (row) => row.folder || "/" },
         { id: "$social", name: "Social", cls: "social", title: () => "links · comments", render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },
@@ -313,6 +311,7 @@ export class Overview extends LightElement {
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @table-error=${() => (this.total = FAILED)}
         @rows-load=${this.onRows}
+        @open-artifact=${this.openRef}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => this.saveLayout({ ...this.layout, sort: e.detail })}
         @widths-change=${(e: CustomEvent<Record<string, number>>) => this.saveLayout({ ...this.layout, widths: e.detail })}
         @row-click=${(e: CustomEvent<Summary>) => { const row = e.detail; if (row.kind === "comment" && row.subject) navigate({ guid: row.subject, folder: r.folder, tab: "comments" }); else navigate({ guid: row.guid, folder: r.folder }); }}></corestone-table>`;

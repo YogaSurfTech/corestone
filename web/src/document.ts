@@ -6,7 +6,8 @@ import "@corestone/editor";
 import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement, type DocumentHost, type EntryFiles, type ItemLinks, type OutlineItem, type Placed, type RichText } from "@corestone/editor";
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
-import { pickArtifact, pickArtifacts, store, type State, toastError } from "./store";
+import { pickArtifacts, store, type State, toastError } from "./store";
+import { itemLinks } from "./services";
 import type { CommentView, LogEntry, Relationships, View } from "./types";
 import type { Field, Schema } from "./components/types";
 import { announceEdit } from "./ws";
@@ -15,6 +16,7 @@ import { createFiles } from "./files";
 import "./components/type-icon";
 import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
+import "./components/ref";
 import { StoreController } from "./store-controller";
 
 // Document view (design guide §7.6, §9.5; docs/design/Corestone documents.md): one editor for
@@ -476,8 +478,7 @@ export class DocumentView extends LightElement {
 
   /** Links in the text to items: chosen with the item picker, opened like references. */
   private readonly itemLinks: ItemLinks = {
-    pick: () => pickArtifact({ title: "Link to an item" }).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
-    label: (g) => api.get(g.split("#")[0]).then((v) => label(v.meta)).catch(() => "Missing item"),
+    ...itemLinks,
     open: (g, newTab) => {
       const guid = g.split("#")[0];
       if (newTab) window.open(`/artifact/${guid}`, "_blank", "noopener");
@@ -721,8 +722,8 @@ export class DocumentView extends LightElement {
       }
       case "rel":
         return html`${this.sideHead(id, "Relationships")}${!this.rel || (!this.rel.incoming.length && !this.rel.outgoing.length) ? html`<div class="muted small">No links.</div>` : nothing}
-          ${this.rel?.outgoing.map((l) => html`<div>→ <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}
-          ${this.rel?.incoming.map((l) => html`<div>← <span class="muted small">${l.link.type}</span> <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate({ guid: l.other.guid }); }}>${label(l.other)}</a></div>`)}`;
+          ${this.rel?.outgoing.map((l) => html`<div>→ <span class="muted small">${l.link.type}</span> <corestone-ref .artifact=${l.other} .text=${label(l.other)} @open-artifact=${(e: CustomEvent<string>) => navigate({ guid: e.detail })}></corestone-ref></div>`)}
+          ${this.rel?.incoming.map((l) => html`<div>← <span class="muted small">${l.link.type}</span> <corestone-ref .artifact=${l.other} .text=${label(l.other)} @open-artifact=${(e: CustomEvent<string>) => navigate({ guid: e.detail })}></corestone-ref></div>`)}`;
       case "comments":
         return html`${this.sideHead(id, "Comments")}${this.comments.map((c) => html`<div class="comment"><div class="who"><b>${c.meta.author}</b> · ${fmtTime(c.meta.created)}</div><div class="text">${String(c.data?.text ?? "")}</div></div>`)}
           ${!this.commentType ? html`<div class="muted small">No comment type is defined here, so no comments can be added.</div>` : html`<div class="inline-form"><textarea placeholder="Comment…" .value=${this.commentText} @input=${(e: Event) => (this.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
