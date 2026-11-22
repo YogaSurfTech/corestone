@@ -10,14 +10,15 @@ import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toS
 import { DocumentUI } from "./docui";
 import { CodeView, codeAround, codeAt, codeKeys, codeMenu, codeNumbers, copyCode, toggleCodeKey } from "./code";
 import { popupMenu } from "./menu";
+import { nodeUnder, type NodeActions } from "./feature";
 import {
   PlacementView, TocView, XrefView, backspaceStructure, insertToc, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
   renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
 } from "./structure";
 import { columnResizing, fixTables, tableEditing } from "prosemirror-tables";
-import { FileUI, ImageView, addFiles, imageImporter, insertImage, isPicture, type EntryFiles } from "./files";
-import { DiagramUI, selectedDiagram } from "./diagrams";
-import { FormulaUI, FormulaView, formulaPictures, selectedFormula } from "./formulas";
+import { FileUI, ImageView, addFiles, imageImporter, insertImage, type EntryFiles } from "./files";
+import { DiagramUI } from "./diagrams";
+import { FormulaUI, FormulaView, formulaPictures } from "./formulas";
 import { LinkUI, openLink, type ItemLinks } from "./links";
 import { StyledTableView, TableUI, flattenNestedTables, nextCell, prevCell, tableAt, tableEdges } from "./tables";
 import { safeHref, schema } from "./schema";
@@ -191,16 +192,8 @@ export class RichTextEditor {
         // the table menu on the right mouse button; outside tables the browser's own menu
         contextmenu: (view, e) => {
           if (this.readonly) return false;
-          // a placed entry: its menu
-          const placed = (e.target as HTMLElement).closest(".cs-placement");
-          if (placed && area.contains(placed) && this.doc) {
-            const pos = view.posAtDOM(placed, 0);
-            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.placement) return false;
-            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-            e.preventDefault();
-            this.doc.openMenu({ x: e.clientX, y: e.clientY });
-            return true;
-          }
+          // a node with a menu of its own (a placed entry, a picture, a formula, …)
+          if (this.onNode(view, e, "menu")) return true;
           // a code listing: its menu (copy, line numbers, language)
           const code = (e.target as HTMLElement).closest(".cs-code");
           if (code && area.contains(code)) {
@@ -210,36 +203,6 @@ export class RichTextEditor {
             if (codeAt(view.state)?.pos !== at.pos) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at.pos + 1)));
             e.preventDefault();
             this.openCodeMenu(at.pos, { x: e.clientX, y: e.clientY });
-            return true;
-          }
-          // a table of contents: its menu
-          const toc = (e.target as HTMLElement).closest(".cs-toc");
-          if (toc && area.contains(toc) && this.doc) {
-            const pos = view.posAtDOM(toc, 0);
-            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.toc) return false;
-            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-            e.preventDefault();
-            this.doc.openTocMenu({ x: e.clientX, y: e.clientY });
-            return true;
-          }
-          // an image: its menu
-          const img = (e.target as HTMLElement).closest(".cs-img");
-          if (img && area.contains(img)) {
-            const pos = view.posAtDOM(img, 0);
-            if (!isPicture(view.state.doc.nodeAt(pos))) return false;
-            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-            e.preventDefault();
-            this.files.openMenu({ x: e.clientX, y: e.clientY }, this.diagramsOn() ? () => { void this.diagrams.edit(); } : undefined);
-            return true;
-          }
-          // a formula: its menu
-          const formula = (e.target as HTMLElement).closest(".cs-formula");
-          if (formula && area.contains(formula)) {
-            const pos = view.posAtDOM(formula, 0);
-            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.formula) return false;
-            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-            e.preventDefault();
-            this.formulas.openMenu({ x: e.clientX, y: e.clientY });
             return true;
           }
           if (!(e.target as HTMLElement).closest("td, th")) return false;
@@ -253,37 +216,8 @@ export class RichTextEditor {
           this.tables.openMenu({ x: e.clientX, y: e.clientY });
           return true;
         },
-        // a double click on a formula edits it
-        dblclick: (view, e) => {
-          // a placed entry opens
-          const placed = (e.target as HTMLElement).closest(".cs-placement");
-          if (placed && area.contains(placed)) {
-            const pos = view.posAtDOM(placed, 0);
-            const n = view.state.doc.nodeAt(pos);
-            if (n?.type !== schema.nodes.placement) return false;
-            e.preventDefault();
-            docHost()?.openEntry(n.attrs.guid, e.ctrlKey || e.metaKey);
-            return true;
-          }
-          // a diagram: draw.io
-          const diagram = (e.target as HTMLElement).closest(".cs-diagram");
-          if (diagram && area.contains(diagram) && !this.readonly && this.diagramsOn()) {
-            const pos = view.posAtDOM(diagram, 0);
-            if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.diagram) return false;
-            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-            e.preventDefault();
-            void this.diagrams.edit();
-            return true;
-          }
-          const formula = (e.target as HTMLElement).closest(".cs-formula");
-          if (this.readonly || !formula || !area.contains(formula)) return false;
-          const pos = view.posAtDOM(formula, 0);
-          if (view.state.doc.nodeAt(pos)?.type !== schema.nodes.formula) return false;
-          view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
-          e.preventDefault();
-          this.formulas.edit({ x: e.clientX, y: e.clientY + 12 });
-          return true;
-        },
+        // a double click opens what it is on: a placed entry, a diagram, a formula
+        dblclick: (view, e) => this.onNode(view, e, "open"),
         focus: (view) => { this.links.update(view, this.readonly); return false; },
         blur: () => { this.links.hideBubble(); return false; },
       },
@@ -440,6 +374,34 @@ export class RichTextEditor {
     return true;
   }
 
+  /** What happens on the nodes that have a menu or open (by node type); the features' once they are features. */
+  private readonly nodes: Record<string, NodeActions> = {
+    placement: { selector: ".cs-placement", openReadonly: true,
+      menu: (hit) => { if (!this.doc) return false; this.doc.openMenu(hit.at!); },
+      // (only with the pointer: Enter on a selected entry is the text's)
+      open: (hit) => { if (!hit.at) return false; this.opts.document?.()?.openEntry(hit.node.attrs.guid, hit.newTab); } },
+    toc: { selector: ".cs-toc", menu: (hit) => { if (!this.doc) return false; this.doc.openTocMenu(hit.at!); } },
+    image: { selector: ".cs-img", menu: (hit) => this.files.openMenu(hit.at!) },
+    diagram: { selector: ".cs-img",
+      menu: (hit) => this.files.openMenu(hit.at!, this.diagramsOn() ? () => { void this.diagrams.edit(); } : undefined),
+      open: () => { if (!this.diagramsOn()) return false; void this.diagrams.edit(); } },
+    formula: { selector: ".cs-formula",
+      menu: (hit) => this.formulas.openMenu(hit.at!),
+      open: (hit) => this.formulas.edit(hit.at && { x: hit.at.x, y: hit.at.y + 12 }) },
+  };
+
+  /** A pointer event on a node with an action of that kind: the node is selected and the action runs. */
+  private onNode(view: EditorView, e: MouseEvent, kind: "menu" | "open"): boolean {
+    const found = nodeUnder(view, e, this.nodes, kind);
+    if (!found) return false;
+    const { actions, hit } = found;
+    if (this.readonly && !(kind === "open" && actions.openReadonly)) return false;
+    if (!this.readonly) view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hit.pos)));
+    if (actions[kind]!(hit) === false) return false;
+    e.preventDefault();
+    return true;
+  }
+
   /** Whether diagrams can be drawn: the entry's files and draw.io are there. */
   private diagramsOn() { return !!this.opts.files?.() && !!this.opts.diagrams?.(); }
 
@@ -469,12 +431,12 @@ export class RichTextEditor {
       // the table menu from the keyboard
       "ContextMenu": (state) => this.contextKey(state), "Shift-F10": (state) => this.contextKey(state),
       "Mod-Alt-c": toggleCodeKey,
-      // Enter on a selected formula edits it
+      // Enter on a selected formula or diagram opens it
       "Enter": (state, dispatch) => {
-        if (!this.readonly && selectedDiagram(state) && this.diagramsOn()) { void this.diagrams.edit(); return true; }
-        if (this.readonly || !selectedFormula(state)) return keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter))(state, dispatch);
-        this.formulas.edit();
-        return true;
+        const sel = state.selection;
+        const actions = sel instanceof NodeSelection ? this.nodes[sel.node.type.name] : undefined;
+        if (!this.readonly && actions?.open && actions.open({ node: (sel as NodeSelection).node, pos: sel.from, newTab: false }) !== false) return true;
+        return keepAlign(chainCommands(splitListItem(schema.nodes.list_item), baseKeymap.Enter))(state, dispatch);
       },
       "Mod-k": () => { if (this.readonly) return false; this.links.edit(); return true; },
       "Shift-Enter": (state, dispatch) => {
