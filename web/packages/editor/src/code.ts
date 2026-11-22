@@ -3,7 +3,9 @@ import type { Node } from "prosemirror-model";
 import { AllSelection, Plugin, TextSelection, type Command, type EditorState } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "prosemirror-view";
 import { icon } from "./icons";
-import type { MenuItem } from "./menu";
+import { keymap } from "prosemirror-keymap";
+import type { Feature } from "./feature";
+import { popupMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { synced } from "./structure";
 
@@ -379,3 +381,46 @@ export class CodeView implements NodeView {
   stopEvent(e: Event) { return !this.contentDOM.contains(e.target as globalThis.Node) && e.type !== "contextmenu"; }
   ignoreMutation(m: { target: globalThis.Node }) { return !this.contentDOM.contains(m.target); }
 }
+
+/** Code listings and code within a line: the listing's view, keys and line numbers, its menu, and the Code button. */
+export const codeFeature: Feature = (ctx) => {
+  let closeMenu: (() => void) | undefined;
+  /** The menu of the listing at pos: at a point, or below the cursor. */
+  const openMenu = (pos: number, at?: { x: number; y: number }) => {
+    closeMenu?.();
+    const view = ctx.view();
+    const c = view.coordsAtPos(view.state.selection.head);
+    closeMenu = popupMenu(ctx.root, "Code", "cs-codemenu",
+      codeMenu(pos, () => { void copyCode(view.state.doc.nodeAt(pos)?.textContent ?? ""); }), view.state, at ?? { x: c.left, y: c.bottom + 4 },
+      (it) => {
+        if (it.cmd) it.cmd(ctx.view().state, ctx.view().dispatch);
+        else it.run?.();
+        ctx.view().focus();
+      }, () => ctx.view().focus());
+  };
+  return {
+    id: "code",
+    nodeViews: { code_block: (node, view, getPos) => new CodeView(node, view, getPos) },
+    plugins: [keymap(codeKeys), codeNumbers()],
+    keys: { "Mod-Alt-c": toggleCodeKey },
+    toolbar: [{ group: "fmt", id: "code",
+      // part of a line selected becomes code within the line, otherwise the paragraphs become a listing
+      tip: { text: "Code", shortcut: "Ctrl+Alt+C", disabled: () => (toggleCode(ctx.view().state) ? null : "Code is made of text: not of a heading, a table or a placed entry.") },
+      run: () => ctx.run(toggleCode), pressed: codeActive }],
+    contextMenu(e) {
+      const view = ctx.view();
+      if (!e) {
+        const code = codeAt(view.state);
+        if (code) openMenu(code.pos);
+        return !!code;
+      }
+      const el = (e.target as HTMLElement).closest(".cs-code");
+      const at = el && view.dom.contains(el) ? codeAround(view.state, view.posAtDOM(el, 0)) : null;
+      if (!at) return false;
+      // the cursor goes into the listing, unless the selection is in it already
+      if (codeAt(view.state)?.pos !== at.pos) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at.pos + 1)));
+      openMenu(at.pos, { x: e.clientX, y: e.clientY });
+      return true;
+    },
+  };
+};

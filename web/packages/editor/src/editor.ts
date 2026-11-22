@@ -8,9 +8,8 @@ import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toStorage, type DocNode, type RichText } from "./model";
 import { DocumentUI } from "./docui";
-import { CodeView, codeAround, codeAt, codeKeys, codeMenu, codeNumbers, copyCode, toggleCodeKey } from "./code";
-import { popupMenu } from "./menu";
-import { nodeUnder, type NodeActions } from "./feature";
+import { codeFeature } from "./code";
+import { nodeUnder, type EditorFeature, type FeatureContext, type NodeActions } from "./feature";
 import {
   PlacementView, TocView, XrefView, backspaceStructure, insertToc, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
   renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
@@ -61,6 +60,8 @@ export class RichTextEditor {
   private readonly formulas: FormulaUI;
   private readonly diagrams: DiagramUI;
   private readonly doc?: DocumentUI;
+  /** The features, in the order their plugins and toolbar buttons take. */
+  private readonly features: EditorFeature[];
 
   constructor(host: HTMLElement, private readonly opts: EditorOptions = {}) {
     const items = () => opts.items?.();
@@ -71,6 +72,11 @@ export class RichTextEditor {
     this.root.classList.toggle("readonly", this.readonly);
     // the toolbar's own inputs are internal: their change events are not the editor's
     this.root.addEventListener("change", (e) => e.stopPropagation());
+    const ctx: FeatureContext = {
+      view: () => this.view, root: this.root, readonly: () => this.readonly, run: (cmd) => this.run(cmd),
+      notice: (m) => this.files.notice(m), files, items,
+    };
+    this.features = [codeFeature].map((make) => make(ctx));
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd), link: () => this.links.edit(), files: () => !!files(),
       image: (at) => this.files.pick({ images: true, at, chosen: (name) => this.run(insertImage(name)) }), table: (at) => this.tables.openGrid(at),
       formula: (at) => this.formulas.edit(at),
@@ -81,7 +87,7 @@ export class RichTextEditor {
         ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
           ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
             entryTypes: () => opts.document?.()?.entryTypes?.() ?? { remember: "", types: [] } } : {}) } : undefined },
-      opts.palette ?? DEFAULT_PALETTE);
+      opts.palette ?? DEFAULT_PALETTE, this.features.flatMap((f) => f.toolbar ?? []));
     this.root.classList.toggle("cs-document", !!opts.document);
     const area = document.createElement("div");
     area.className = "cs-area";
@@ -132,7 +138,7 @@ export class RichTextEditor {
         diagram: (node, view, getPos) => new ImageView(node, view, getPos, files), formula: (node) => new FormulaView(node, files),
         placement: (node, _view, _getPos, decorations) => new PlacementView(node, docHost, decorations),
         xref: (node, view) => new XrefView(node, view, docHost), toc: (node, view) => new TocView(node, view),
-        code_block: (node, view, getPos) => new CodeView(node, view, getPos) },
+        ...Object.assign({}, ...this.features.map((f) => f.nodeViews)) },
       clipboardSerializer,
       editable: () => !this.readonly,
       dispatchTransaction: (tr) => {
@@ -194,17 +200,8 @@ export class RichTextEditor {
           if (this.readonly) return false;
           // a node with a menu of its own (a placed entry, a picture, a formula, …)
           if (this.onNode(view, e, "menu")) return true;
-          // a code listing: its menu (copy, line numbers, language)
-          const code = (e.target as HTMLElement).closest(".cs-code");
-          if (code && area.contains(code)) {
-            const at = codeAround(view.state, view.posAtDOM(code, 0));
-            if (!at) return false;
-            // the cursor goes into the listing, unless the selection is in it already
-            if (codeAt(view.state)?.pos !== at.pos) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at.pos + 1)));
-            e.preventDefault();
-            this.openCodeMenu(at.pos, { x: e.clientX, y: e.clientY });
-            return true;
-          }
+          // a feature's menu for what the pointer is on (a code listing)
+          if (this.features.some((f) => f.contextMenu?.(e))) { e.preventDefault(); return true; }
           if (!(e.target as HTMLElement).closest("td, th")) return false;
           const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
           // a click outside the selected cells moves the cursor there; inside, the selection stays (merge)
@@ -350,28 +347,10 @@ export class RichTextEditor {
     return true;
   }
 
-  /** The menu of the code listing at pos. */
-  private openCodeMenu(pos: number, at?: { x: number; y: number }) {
-    this.closeCodeMenu?.();
-    const view = this.view;
-    const c = view.coordsAtPos(view.state.selection.head);
-    this.closeCodeMenu = popupMenu(this.root, "Code", "cs-codemenu",
-      codeMenu(pos, () => { void copyCode(view.state.doc.nodeAt(pos)?.textContent ?? ""); }), view.state, at ?? { x: c.left, y: c.bottom + 4 },
-      (it) => {
-        if (it.cmd) it.cmd(this.view.state, this.view.dispatch);
-        else it.run?.();
-        this.view.focus();
-      }, () => this.view.focus());
-  }
-  private closeCodeMenu?: () => void;
-
   /** The menu of what the cursor is in, from the keyboard: a code listing's, else a table's. */
   private contextKey(state: EditorState): boolean {
     if (this.readonly) return false;
-    const code = codeAt(state);
-    if (!code) return this.tableMenu(state);
-    this.openCodeMenu(code.pos);
-    return true;
+    return this.features.some((f) => f.contextMenu?.()) || this.tableMenu(state);
   }
 
   /** What happens on the nodes that have a menu or open (by node type); the features' once they are features. */
@@ -430,7 +409,6 @@ export class RichTextEditor {
       "Tab": chainCommands(indent, nextCell), "Shift-Tab": chainCommands(outdent, prevCell),
       // the table menu from the keyboard
       "ContextMenu": (state) => this.contextKey(state), "Shift-F10": (state) => this.contextKey(state),
-      "Mod-Alt-c": toggleCodeKey,
       // Enter on a selected formula or diagram opens it
       "Enter": (state, dispatch) => {
         const sel = state.selection;
@@ -444,8 +422,10 @@ export class RichTextEditor {
         return true;
       },
     };
+    // a feature's key: the editor's own command for it first, the feature's when that does not apply
+    for (const f of this.features) for (const [key, cmd] of Object.entries(f.keys ?? {})) keys[key] = keys[key] ? chainCommands(keys[key], cmd) : cmd;
     const state = EditorState.create({ doc: isDoc ? documentFromStorage(value as DocNode[], title) : fromStorage(value as RichText),
-      plugins: [history(), keymap(codeKeys), codeNumbers(), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, imageImporter(files, (m) => this.files.notice(m)),
+      plugins: [history(), ...this.features.flatMap((f) => f.plugins ?? []), columnResizing({ View: StyledTableView }), tableEditing(), tableEdges, imageImporter(files, (m) => this.files.notice(m)),
         formulaPictures(files, (m) => this.files.notice(m)), ...(isDoc ? [structurePlugin(() => this.opts.document?.()), keymap(docKeys)] : []),
         keymap(keys), keymap(baseKeymap)] });
     // irregular stored tables (rows of different lengths) are completed, outside the undo history

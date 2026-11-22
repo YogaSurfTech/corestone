@@ -7,7 +7,7 @@ import {
 import { isInTable } from "prosemirror-tables";
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, schema, type Align, type Flag } from "./schema";
-import { codeActive, codeAt, toggleCode } from "./code";
+import type { ToolbarItem } from "./feature";
 import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, selectedText, styleAt } from "./structure";
 
 // The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
@@ -85,7 +85,8 @@ export class Toolbar {
   private pointer?: { x: number; y: number };
   private readonly historyViews: (() => void)[] = [];
 
-  constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE) {
+  /** items: the buttons the editor's features add to the groups, in their order. */
+  constructor(private readonly host: ToolbarHost, private readonly palette: Palette = DEFAULT_PALETTE, private readonly items: ToolbarItem[] = []) {
     this.bar = new ButtonBar<EditorState>({ cls: "cs-tb", label: "Formatting", chevron: icon("chev", 12), state: () => this.host.state(), lastKey: LAST_KEY, tipCls: "cs-tip" });
     this.el = this.bar.el;
     this.build();
@@ -131,12 +132,10 @@ export class Toolbar {
       { i: "bold", t: "Bold", k: "Ctrl+B" }, { i: "italic", t: "Italic", k: "Ctrl+I" }, { i: "underline", t: "Underline", k: "Ctrl+U" },
       { i: "strike", t: "Strikethrough" }, { i: "sub", t: "Subscript", k: "Ctrl+," }, { i: "sup", t: "Superscript", k: "Ctrl+." },
     ];
-    const noFormat = () => (codeAt(S()) ? "A code listing has no formatting of its own." : null);
+    const inCode = (s: EditorState) => !!s.selection.$from.parent.type.spec.code && s.selection.$from.sameParent(s.selection.$to);
+    const noFormat = () => (inCode(S()) ? "A code listing has no formatting of its own." : null);
     this.split("fmt", "Text format", [...flags.map((f) => ({ i: f.i as string, tip: { text: f.t, shortcut: f.k, disabled: noFormat }, run: () => this.run(toggleFlag(f.i)),
-      pressed: (s: EditorState) => flagActive(s, f.i) })),
-    // code: part of a line selected becomes code within the line, otherwise the paragraphs become a listing
-    { i: "code", tip: { text: "Code", shortcut: "Ctrl+Alt+C", disabled: () => (this.can(toggleCode) ? null : "Code is made of text: not of a heading, a table or a placed entry.") },
-      run: () => this.run(toggleCode), pressed: (s: EditorState) => codeActive(s) }]);
+      pressed: (s: EditorState) => flagActive(s, f.i) })), ...this.added("fmt")]);
     this.colour("color", "fcolor", "Font color", "#c62828");
     this.colour("bg", "bcolor", "Background color", "#fff59d");
     this.font();
@@ -173,6 +172,11 @@ export class Toolbar {
   }
 
   // --- building blocks ---
+
+  /** The buttons the features add to a group. */
+  private added(group: ToolbarItem["group"]) {
+    return this.items.filter((it) => it.group === group).map((it) => ({ i: it.id, tip: it.tip, run: () => it.run(this.pointer), pressed: it.pressed }));
+  }
 
   private add(el: HTMLElement) { this.bar.add(el); }
   private sep() { this.bar.sep(); }

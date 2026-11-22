@@ -1,7 +1,7 @@
 import type { Node } from "prosemirror-model";
-import type { Command, Plugin } from "prosemirror-state";
+import type { Command, EditorState, Plugin } from "prosemirror-state";
 import type { EditorView, NodeViewConstructor } from "prosemirror-view";
-import type { Point } from "@corestone/ui";
+import type { Point, Tip } from "@corestone/ui";
 import type { EntryFiles } from "./files";
 import type { ItemLinks } from "./links";
 
@@ -16,6 +16,8 @@ export interface FeatureContext {
   /** The editor's element; panels and menus are put into it. */
   root: HTMLElement;
   readonly(): boolean;
+  /** Runs a command on the text and gives it the focus. */
+  run(cmd: Command): void;
   /** Tells the user something in passing (e.g. why a file was not added). */
   notice(msg: string): void;
   /** The entry's files (asked each time; absent: none here). */
@@ -46,21 +48,43 @@ export interface NodeActions {
   openReadonly?: boolean;
 }
 
+/** A button a feature adds to a group of the toolbar ("fmt": text format, "ins": insert). */
+export interface ToolbarItem {
+  group: "fmt" | "ins";
+  /** Names the button and its icon. */
+  id: string;
+  tip: Tip;
+  /** at: where the toolbar was clicked (absent from the keyboard), for a panel that opens there. */
+  run(at?: Point): void;
+  pressed?(state: EditorState): boolean;
+}
+
+/**
+ * A feature as one editor has it. Features are listed in an order that
+ * counts: their plugins and their toolbar buttons follow it.
+ */
 export interface EditorFeature {
   id: string;
   /** Node views, by node type. */
-  nodeViews?(ctx: FeatureContext): Record<string, NodeViewConstructor>;
-  plugins?(ctx: FeatureContext): Plugin[];
-  keys?(ctx: FeatureContext): Record<string, Command>;
+  nodeViews?: Record<string, NodeViewConstructor>;
+  plugins?: Plugin[];
+  /** Keys; a key the editor or an earlier feature also has goes to this one when theirs does not apply. */
+  keys?: Record<string, Command>;
   /** The actions on the feature's nodes, by node type. */
-  nodes?(ctx: FeatureContext): Record<string, NodeActions>;
+  nodes?: Record<string, NodeActions>;
   /** What a copied node carries to the clipboard, by node type. */
-  clipboard?(ctx: FeatureContext): Record<string, (node: Node) => HTMLElement>;
+  clipboard?: Record<string, (node: Node) => HTMLElement>;
+  toolbar?: ToolbarItem[];
+  /** Shows the feature's menu for where the pointer (e) or else the cursor is; true when it did. Never called while read-only. */
+  contextMenu?(e?: MouseEvent): boolean;
   /** Pasted or dropped data the feature takes; true when it did. */
-  paste?(view: EditorView, data: DataTransfer, pos: number | undefined, ctx: FeatureContext): boolean;
+  paste?(view: EditorView, data: DataTransfer, pos: number | undefined): boolean;
   setReadonly?(on: boolean): void;
   destroy?(): void;
 }
+
+/** Makes a feature for one editor. */
+export type Feature = (ctx: FeatureContext) => EditorFeature;
 
 /**
  * The node under a pointer event that has an action of the wanted kind: its
