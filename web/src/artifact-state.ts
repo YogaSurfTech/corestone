@@ -1,12 +1,37 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import { deepEqual } from "@corestone/ui";
-import { clearLeaveGuard, setLeaveGuard, type LeaveGuard } from "./router";
+import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { announceEdit } from "./ws";
-import { store, type State } from "./store";
+import { store, toastError, type State } from "./store";
+import { api } from "./api";
+import type { View } from "./types";
+import { label } from "./components/artifact";
 
 // What the entry view and the document view share about an artifact that is
-// being edited, without any rendering: what a save sends for the fields, and
-// who is told about unsaved changes.
+// being edited, without any rendering: what a save sends for the fields, who
+// is told about unsaved changes, and moving and deleting it.
+
+/** Deletes the artifact after asking; the view closes. */
+export async function deleteArtifact(v: View) {
+  const choice = await store.confirm(`Delete ${label(v.meta)}?`, { danger: true, confirmLabel: "Delete",
+    text: `The artifact, its ${v.meta.links} link(s), ${v.meta.comments} comment(s) and ${v.attachments?.length ?? 0} attachment(s) are removed in one commit. History stays in Git.` });
+  if (choice !== "confirm") return;
+  try {
+    await api.remove(v.meta.guid, v.etag);
+    store.toast("Deleted", "success");
+    store.refresh();
+    navigate({ guid: null });
+  } catch (e) { toastError(e); }
+}
+
+/** Moves the artifact to a folder that is asked for; moved gets the new version. */
+export function moveArtifact(v: View, moved: (v: View) => void) {
+  store.prompt("Move artifact", { text: "Target folder; leave empty for the repository root.", value: v.meta.folder ?? "", confirmLabel: "Move", folder: true }).then((folder) => {
+    if (folder === null) return;
+    api.move(v.meta.guid, folder).then((nv) => { moved(nv); store.toast(`Moved to ${folder || "/"}`, "success"); store.refresh(); navigate({ folder }); })
+      .catch((e) => toastError(e));
+  });
+}
 
 /**
  * The fields a save sends: those whose value differs from the stored one,

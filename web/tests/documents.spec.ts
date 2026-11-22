@@ -675,11 +675,13 @@ test("a document opens under the table like an entry, expands to fill the worksp
   await expect(table).toBeVisible();
   // the top line, as an entry's: dates and the actions; a document is moved and deleted like an entry
   await expect(doc.locator(".doc-top .dh-dates")).toContainText("created:");
+  await expect(doc.locator(".doc-top .dh-crumbs a").last()).toHaveText(folder);
   await doc.locator("[data-test=actions]").click();
   await page.locator("[data-test=move]").click();
   await answerPrompt(page, `${folder}/moved`);
   await expect.poll(async () => (await get<{ meta: { folder: string } }>(`/documents/${a.meta.guid}`)).meta.folder).toBe(`${folder}/moved`);
   await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(doc.locator(".doc-top .dh-crumbs a").last()).toHaveText("moved");
   await doc.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await page.locator(".dialog [data-test=dialog-confirm]").click();

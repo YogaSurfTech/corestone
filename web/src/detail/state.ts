@@ -1,11 +1,10 @@
 import { errorText, prefs } from "@corestone/ui";
 import { api } from "../api";
-import { StatePart, tracked, type ViewHost } from "../artifact-state";
+import { deleteArtifact, moveArtifact, StatePart, tracked, type ViewHost } from "../artifact-state";
 import { store } from "../store";
 import type { VersionView, View, WorkflowEval } from "../types";
 import type { Schema, Summary } from "../components/types";
 import { hidLabel, label } from "../components/artifact";
-import { deleteArtifact, moveArtifact } from "../artifact-actions";
 import { sectionOrder, isOpen, setOpen } from "./sections";
 import { type DetailPart } from "./state/part";
 import { Edit } from "./state/edit";

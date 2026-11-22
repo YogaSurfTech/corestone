@@ -279,7 +279,7 @@ corestone-detail.historic .section.changed > h3 { color: var(--changed); }
 .dh-title .hid-input.empty { background: transparent; opacity: 0.55; }
 .dh-title .dash { color: var(--muted); }
 .dh-title .badge { cursor: pointer; }
-.dh-crumbs { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); padding-left: 6px; }
+.dh-crumbs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); padding-left: 6px; margin-right: auto; min-width: 0; }
 .dh-crumbs a { color: var(--muted); }
 .dh-crumbs a:hover { color: var(--accent); }
 .detail-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; flex: 1; }

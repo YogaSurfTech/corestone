@@ -12,7 +12,8 @@ import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 import "./components/ref";
 import { StoreController } from "./store-controller";
-import { actionsMenu, deleteArtifact, moveArtifact, viewTop } from "./artifact-actions";
+import { actionsMenu, viewTop } from "./components/view-top";
+import { deleteArtifact, moveArtifact } from "./artifact-state";
 
 import { DocumentState } from "./document/state";
 import { documentHost } from "./document/host";
@@ -128,7 +129,9 @@ export class DocumentView extends LightElement {
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     this.host.guid = this.guid;
     return html`
-      ${viewTop(v, { actions: this.actions, expanded: r.expanded, close: () => navigate({ guid: null, sidebars: [], expanded: false }), cls: "doc-top" })}
+      ${viewTop(v.meta, { actions: this.actions, expanded: r.expanded, cls: "doc-top",
+        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ expanded: !r.expanded }),
+        close: () => navigate({ guid: null, sidebars: [], expanded: false }) })}
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
           <div class="doc-left">
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>
