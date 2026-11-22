@@ -1,4 +1,4 @@
-import { html } from "lit";
+import { html, nothing } from "lit";
 import { DropMenu, fmtTime } from "@corestone/ui";
 import { api } from "./api";
 import { navigate } from "./router";
@@ -42,7 +42,14 @@ export function actionsMenu(move: () => void, remove: () => void): DropMenu {
   });
 }
 
-/** The dates of an artifact, as its view shows them in the top line. */
-export function viewDates(v: View) {
-  return html`<span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>`;
+/** The top line of an artifact view: the dates, the actions (none for a historic version), expanding and closing. */
+export function viewTop(v: View, o: { actions: DropMenu | null; expanded: boolean; close: () => void; cls?: string }) {
+  return html`<div class="dh-top ${o.cls ?? ""}">
+    <span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>
+    ${o.actions ? html`<span class="dh-actions">
+      <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
+        @click=${(e: Event) => o.actions!.toggle(e.currentTarget as HTMLElement)}>⋯</button></span>` : nothing}
+    <button class="btn sm" data-test="expand" title=${o.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !o.expanded })}>${o.expanded ? "⤡" : "⤢"}</button>
+    <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${o.close}>✕</button>
+  </div>`;
 }

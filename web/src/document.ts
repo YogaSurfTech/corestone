@@ -12,7 +12,7 @@ import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 import "./components/ref";
 import { StoreController } from "./store-controller";
-import { actionsMenu, deleteArtifact, moveArtifact, viewDates } from "./artifact-actions";
+import { actionsMenu, deleteArtifact, moveArtifact, viewTop } from "./artifact-actions";
 
 import { DocumentState } from "./document/state";
 import { documentHost } from "./document/host";
@@ -128,15 +128,7 @@ export class DocumentView extends LightElement {
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     this.host.guid = this.guid;
     return html`
-      <div class="dh-top doc-top">
-        ${viewDates(v)}
-        <span class="dh-actions">
-          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
-            @click=${(e: Event) => this.actions.toggle(e.currentTarget as HTMLElement)}>⋯</button>
-        </span>
-        <button class="btn sm" data-test="expand" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
-        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, sidebars: [], expanded: false })}>✕</button>
-      </div>
+      ${viewTop(v, { actions: this.actions, expanded: r.expanded, close: () => navigate({ guid: null, sidebars: [], expanded: false }), cls: "doc-top" })}
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
           <div class="doc-left">
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>

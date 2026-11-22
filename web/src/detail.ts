@@ -8,7 +8,7 @@ import "./components/table/table";
 import "./components/ref";
 import "./components/fields";
 import { StoreController } from "./store-controller";
-import { actionsMenu, viewDates } from "./artifact-actions";
+import { actionsMenu, viewTop } from "./artifact-actions";
 import { DetailState, SECTIONS, type Section } from "./detail/state";
 import { attachmentSection } from "./detail/attachments";
 import { commentSection, ownCommentSection } from "./detail/comments";
@@ -113,13 +113,7 @@ export class Detail extends LightElement {
     const segs = v.meta.folder ? v.meta.folder.split("/") : [];
     const toFolder = (folder: string) => (e: Event) => { e.preventDefault(); navigate({ folder, guid: null }); };
     return html`<div class="detail-head">
-      <div class="dh-top">
-        ${viewDates(v)}
-        <span class="dh-actions" ?hidden=${!!this.d.historic}>
-          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
-            @click=${(e: Event) => this.actions.toggle(e.currentTarget as HTMLElement)}>⋯</button>
-        </span>
-      </div>
+      ${viewTop(v, { actions: this.d.historic ? null : this.actions, expanded: r.expanded, close: () => navigate({ guid: null, tab: "", expanded: false }) })}
       <div class="dh-title">
         <div class="dh-identity">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.d.schema} title=${typeName}></corestone-type-icon>
@@ -135,8 +129,6 @@ export class Detail extends LightElement {
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
         ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.d.reveal("overlay")}>overlay of ${this.d.base.levelLabel(base.guid)}</button>` : nothing}
         ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.d.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}
-        <button class="btn sm" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
-        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, tab: "", expanded: false })}>✕</button>
       </div>
       <nav class="dh-crumbs" aria-label="Folder">
         <a href="/folder/" @click=${toFolder("")}>/</a>

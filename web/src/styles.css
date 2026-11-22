@@ -259,10 +259,10 @@ corestone-detail.historic .section.changed > h3 { color: var(--changed); }
 .historic-banner .spacer { flex: 1; }
 .history-row.shown { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .detail-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px 8px; background: var(--panel); border-bottom: 1px solid var(--border); }
-.dh-top { display: flex; justify-content: flex-end; align-items: center; gap: 24px; }
-/* a document's top line: as an entry's, with expanding and closing (its second line is the editor's toolbar) */
-.doc-top { grid-column: 1 / -1; gap: 8px; padding: 4px 14px 0; background: var(--panel); }
-.doc-top .dh-dates { margin-right: 16px; }
+/* the top line of an entry and of a document: dates, actions, expanding and closing */
+.dh-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.dh-top .dh-dates { margin-right: 16px; }
+.doc-top { grid-column: 1 / -1; padding: 4px 14px 0; background: var(--panel); }
 .dh-dates { color: var(--muted); font-size: 11.5px; }
 .dh-dates .gap { display: inline-block; width: 14px; }
 .dh-actions { position: relative; }
