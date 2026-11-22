@@ -52,9 +52,10 @@ at the top of `scripts/check-layers.mjs`.
   enforces it.
 - A view's state extends `StatePart` (`src/artifact-state.ts`); a field the view
   shows is marked `@tracked`, so assigning it renders again. A state that grows
-  is made of parts (`detail/state/`): each owns the data of one concern,
-  fetches it, and says what of it waits for Save (`DetailPart`); the state asks
-  all parts the same things and knows none of their fields.
+  is made of parts (`detail/state/`, `document/state/`): each owns the data of
+  one concern and what is done with it. The entry view asks all its parts the
+  same things (`DetailPart`: fetch, what waits for Save, what Save sends) and
+  knows none of their fields.
 
 ## The allowlist
 

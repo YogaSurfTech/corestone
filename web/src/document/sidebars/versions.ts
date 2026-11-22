@@ -8,5 +8,5 @@ import { sideHead } from "./head";
 
 /** The document's history. */
 export function versionsPanel(ds: DocumentState, id: string): TemplateResult {
-  return html`${sideHead(ds, id, "Versions")}${ds.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
+  return html`${sideHead(ds, id, "Versions")}${ds.side.history.map((h) => html`<div class="small"><span class="muted">${fmtTime(h.time)}</span> ${h.subject} <span class="mono muted">${h.sha.slice(0, 7)}</span></div>`)}`;
 }

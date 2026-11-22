@@ -42,7 +42,7 @@ export class DocumentView extends LightElement {
   private readonly watch = new StoreController(this, (s) => {
     if (s.refreshTick === this.d.lastTick) return;
     this.d.lastTick = s.refreshTick;
-    if (this.d.view) { this.d.loadSide(); this.d.reloadEntries(); }
+    if (this.d.view) { this.d.side.load(); this.d.entries.reload(); }
   });
 
   private get s(): State { return this.watch.state; }
@@ -56,12 +56,12 @@ export class DocumentView extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    this.d.observer = new IntersectionObserver((list) => {
+    this.d.entries.observer = new IntersectionObserver((list) => {
       for (const e of list) {
         if (!e.isIntersecting) continue;
-        this.d.observer!.unobserve(e.target);
+        this.d.entries.observer!.unobserve(e.target);
         const g = (e.target as HTMLElement).dataset.placement;
-        if (g && !this.d.held.has(g)) void this.d.loadEntry(this.d.real(g));
+        if (g && !this.d.entries.held.has(g)) void this.d.entries.load(this.d.entries.real(g));
       }
     }, { rootMargin: "600px 0px" });
   }
@@ -69,7 +69,7 @@ export class DocumentView extends LightElement {
   override disconnectedCallback() {
     this.resizes?.disconnect();
     this.watched = undefined;
-    this.d.observer?.disconnect();
+    this.d.entries.observer?.disconnect();
     super.disconnectedCallback();
   }
 
@@ -141,7 +141,7 @@ export class DocumentView extends LightElement {
       <div class="doc-main" @keydown=${this.saveKey}>
         ${this.d.error ? html`<div class="notice error">${this.d.error} <button class="icon-btn" data-tip="Reload the stored version" @click=${() => this.d.load()}>${appIcon("reload")}<span class="vh">Reload</span></button></div>` : nothing}
         <div class="doc-scroll"><div class="doc-page">
-          <cs-document .host=${this.host} .items=${this.d.itemLinks} .files=${this.d.docFiles} .diagrams=${server.diagrams || undefined} .value=${this.d.content}
+          <cs-document .host=${this.host} .items=${this.d.itemLinks} .files=${this.d.files.docFiles} .diagrams=${server.diagrams || undefined} .value=${this.d.content}
             @change=${(e: CustomEvent<DocNode[]>) => { if (e.target !== e.currentTarget) return; this.d.content = e.detail; this.d.touch(); }}
             @outline=${(e: CustomEvent<OutlineItem[]>) => { this.d.outline = e.detail; }}
             @click=${(e: Event) => { const g = (e.target as HTMLElement).closest<HTMLElement>(".cs-placement")?.dataset.placement; if (g && g !== this.d.current) { this.d.current = g; this.d.editor?.refresh(); } }}></cs-document>

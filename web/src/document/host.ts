@@ -21,38 +21,38 @@ export function documentHost(ds: DocumentState): DocumentHost {
         taken: { guids: new Set(taken), note: "already in this document" } }, "Insert"),
       renderEntry: (el, p) => renderEntry(ds, el, p),
       openEntry: (key, newTab) => {
-        const guid = ds.real(key);
+        const guid = ds.entries.real(key);
         if (isNew(guid)) { store.toast("This entry is created when the document is saved.", "info"); return; }
         if (newTab) window.open(`/artifact/${guid}`, "_blank", "noopener");
         else navigate({ guid });
       },
       entryLabel: (key) => {
-        const guid = ds.real(key);
-        const h = ds.held.get(guid);
+        const guid = ds.entries.real(key);
+        const h = ds.entries.held.get(guid);
         if (h) return h.title || "New entry";
-        const e = ds.entries.get(guid);
+        const e = ds.entries.shown.get(guid);
         if (!e || e === "loading") return undefined;
         return e.view ? (e.view.meta.hid || e.view.meta.title || undefined) : e.missing?.hid;
       },
       entryNumbers: true,
-      convertToEntry: (c) => ds.newEntry(c),
+      convertToEntry: (c) => ds.entries.create(c),
       entryTypes: () => ({
         remember: ds.view?.meta.type ?? "",
-        types: ds.convertTypes.map((t) => ({ id: t.type, name: t.displayName ?? t.type, icon: () => {
+        types: ds.entries.convertTypes.map((t) => ({ id: t.type, name: t.displayName ?? t.type, icon: () => {
           const el = document.createElement("corestone-type-icon") as HTMLElement & { kind: string; type: string; folder: string; schema: Schema };
           Object.assign(el, { kind: "entry", type: t.type, folder: ds.view?.meta.folder ?? "", schema: t });
           return el;
         } })),
       }),
-      entryAsText: (key) => entryAsText(ds, ds.real(key)),
+      entryAsText: (key) => entryAsText(ds, ds.entries.real(key)),
     };
 }
 
 /** A placed entry: the built-in card (type, number, HID, title, state and its rich-text fields). */
 export function renderEntry(ds: DocumentState, el: HTMLElement, p: Placed) {
   el.classList.add("doc-entry");
-  const guid = ds.real(p.guid);
-  const h = ds.held.get(guid);
+  const guid = ds.entries.real(p.guid);
+  const h = ds.entries.held.get(guid);
   if (h) {
     // a new entry: as it will be, marked until the save creates it (its pictures are the document's)
     const rich = (h.schema.fields ?? []).filter((f) => f.type === "richtext" && h.fields[f.id] != null && h.fields[f.id] !== "");
@@ -61,17 +61,17 @@ export function renderEntry(ds: DocumentState, el: HTMLElement, p: Placed) {
         <corestone-type-icon kind="entry" .type=${h.schema.type} .folder=${h.folder}></corestone-type-icon>
         <b class="title">${h.title || html`<span class="muted">Untitled</span>`}</b>
         <span class="pill unsaved" title="This entry is created when the document is saved">not saved yet</span>
-        ${ds.missing(h).length || ds.problems.has(p.guid) ? html`<span class="pill problem" title=${(ds.problems.get(p.guid) ?? []).join("\n")}>${ds.missing(h).length
-          ? `${ds.missing(h).map((f) => f.name ?? f.id).join(", ")} missing` : "cannot be created"}</span>` : nothing}</div>
+        ${ds.entries.missing(h).length || ds.entries.problems.has(p.guid) ? html`<span class="pill problem" title=${(ds.entries.problems.get(p.guid) ?? []).join("\n")}>${ds.entries.missing(h).length
+          ? `${ds.entries.missing(h).map((f) => f.name ?? f.id).join(", ")} missing` : "cannot be created"}</span>` : nothing}</div>
       ${rich.map((f) => html`<div class="rich"><div class="label">${f.name ?? f.id}</div>
-        <cs-richtext readonly .value=${h.fields[f.id] as RichText} .files=${ds.docFiles}></cs-richtext></div>`)}
+        <cs-richtext readonly .value=${h.fields[f.id] as RichText} .files=${ds.files.docFiles}></cs-richtext></div>`)}
     </div>`, el);
     return;
   }
-  const e = ds.entries.get(guid);
+  const e = ds.entries.shown.get(guid);
   if (!e || e === "loading") {
     render(html`<div class="entry-card loading"><span class="num">${p.number}</span> Loading entry…</div>`, el);
-    if (!e) ds.observer?.observe(el);
+    if (!e) ds.entries.observer?.observe(el);
     return;
   }
   if (!e.view) {
@@ -98,18 +98,18 @@ export function renderEntry(ds: DocumentState, el: HTMLElement, p: Placed) {
 /** A placed entry as text of the document: its title (bold), then its rich-text fields (each
  *  under its name when there are several); its pictures become files of the document. */
 export async function entryAsText(ds: DocumentState, guid: string): Promise<{ text: RichText } | { error: string }> {
-  const h = ds.held.get(guid);
+  const h = ds.entries.held.get(guid);
   if (h) return { text: asText(ds, h.title, h.schema, h.fields) }; // (its pictures are the document's already)
   let v: View, schema: Schema | null;
   try {
     v = await api.get(guid);
-    schema = await ds.schemaOf(v);
+    schema = await ds.entries.schemaOf(v);
   } catch (e) {
     return { error: `The entry could not be read: ${errorText(e)}` };
   }
   const blocks = asText(ds, v.meta.title || v.meta.hid || "", schema, ((v.data as Record<string, unknown>).fields as Record<string, unknown>) ?? {});
   const names = fileNames(blocks);
-  const renamed = await ds.copyFiles(names, (n) => api.fileBlob(api.fileUrl(guid, n)), (_n, f) => ds.docFiles.add(f));
+  const renamed = await ds.files.copy(names, (n) => api.fileBlob(api.fileUrl(guid, n)), (_n, f) => ds.files.docFiles.add(f));
   return { text: renameFiles(blocks, renamed) };
 }
 
