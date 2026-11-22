@@ -12,6 +12,8 @@ import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 import "./components/ref";
 import { StoreController } from "./store-controller";
+import { actionsMenu, viewTop } from "./components/view-top";
+import { deleteArtifact, moveArtifact } from "./artifact-state";
 
 import { DocumentState } from "./document/state";
 import { documentHost } from "./document/host";
@@ -66,7 +68,12 @@ export class DocumentView extends LightElement {
     }, { rootMargin: "600px 0px" });
   }
 
+  /** Move and delete, as for an entry. */
+  private readonly actions = actionsMenu(() => { if (this.d.view) moveArtifact(this.d.view, () => void this.d.load()); },
+    () => { if (this.d.view) void deleteArtifact(this.d.view); });
+
   override disconnectedCallback() {
+    this.actions.close();
     this.resizes?.disconnect();
     this.watched = undefined;
     this.d.entries.observer?.disconnect();
@@ -122,8 +129,11 @@ export class DocumentView extends LightElement {
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     this.host.guid = this.guid;
     return html`
+      ${viewTop(v.meta, { actions: this.actions, expanded: r.expanded, cls: "doc-top",
+        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ expanded: !r.expanded }),
+        close: () => navigate({ guid: null, sidebars: [], expanded: false }) })}
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
-          <div class="doc-left"><button class="icon-btn" data-tip="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [] })}>${appIcon("close")}</button>
+          <div class="doc-left">
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>
           <input class="doc-title-input" aria-label="Title" placeholder="Title" .value=${live(this.d.docTitle)} size=${Math.max(8, Math.min(48, this.d.docTitle.length + 1))}
             @input=${(e: Event) => { this.d.docTitle = (e.target as HTMLInputElement).value; this.d.touch(); }}

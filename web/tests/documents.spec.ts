@@ -1,4 +1,4 @@
-import { api, defineTypes, expect, get, post, seedDomain, stamp, test } from "./fixtures";
+import { answerPrompt, api, defineTypes, expect, get, post, seedDomain, stamp, test } from "./fixtures";
 
 // Documents (docs/design/Corestone documents.md): one editor for the whole document, headings
 // that make sections (Normal/Heading, Tab/Shift+Tab, Enter, Backspace), numbers, placed entries,
@@ -644,9 +644,56 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await page.keyboard.type("Hello");
   await expect(page.locator("[data-test=save]")).toBeEnabled();
   // close without saving: asked first; discarding keeps the stored content
-  await page.locator(".doc-toolbar button[aria-label='Back to overview']").click();
+  await page.locator("corestone-document button[aria-label='Close detail view']").click();
   await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
   await expect(page.locator("corestone-document")).toHaveCount(0);
+});
+
+test("a document opens under the table like an entry, expands to fill the workspace, and back", async ({ page }) => {
+  const a = await newDoc(`Under one ${id}`);
+  await newDoc(`Under two ${id}`);
+  await page.goto(`/folder/${folder}`);
+  const table = page.locator("corestone-overview table.grid");
+  const doc = page.locator("corestone-document");
+  await table.locator("tbody tr", { hasText: `Under one ${id}` }).click();
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(table).toBeVisible();
+  await expect(page.locator(".main > .splitter")).toBeVisible();
+  // going through documents from the table, the table stays
+  await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under two ${id}`);
+  await expect(table).toBeVisible();
+  // full size and back; the URL keeps it, as for an entry
+  await doc.locator("[data-test=expand]").click();
+  await expect(page).toHaveURL(/x=1/);
+  await expect(table).toBeHidden();
+  await page.goto(`/artifact/${a.meta.guid}?x=1`);
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(table).toBeHidden();
+  await doc.locator("[data-test=expand]").click();
+  await expect(page).not.toHaveURL(/x=1/);
+  await expect(table).toBeVisible();
+  // the top line, as an entry's: dates and the actions; a document is moved and deleted like an entry
+  await expect(doc.locator(".doc-top .dh-dates")).toContainText("created:");
+  await expect(doc.locator(".doc-top .dh-crumbs a").last()).toHaveText(folder);
+  await doc.locator("[data-test=actions]").click();
+  await page.locator("[data-test=move]").click();
+  await answerPrompt(page, `${folder}/moved`);
+  await expect.poll(async () => (await get<{ meta: { folder: string } }>(`/documents/${a.meta.guid}`)).meta.folder).toBe(`${folder}/moved`);
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(doc.locator(".doc-top .dh-crumbs a").last()).toHaveText("moved");
+  await doc.locator("[data-test=actions]").click();
+  await page.locator("[data-test=delete]").click();
+  await page.locator(".dialog [data-test=dialog-confirm]").click();
+  await expect(doc).toHaveCount(0);
+  // closing leaves the table alone, not expanded
+  await page.goto(`/folder/${folder}`);
+  await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
+  await doc.locator("[data-test=expand]").click();
+  await doc.locator("button[aria-label='Close detail view']").click();
+  await expect(doc).toHaveCount(0);
+  await expect(page).not.toHaveURL(/x=1/);
+  await expect(table).toBeVisible();
 });
 
 test("the old block format is refused", async () => {

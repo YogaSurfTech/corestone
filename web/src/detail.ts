@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { DropMenu, fmtTime, LightElement } from "@corestone/ui";
+import { fmtTime, LightElement } from "@corestone/ui";
 import { customElement, property } from "lit/decorators.js";
 import { navigate } from "./router";
 import { store, type State } from "./store";
@@ -8,6 +8,7 @@ import "./components/table/table";
 import "./components/ref";
 import "./components/fields";
 import { StoreController } from "./store-controller";
+import { actionsMenu, viewTop } from "./components/view-top";
 import { DetailState, SECTIONS, type Section } from "./detail/state";
 import { attachmentSection } from "./detail/attachments";
 import { commentSection, ownCommentSection } from "./detail/comments";
@@ -48,13 +49,7 @@ export class Detail extends LightElement {
 
   private get s(): State { return this.watch.state; }
 
-  private readonly actions = new DropMenu({
-    label: "Actions", cls: "actions-pop", align: "end",
-    items: () => [
-      { label: "Move…", test: "move", run: () => this.d.move() },
-      { label: "Delete", test: "delete", danger: true, run: () => this.d.deleteArtifact() },
-    ],
-  });
+  private readonly actions = actionsMenu(() => this.d.move(), () => this.d.deleteArtifact());
 
   closeMenus() { this.actions.close(); }
   override disconnectedCallback() { this.closeMenus(); super.disconnectedCallback(); }
@@ -102,7 +97,7 @@ export class Detail extends LightElement {
         <button class="btn primary" data-test="save" ?disabled=${this.d.edit.busy} @click=${() => this.d.edit.save()}>${this.d.edit.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
   }
 
-  /** Three lines: dates and actions, the editable identity, the folder breadcrumb. */
+  /** Two lines: the folder, dates and actions; the editable identity. */
   private header() {
     const v = this.d.view!;
     const d = this.d.edit.draft!;
@@ -115,16 +110,10 @@ export class Detail extends LightElement {
     const ov = this.d.base.overlay;
     const base = ov && ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
     const overlays = ov?.overlays.length ?? 0;
-    const segs = v.meta.folder ? v.meta.folder.split("/") : [];
-    const toFolder = (folder: string) => (e: Event) => { e.preventDefault(); navigate({ folder, guid: null }); };
     return html`<div class="detail-head">
-      <div class="dh-top">
-        <span class="dh-dates">created: ${fmtTime(v.meta.createdAt)}<span class="gap"></span>updated: ${fmtTime(v.meta.modifiedAt)}</span>
-        <span class="dh-actions" ?hidden=${!!this.d.historic}>
-          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
-            @click=${(e: Event) => this.actions.toggle(e.currentTarget as HTMLElement)}>⋯</button>
-        </span>
-      </div>
+      ${viewTop(v.meta, { actions: this.d.historic ? null : this.actions, expanded: r.expanded,
+        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ expanded: !r.expanded }),
+        close: () => navigate({ guid: null, tab: "", expanded: false }) })}
       <div class="dh-title">
         <div class="dh-identity">
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.d.schema} title=${typeName}></corestone-type-icon>
@@ -140,13 +129,7 @@ export class Detail extends LightElement {
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
         ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.d.reveal("overlay")}>overlay of ${this.d.base.levelLabel(base.guid)}</button>` : nothing}
         ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.d.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}
-        <button class="btn sm" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
-        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, tab: "", expanded: false })}>✕</button>
       </div>
-      <nav class="dh-crumbs" aria-label="Folder">
-        <a href="/folder/" @click=${toFolder("")}>/</a>
-        ${segs.map((s, i) => { const path = segs.slice(0, i + 1).join("/"); return html`${i ? html`<span class="sep">›</span>` : nothing}<a href=${"/folder/" + path} @click=${toFolder(path)}>${s}</a>`; })}
-      </nav>
       ${this.d.historic ? this.historicBanner() : nothing}
     </div>`;
   }
