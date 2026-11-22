@@ -283,6 +283,21 @@ test("the picker queries with the builder: locked criteria say why, no fields th
   await picker.locator("[data-test=query-apply]").click();
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText(`Pick high ${id}`);
+  // the overview's table: columns sort and resize, and the picker keeps its own layout
+  const th = (col: string) => picker.locator(`th[data-col="${col}"]`);
+  await th("$title").locator(".th-sort").click();
+  await expect(th("$title")).toHaveAttribute("aria-sort", "ascending");
+  const width = async () => (await th("$type").boundingBox())!.width;
+  const before = await width();
+  const edge = (await th("$type").locator(".col-resize").boundingBox())!;
+  await page.mouse.move(edge.x + 3, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 63, edge.y + edge.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeCloseTo(before + 60, -1);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("corestone.picker.table") ?? "{}"));
+  expect(kept.sort[0]).toEqual({ col: "$title", dir: "asc" });
+  expect(kept.widths.$type).toBeGreaterThan(before + 40);
   // the list takes the keyboard once it has the focus: Enter picks
   await picker.locator(".picker-results").focus();
   await page.keyboard.press("Enter");

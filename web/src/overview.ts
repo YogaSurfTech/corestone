@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relTime } from "@corestone/ui";
+import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate, showKind } from "./router";
@@ -13,6 +13,7 @@ import { hasSource, knownOptions, withMissing } from "./components/options";
 import { services } from "./services";
 import { kindIcon, kindLabel, workflowStates } from "./components/artifact";
 import type { TableColumn, TableContext } from "./components/table/table";
+import { folderColumn, hidColumn, loadLayout, saveLayout, titleColumn, typeColumn, type TableLayout } from "./components/table/columns";
 import "./components/table/table";
 import "./components/ref";
 import "./components/type-icon";
@@ -26,23 +27,8 @@ import { StoreController } from "./store-controller";
 
 type Column = TableColumn<Summary>;
 
-/** Column widths and sort order, remembered in the browser for every view. */
-interface TableLayout { widths: Record<string, number>; sort: SortLevel[] }
-
-function loadLayout(): TableLayout {
-  try {
-    const l = prefs.json<Record<string, unknown>>("corestone.table", {});
-    const stored: unknown[] = Array.isArray(l.sort) ? l.sort : l.sort ? [l.sort] : [];
-    const sort: SortLevel[] = [];
-    for (const value of stored) {
-      if (typeof value !== "object" || value === null || !("col" in value) || !("dir" in value)) continue;
-      if (typeof value.col !== "string" || !value.col || (value.dir !== "asc" && value.dir !== "desc") || sort.some((s) => s.col === value.col)) continue;
-      sort.push({ col: value.col, dir: value.dir });
-      if (sort.length === 3) break;
-    }
-    return { widths: l.widths && typeof l.widths === "object" ? l.widths as Record<string, number> : {}, sort };
-  } catch { return { widths: {}, sort: [] }; }
-}
+/** Where the overview keeps its column widths and sort order. */
+const LAYOUT_KEY = "corestone.table";
 
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
@@ -69,7 +55,7 @@ export class Overview extends LightElement {
   @state() private schemas: Record<string, Schema> = {};
   /** The schema of every (folder, type) among the loaded rows; null when the type is not defined there. */
   @state() private rowSchemas: Record<string, Schema | null> = {};
-  @state() private layout = loadLayout();
+  @state() private layout = loadLayout(LAYOUT_KEY);
   private folderTypes = new Map<string, Promise<Schema[]>>();
   private key = "";
   private loads = 0;
@@ -212,11 +198,9 @@ export class Overview extends LightElement {
         { id: "$excerpt", name: "Comment", title: (row) => row.excerpt ?? "", render: (row) => row.excerpt ?? "" },
         author,
       ] satisfies Column[] : [
-        { id: "$hid", name: "ID",
-          render: (row) => row.hid ? html`<span class="hid">${row.hid}</span>` : html`<span class="muted mono">${row.guid.slice(0, 8)}</span>` },
-        { id: "$title", name: "Title", title: (row) => row.title ?? "",
-          render: (row) => html`<corestone-type-icon .kind=${row.kind} .type=${row.type} .folder=${row.folder} .schema=${this.schemaOf(row) ?? null}></corestone-type-icon>${row.title || html`<span class="muted">${row.kind}</span>`}` },
-        { id: "$type", name: "Type", render: type },
+        hidColumn(),
+        titleColumn((row) => this.schemaOf(row) ?? null),
+        typeColumn({ render: type }),
         { id: "$state", name: "State",
           render: (row) => html`${this.statesOf(row).map(([w, st]) => html`<span class="pill state" data-field=${w.id} title=${w.name}>${st}</span> `)}` },
       ] satisfies Column[]),
@@ -237,7 +221,7 @@ export class Overview extends LightElement {
         { id: "$details", name: "", sortable: false, render: (row) => html`<button class="btn sm" data-test="comment-details"
           title="Open this comment on its own" @click=${(e: MouseEvent) => { e.stopPropagation(); navigate({ guid: row.guid, folder: this.s.route.folder, tab: "" }); }}>Details</button>` },
       ] satisfies Column[] : [
-        { id: "$folder", name: "Folder", cls: "muted", render: (row) => row.folder || "/" },
+        folderColumn(),
         { id: "$social", name: "Social", cls: "social", title: () => "links · comments", render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },
         { id: "$modified", name: "Modified", cls: "muted", render: (row) => relTime(row.modifiedAt) },
       ] satisfies Column[]),
@@ -261,7 +245,7 @@ export class Overview extends LightElement {
 
   private saveLayout(layout: TableLayout) {
     this.layout = layout;
-    prefs.setJson("corestone.table", layout);
+    saveLayout(LAYOUT_KEY, layout);
   }
 
   /** What the count counts: "Task entries", "entries and docs", "links". */
