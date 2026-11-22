@@ -1,22 +1,24 @@
 // @corestone/editor: a rich-text editor that knows nothing about Corestone.
 // Use it as <cs-richtext> (value property, "change" event) or through
 // RichTextEditor directly. The stored form is described in ./model.ts.
-import { RichTextEditor } from "./editor";
-import type { DocNode, RichText } from "./model";
-import type { DocumentHost, OutlineItem } from "./structure";
-import type { ItemLinks } from "./links";
-import type { EntryFiles } from "./files";
-import type { Palette } from "./toolbar";
+import { RichTextEditor } from "./core/editor";
+import type { DocNode, RichText } from "./core/model";
+import type { DocumentHost, OutlineItem } from "./core/structure";
+import type { ItemLinks } from "./core/feature";
+import type { EntryFiles } from "./core/files";
+import type { Palette } from "@corestone/ui";
 
-export { RichTextEditor, type EditorOptions } from "./editor";
-export { type ItemLinks } from "./links";
-export { type EntryFiles } from "./files";
+export { RichTextEditor, type EditorOptions } from "./core/editor";
+export { type ItemLinks, type EditorFeature, type Feature, type FeatureContext, type NodeActions, type NodeHit, type ToolbarItem } from "./core/feature";
+export { builtinFeatures } from "./features/index";
+export { type EntryFiles } from "./core/files";
 export { documentFromStorage, documentText, documentTitle, documentToStorage, fileNames, fromStorage, isEntryNode, isSectionNode, isTable, isTocNode, newSectionId, plainText, renameFiles, toStorage,
-  type DocNode, type EntryNode, type SectionNode, type TocNode, type Block, type Cell, type DiagramRun, type FormulaRun, type ImageRun, type Marks, type Paragraph, type RichText, type Run, type Table } from "./model";
-export { DEFAULT_PALETTE, DEFAULT_STRIPES, type Palette, type StripePreset } from "./toolbar";
-export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./schema";
-export { numbering, type DocumentHost, type OutlineItem, type Placed } from "./structure";
-export type { EntryTypeChoice } from "./toolbar";
+  type DocNode, type EntryNode, type SectionNode, type TocNode, type Block, type Cell, type DiagramRun, type FormulaRun, type ImageRun, type Marks, type Paragraph, type RichText, type Run, type Table } from "./core/model";
+export { DEFAULT_PALETTE, DEFAULT_STRIPES } from "./core/toolbar";
+export type { Palette, StripePreset } from "@corestone/ui";
+export { FONTS, SIZES, SIZE_MAX, SIZE_MIN } from "./core/schema";
+export { numbering, type DocumentHost, type OutlineItem, type Placed } from "./core/structure";
+export type { EntryTypeChoice } from "./core/structure";
 
 /** <cs-richtext>: set .value (and optionally .palette, readonly) and listen for "change" (detail: the value). */
 export class RichTextElement extends HTMLElement {

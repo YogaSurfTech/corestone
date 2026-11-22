@@ -2,16 +2,12 @@ import { html, nothing } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement } from "lit/decorators.js";
 import { store, type State } from "./store";
+import { StoreController } from "./store-controller";
 
 @customElement("corestone-toasts")
 export class Toasts extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
-  override connectedCallback() {
-    super.connectedCallback();
-    this.unsub = store.subscribe((s) => { this.s = s; this.requestUpdate(); });
-  }
-  override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
+  private readonly watch = new StoreController(this);
+  private get s(): State { return this.watch.state; }
   override render() {
     if (!this.s?.toasts.length) return nothing;
     return html`<div class="toasts">${this.s.toasts.map((t) => html`

@@ -2,24 +2,9 @@ import { html, type PropertyValues } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
-import { api } from "../api";
-import { store } from "../store";
-import type { Kind, Schema } from "../types";
-import { kindIcon } from "./util";
-
-// Types visible per folder, shared by all icons on the page and dropped
-// whenever the repository changes.
-let cache = new Map<string, Promise<Schema[]>>();
-let cacheTick = -1;
-function typesAt(folder: string): Promise<Schema[]> {
-  if (store.state.refreshTick !== cacheTick) { cache = new Map(); cacheTick = store.state.refreshTick; }
-  let p = cache.get(folder);
-  if (!p) {
-    p = api.types(folder).then((r) => r.types).catch(() => []);
-    cache.set(folder, p);
-  }
-  return p;
-}
+import type { Kind, Schema } from "./types";
+import { servicesFor } from "./services";
+import { kindIcon } from "./artifact";
 
 /** URL of an icon as seen from a folder: the nearest folder defining it wins. */
 export function iconUrl(name: string, folder: string): string {
@@ -47,7 +32,8 @@ export class TypeIcon extends LightElement {
     const { type, folder } = this;
     this.resolved = null;
     if (!type) return;
-    void typesAt(folder).then((types) => {
+    // the types come from the page (services.ts); without a provider the kind's icon shows
+    void (servicesFor(this).types?.types(folder) ?? Promise.resolve([])).then((types) => {
       if (type === this.type && folder === this.folder && this.schema === undefined) this.resolved = types.find((t) => t.type === type) ?? null;
     });
   }

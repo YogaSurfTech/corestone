@@ -1,7 +1,5 @@
-import type {
-  Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, QueryWarning, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
-  Workflow, WorkflowEval,
-} from "./types";
+import type { CommentView, HistoryEntry, Issue, OverlayView, Relationships, RepoStatus, Tree, VersionView, View, WorkflowEval } from "./types";
+import type { Attachment, QueryWarning, Schema, SortLevel, Summary, TableFilter, TableRows, Workflow } from "./components/types";
 import { prefs } from "@corestone/ui";
 
 export class ApiError extends Error {
@@ -181,6 +179,12 @@ export const api = {
   },
   deleteFile: (guid: string, name: string) => request<void>("DELETE", `/artifacts/${guid}/files/${encodeURIComponent(name)}`),
   fileUrl: (guid: string, name: string) => `/api/artifacts/${guid}/files/${encodeURIComponent(name)}`,
+  /** The content of a file, by its address on the server (fileUrl, versionFileUrl). */
+  fileBlob: async (url: string): Promise<Blob> => {
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (!res.ok) throw new Error(`the file could not be read (${res.status})`);
+    return res.blob();
+  },
 
   effectiveSchema: (type: string, path: string) => request<Schema>("GET", "/schemas/effective" + q({ type, path })),
   workflowDef: (id: string, type: string, path: string) => request<Workflow>("GET", `/workflows/${encodeURIComponent(id)}` + q({ type, path })),

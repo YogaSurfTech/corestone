@@ -1,14 +1,14 @@
 import { html, nothing, type TemplateResult } from "lit";
-import { LightElement } from "@corestone/ui";
+import { LightElement, safeHref } from "@corestone/ui";
+import { artifactHref } from "./ref";
 import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
-import { api, server } from "../api";
-import { pickArtifact, store } from "../store";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
-import type { Attachment, Field, Summary } from "../types";
+import type { Attachment, Field, Summary } from "./types";
 import { hasSource, knownOptions, withMissing } from "./options";
-import { label, safeHref, showValue } from "./util";
+import { servicesFor, type FieldServices } from "./services";
+import { label, showValue } from "./artifact";
 
 // Schema-driven field editor (design guide §4.6, §7.10): one element per
 // field definition, rendering the right input for the field type and
@@ -19,11 +19,12 @@ export type FieldValue = unknown;
 // Values in use per type and field, for extendable enumerations: their
 // extra values live only in the artifacts. Shared briefly by all editors.
 const usedValues = new Map<string, { at: number; values: Promise<string[]> }>();
-function valuesInUse(type: string, field: string, folder: string): Promise<string[]> {
+function valuesInUse(source: FieldServices | undefined, type: string, field: string, folder: string): Promise<string[]> {
+  if (!source) return Promise.resolve([]);
   const key = JSON.stringify([type, field, folder]);
   const hit = usedValues.get(key);
   if (hit && Date.now() - hit.at < 30_000) return hit.values;
-  const values = api.values(type, field, folder).then((r) => r.values.map((v) => v.value)).catch((error) => { usedValues.delete(key); throw error; });
+  const values = source.values(type, field, folder).catch((error) => { usedValues.delete(key); throw error; });
   usedValues.set(key, { at: Date.now(), values });
   return values;
 }
@@ -55,15 +56,18 @@ export class FieldEditor extends LightElement {
   @state() private globalUsed: string[] = [];
   private usedKey = "";
   private refCache = new Map<string, Summary | null>();
-  /** Links in rich text to items: chosen with the item picker, opened like references. */
-  private readonly itemLinks: ItemLinks = {
-    pick: () => pickArtifact({ title: "Link to an item" }).then((s) => (s ? { ref: s.guid, label: label(s) } : null)),
-    label: (g) => api.get(g).then((v) => label(v.meta)).catch(() => "Missing item"),
-    open: (g, newTab) => {
-      if (newTab) window.open(`/artifact/${g}`, "_blank", "noopener");
-      else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
-    },
+  /** Links in rich text to items: the page says how one is chosen and called; opened like references. */
+  private get itemLinks(): ItemLinks | undefined {
+    const links = this.services?.itemLinks;
+    return links && { ...links, open: this.openItem };
+  }
+  private readonly openItem = (g: string, newTab: boolean) => {
+    if (newTab) window.open(artifactHref(g), "_blank", "noopener");
+    else this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true }));
   };
+
+  /** What the field needs from the page: artifacts by GUID, the values in use, the picker, notices (services.ts). */
+  private get services(): FieldServices | undefined { return servicesFor(this).fields; }
 
   private emit(v: FieldValue) {
     this.value = v;
@@ -98,12 +102,12 @@ export class FieldEditor extends LightElement {
       this.used = [];
       this.globalUsed = [];
       if (key) void Promise.all([
-        valuesInUse(this.typeId, f.id, this.folder),
-        global ? valuesInUse(this.typeId, f.id, "") : Promise.resolve([]),
+        valuesInUse(this.services, this.typeId, f.id, this.folder),
+        global ? valuesInUse(this.services, this.typeId, f.id, "") : Promise.resolve([]),
       ]).then(([local, all]) => {
         if (this.usedKey === key) { this.used = local; this.globalUsed = all; }
       }).catch((error: Error) => {
-        if (this.usedKey === key) store.toast("Could not load suggestions: " + error.message, "error");
+        if (this.usedKey === key) this.services?.notify("Could not load suggestions: " + error.message, "error");
       });
     }
   }
@@ -160,7 +164,7 @@ export class FieldEditor extends LightElement {
       case "richtext":
         // plain text (older values, or nothing formatted) or paragraphs; empty is unset
         return html`<cs-richtext id=${id} .value=${(this.value ?? "") as RichText} .items=${this.itemLinks} .files=${this.files} ?readonly=${this.disabled}
-          .diagrams=${server.diagrams || undefined}
+          .diagrams=${this.services?.diagramsUrl?.() || undefined}
           @change=${(e: CustomEvent<RichText>) => this.emit(e.detail === "" ? null : e.detail)}></cs-richtext>`;
       case "enum":
         return this.enumInput();
@@ -181,7 +185,7 @@ export class FieldEditor extends LightElement {
       case "json":
         return html`<textarea id=${id} class="mono" rows="4" ?disabled=${this.disabled} .value=${this.value == null ? "" : JSON.stringify(this.value, null, 2)}
           @change=${(e: Event) => { const t = (e.target as HTMLTextAreaElement).value.trim(); if (!t) return this.emit(null);
-            try { this.emit(JSON.parse(t)); (e.target as HTMLElement).classList.remove("error"); } catch { (e.target as HTMLElement).classList.add("error"); store.toast("Invalid JSON in " + (f.name || f.id), "error"); } }}></textarea>`;
+            try { this.emit(JSON.parse(t)); (e.target as HTMLElement).classList.remove("error"); } catch { (e.target as HTMLElement).classList.add("error"); this.services?.notify("Invalid JSON in " + (f.name || f.id), "error"); } }}></textarea>`;
       case "workflow":
         return html`<span class="pill state">${this.value ?? "—"}</span> <span class="muted small">managed through transitions</span>`;
       case "hid":
@@ -195,7 +199,7 @@ export class FieldEditor extends LightElement {
     const f = this.field;
     if (hasSource(f)) {
       // a dynamic enumeration: the options are artifacts; without the type they cannot be loaded
-      const options = this.typeId ? knownOptions(this.typeId, f.id, this.folder, () => this.requestUpdate()) : [];
+      const options = this.typeId ? knownOptions(servicesFor(this).options, this.typeId, f.id, this.folder, () => this.requestUpdate()) : [];
       return html`<corestone-enum .options=${withMissing(options ?? [], options ? this.value : null)} .value=${this.value}
         .folder=${this.folder} .label=${f.name || f.id} .multiple=${!!f.multiple} .readonly=${!!this.disabled || !options}
         @enum-change=${(e: CustomEvent<FieldValue>) => this.emit(e.detail)}></corestone-enum>`;
@@ -214,15 +218,15 @@ export class FieldEditor extends LightElement {
     for (const g of cur) {
       if (!this.refCache.has(g)) {
         this.refCache.set(g, null);
-        api.get(g).then((v) => { this.refCache.set(g, v.meta); this.requestUpdate(); }).catch(() => { this.refCache.set(g, null); });
+        this.services?.resolve(g).then((s) => { this.refCache.set(g, s); this.requestUpdate(); }).catch(() => { this.refCache.set(g, null); });
       }
     }
-    const pick = () => void pickArtifact({ title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes }).then((s) => {
+    const pick = () => void this.services?.pick({ title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes }).then((s) => {
       if (s) this.emit(multiple ? [...new Set([...cur, s.guid])] : s.guid);
     });
     const remove = (g: string) => (multiple ? this.emit(cur.filter((x) => x !== g).length ? cur.filter((x) => x !== g) : null) : this.emit(null));
     return html`<div>
-      ${cur.map((g) => html`<span class="ref-chip"><a href=${"/artifact/" + g} @click=${(e: Event) => { e.preventDefault(); this.dispatchEvent(new CustomEvent("open-artifact", { detail: g, bubbles: true })); }}>${label(this.refCache.get(g)) === "(missing)" ? g.slice(0, 8) + "…" : label(this.refCache.get(g))}</a>
+      ${cur.map((g) => html`<span class="ref-chip"><corestone-ref guid=${g} .text=${label(this.refCache.get(g)) === "(missing)" ? g.slice(0, 8) + "…" : label(this.refCache.get(g))}></corestone-ref>
         ${this.disabled ? nothing : html`<button type="button" title="Remove reference" aria-label="Remove reference" @click=${() => remove(g)}>✕</button>`}</span>`)}
       ${this.disabled ? nothing : html`<button type="button" class="btn sm" @click=${pick}>${multiple || !cur.length ? "＋ Select…" : "Change…"}</button>`}
     </div>`;

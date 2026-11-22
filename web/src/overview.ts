@@ -3,18 +3,21 @@ import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relT
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
-import { pickArtifact, store, type State, toastError } from "./store";
-import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./types";
+import { pickArtifact, store, type NewOptions, type State, toastError } from "./store";
+import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
 import type { QueryField, QuerySource } from "./components/query-model";
-import { fieldValue } from "./components/sorting";
+import { fieldValue } from "./components/table/sorting";
 import { hasSource, knownOptions, withMissing } from "./components/options";
-import { kindIcon, kindLabel, workflowStates } from "./components/util";
-import type { TableColumn, TableContext } from "./components/table";
-import "./components/table";
+import { services } from "./services";
+import { kindIcon, kindLabel, workflowStates } from "./components/artifact";
+import type { TableColumn, TableContext } from "./components/table/table";
+import "./components/table/table";
+import "./components/ref";
 import "./components/type-icon";
 import "./components/enum-control";
 import "./components/kind-menu";
+import { StoreController } from "./store-controller";
 
 // Artifact overview (design guide §7.4): every artifact matching the
 // navigation context in a server-sorted, lazily loaded table whose columns
@@ -56,8 +59,18 @@ const querySource: QuerySource = {
 
 @customElement("corestone-overview")
 export class Overview extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
+  private readonly watch = new StoreController(this, (s) => {
+    const r = s.route;
+    const key = JSON.stringify([r.folder, r.q, r.subtree, r.kind, r.type]);
+    if (key === this.key && s.refreshTick === this.lastTick) return;
+    // A commit may change definitions: resolve them again; the table reloads its rows itself.
+    if (s.refreshTick !== this.lastTick) this.folderTypes.clear();
+    if (key !== this.key) { this.rowSchemas = {}; this.total = -1; }
+    this.key = key;
+    this.lastTick = s.refreshTick;
+    this.load();
+  });
+  private get s(): State { return this.watch.state; }
   @state() private total = -1; // -1 until the table has loaded
   @state() private below = -1; // artifacts including subfolders, when the view shows the folder itself
   @state() private error = "";
@@ -70,24 +83,7 @@ export class Overview extends LightElement {
   private loads = 0;
   private lastTick = -1;
 
-  override connectedCallback() {
-    super.connectedCallback();
-    this.unsub = store.subscribe((s) => {
-      this.s = s;
-      const r = s.route;
-      const key = JSON.stringify([r.folder, r.q, r.subtree, r.kind, r.type]);
-      if (key !== this.key || s.refreshTick !== this.lastTick) {
-        // A commit may change definitions: resolve them again; the table reloads its rows itself.
-        if (s.refreshTick !== this.lastTick) this.folderTypes.clear();
-        if (key !== this.key) { this.rowSchemas = {}; this.total = -1; }
-        this.key = key;
-        this.lastTick = s.refreshTick;
-        this.load();
-      }
-      this.requestUpdate();
-    });
-  }
-  override disconnectedCallback() { this.unsub?.(); this.newMenu.close(); super.disconnectedCallback(); }
+  override disconnectedCallback() { this.newMenu.close(); super.disconnectedCallback(); }
 
   /** The fields the query builder offers: kept while the types, folder and type stay the same. */
   private offered: { key: unknown[]; fields: QueryField[] } | null = null;
@@ -148,13 +144,10 @@ export class Overview extends LightElement {
     this.rowSchemas = next;
   };
 
-  /** Opens an artifact from a cell without selecting the row. */
-  private open(e: MouseEvent, guid: string) {
-    e.stopPropagation();
-    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
-    navigate({ guid, folder: this.s.route.folder, tab: "" });
-  }
+  /** A click on a reference in a cell does not select the row. */
+  private quiet = (e: Event) => e.stopPropagation();
+  /** Opens the artifact a reference in a cell names. */
+  private openRef = (e: CustomEvent<string>) => navigate({ guid: e.detail, folder: this.s.route.folder, tab: "" });
 
   private schemaOf(row: Pick<Summary, "folder" | "type">) { return this.rowSchemas[schemaKey(row)] ?? undefined; }
 
@@ -194,14 +187,14 @@ export class Overview extends LightElement {
   private subject(row: Summary, ctx: TableContext) {
     const s = row.subject ? ctx.related[row.subject] : undefined;
     if (!s) return html`<span class="muted mono" title="This artifact no longer exists">${row.subject ?? "—"}</span>`;
-    if (s.kind === "link") return html`${this.endpoint(s.source, ctx)} <a class="muted" href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>→ ${ctx.typeName(s)} →</a> ${this.endpoint(s.target, ctx)}`;
-    return html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon><a href=${"/artifact/" + s.guid} @click=${(e: MouseEvent) => this.open(e, s.guid)}>${s.hid ? html`<span class="hid">${s.hid}</span> ` : nothing}${s.title || s.guid}</a>`;
+    if (s.kind === "link") return html`${this.endpoint(s.source, ctx)} <corestone-ref look="muted" .artifact=${s} .text=${`→ ${ctx.typeName(s)} →`} @click=${this.quiet}></corestone-ref> ${this.endpoint(s.target, ctx)}`;
+    return html`<corestone-ref icon .artifact=${s} @click=${this.quiet}></corestone-ref>`;
   }
 
   private endpoint(guid: string | undefined, ctx: TableContext) {
     if (!guid) return html`<span class="muted">—</span>`;
     const s = ctx.related[guid];
-    return html`${s ? html`<corestone-type-icon .kind=${s.kind} .type=${s.type} .folder=${s.folder}></corestone-type-icon>` : nothing}<a href=${"/artifact/" + guid} @click=${(e: MouseEvent) => this.open(e, guid)}>${this.endpointLabel(guid, ctx)}</a>`;
+    return html`<corestone-ref icon .artifact=${s} guid=${guid} .text=${this.endpointLabel(guid, ctx)} @click=${this.quiet}></corestone-ref>`;
   }
 
   /** Link and comment rows show what they connect instead of generic artifact identity. */
@@ -237,7 +230,7 @@ export class Overview extends LightElement {
         render: (row) => {
           const field = this.schemaOf(row)?.fields?.find((f) => f.id === c.id);
           const value = fieldValue(row, c.id);
-          const options = field && hasSource(field) ? withMissing(knownOptions(row.type, field.id, row.folder, () => this.requestUpdate()) ?? [], row.fields?.[c.id]) : field?.options ?? [];
+          const options = field && hasSource(field) ? withMissing(knownOptions(services.options, row.type, field.id, row.folder, () => this.requestUpdate()) ?? [], row.fields?.[c.id]) : field?.options ?? [];
           return field?.type === "enum" ? html`<corestone-enum .options=${options} .value=${row.fields?.[c.id]}
             .folder=${row.folder} .readonly=${true}></corestone-enum>` : String(value ?? "");
         } })),
@@ -248,7 +241,7 @@ export class Overview extends LightElement {
       ] satisfies Column[] : comments ? [
         created,
         { id: "$details", name: "", sortable: false, render: (row) => html`<button class="btn sm" data-test="comment-details"
-          title="Open this comment on its own" @click=${(e: MouseEvent) => this.open(e, row.guid)}>Details</button>` },
+          title="Open this comment on its own" @click=${(e: MouseEvent) => { e.stopPropagation(); navigate({ guid: row.guid, folder: this.s.route.folder, tab: "" }); }}>Details</button>` },
       ] satisfies Column[] : [
         { id: "$folder", name: "Folder", cls: "muted", render: (row) => row.folder || "/" },
         { id: "$social", name: "Social", cls: "social", title: () => "links · comments", render: (row) => `⇄ ${row.links} · ✎ ${row.comments}` },
@@ -318,6 +311,7 @@ export class Overview extends LightElement {
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @table-error=${() => (this.total = FAILED)}
         @rows-load=${this.onRows}
+        @open-artifact=${this.openRef}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => this.saveLayout({ ...this.layout, sort: e.detail })}
         @widths-change=${(e: CustomEvent<Record<string, number>>) => this.saveLayout({ ...this.layout, widths: e.detail })}
         @row-click=${(e: CustomEvent<Summary>) => { const row = e.detail; if (row.kind === "comment" && row.subject) navigate({ guid: row.subject, folder: r.folder, tab: "comments" }); else navigate({ guid: row.guid, folder: r.folder }); }}></corestone-table>`;
@@ -340,7 +334,7 @@ export class Overview extends LightElement {
     label: "New", cls: "new-pop",
     items: (): MenuEntry[] => {
       const folder = this.s.route.folder;
-      const open = (opts: Record<string, unknown>) => store.set({ dialog: { kind: "new", folder, ...opts } });
+      const open = (opts: NewOptions) => store.set({ dialog: { kind: "new", folder, ...opts } });
       const kinds = new Set(Object.values(this.schemas).map((s) => s.kind));
       const all: [Kind, string, string][] = [["entry", "new-entry", "Entry…"], ["document", "new-document", "Document…"], ["link", "new-link", "Link between artifacts…"], ["comment", "new-comment", "Comment…"]];
       const items: MenuEntry[] = all.filter(([k]) => kinds.has(k)).map(([k, test, label]) => ({ label, test, run: () => open({ kinds: [k] }) }));

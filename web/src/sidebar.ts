@@ -1,31 +1,35 @@
-import { html, nothing, type TemplateResult } from "lit";
+import { html, nothing } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
-import type { FolderInfo, Schema } from "./types";
-import { displayName, kindPlural } from "./components/util";
+import type { Schema } from "./components/types";
+import { folderNode, folderTree, loadFolders, type FolderNode } from "./components/folder-tree";
+import { services } from "./services";
+import { displayName, kindPlural } from "./components/artifact";
+import { StoreController } from "./store-controller";
 
 // Repository navigation (design guide §7.3): subtree toggle, the
 // folder hierarchy below the current folder, and artifacts grouped by schema type.
 
 const FILTER_FROM = 15; // children of the current folder before a filter box appears
 
-interface Node { info: FolderInfo; children: Node[] | null; open: boolean; pending?: boolean }
-
-/** The tree counts everything below a folder; the tooltip says how much of it is in the folder itself. */
-export function countTitle(f: FolderInfo): string {
-  const below = f.artifacts - f.direct;
-  const n = (k: number) => `${k} artifact${k === 1 ? "" : "s"}`;
-  return below > 0 ? `${n(f.direct)} here, ${n(below)} in subfolders` : `${n(f.direct)} here`;
-}
-
 @customElement("corestone-sidebar")
 export class Sidebar extends LightElement {
-  private unsub?: () => void;
-  private s!: State;
-  @state() private root: Node = { info: { name: "Repository", path: "", artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
+  private readonly watch = new StoreController(this, (s, first) => {
+    if (first || s.refreshTick !== this.lastTick) {
+      this.lastTick = s.refreshTick;
+      this.reloadAll();
+    }
+    if (s.route.folder !== this.lastFolder) {
+      this.lastFolder = s.route.folder;
+      this.rootAt(s.route.folder);
+      this.loadTypes(s.route.folder);
+    }
+  });
+  private get s(): State { return this.watch.state; }
+  @state() private root = folderNode("Repository", "", true);
   @state() private types: Schema[] = [];
   @state() private counts: Record<string, number> = {};
   private lastTick = -1;
@@ -33,37 +37,14 @@ export class Sidebar extends LightElement {
   @state() private filter = "";
   private rootSeq = 0;
 
-  override connectedCallback() {
-    super.connectedCallback();
-    this.unsub = store.subscribe((s) => {
-      const first = !this.s;
-      this.s = s;
-      if (first || s.refreshTick !== this.lastTick) {
-        this.lastTick = s.refreshTick;
-        this.reloadAll();
-      }
-      if (s.route.folder !== this.lastFolder) {
-        this.lastFolder = s.route.folder;
-        this.rootAt(s.route.folder);
-        this.loadTypes(s.route.folder);
-      }
-      this.requestUpdate();
-    });
-  }
-  override disconnectedCallback() { this.unsub?.(); super.disconnectedCallback(); }
 
   private async reloadAll() {
     await this.rootAt(this.s.route.folder);
     this.loadTypes(this.s.route.folder);
   }
 
-  private async load(n: Node) {
-    try {
-      const t = await api.tree(n.info.path, false, 1);
-      n.children = t.folders.map((f) => ({ info: f, children: null, open: false }));
-    } catch {
-      n.children = [];
-    }
+  private async load(n: FolderNode) {
+    await loadFolders(n, services.folders);
     this.requestUpdate();
   }
 
@@ -74,7 +55,7 @@ export class Sidebar extends LightElement {
     const seq = ++this.rootSeq;
     const parts = folder.split("/").filter(Boolean);
     const name = parts[parts.length - 1] ?? "Repository";
-    const root: Node = { info: { name, path: folder, artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
+    const root = folderNode(name, folder, true);
     if (this.root.info.path !== folder) { this.root = root; this.filter = ""; } // show the new place at once
     const [parent] = await Promise.all([
       parts.length ? api.tree(parts.slice(0, -1).join("/"), false, 1).catch(() => null) : null,
@@ -121,35 +102,6 @@ export class Sidebar extends LightElement {
     navigate({ folder: parent ? `${parent}/${rel}` : rel, guid: null, type: "", q: "" });
   };
 
-  private toggle(n: Node) {
-    n.open = !n.open;
-    if (n.open && !n.children) this.load(n);
-    this.requestUpdate();
-  }
-
-  private node(n: Node, depth: number): TemplateResult {
-    const r = this.s.route;
-    const selected = r.folder === n.info.path && !r.type;
-    const hasKids = n.children === null || n.children.length > 0;
-    return html`<li>
-      <div class="row ${selected ? "selected" : ""} ${n.pending ? "pending" : ""}" title=${n.pending ? "Not in the repository yet: created with the first artifact saved here" : ""} data-folder=${n.info.path} @click=${() => { navigate({ folder: n.info.path, guid: null, type: "", q: "" }); store.closeNavIfOverlay(); }}>
-        <span class="caret ${hasKids ? "" : "empty"}" @click=${(e: Event) => { e.stopPropagation(); this.toggle(n); }}>${n.open ? "▾" : "▸"}</span>
-        <span class="name">${depth === 0 ? html`<b>${n.info.name}</b>` : n.info.name}</span>
-        ${n.info.hasConfig ? html`<span class="badge" title="has a .corestone metadata directory">.corestone</span>` : nothing}
-        ${n.info.artifacts ? html`<span class="count" title=${countTitle(n.info)}>${n.info.artifacts}</span>` : nothing}
-      </div>
-      ${n.open && n.children?.length ? html`<ul>
-        ${depth === 0 && n.children.length > FILTER_FROM ? html`<li><input class="tree-filter" type="search" data-test="folder-filter" placeholder="Filter ${n.children.length} folders…"
-          .value=${this.filter} @input=${(e: Event) => (this.filter = (e.target as HTMLInputElement).value)} /></li>` : nothing}
-        ${this.visible(n, depth).map((c) => this.node(c, depth + 1))}</ul>` : nothing}
-    </li>`;
-  }
-
-  private visible(n: Node, depth: number): Node[] {
-    const f = this.filter.trim().toLowerCase();
-    return depth === 0 && f ? n.children!.filter((c) => c.info.name.toLowerCase().includes(f)) : n.children!;
-  }
-
   private up() {
     const parts = this.s.route.folder.split("/").filter(Boolean);
     if (!parts.length) return nothing;
@@ -173,7 +125,13 @@ export class Sidebar extends LightElement {
         <div class="nav-section"><div class="nav-title"><span>Folders</span>
           <button class="btn sm" data-test="new-folder" title="New subfolder of the current folder" @click=${this.newFolder}>＋</button></div>
           <div class="tree">${this.up()}</div>
-          <ul class="tree">${this.node(this.root, 0)}</ul></div>
+          ${folderTree(this.root, {
+            selected: (path) => r.folder === path && !r.type,
+            pick: (n) => { navigate({ folder: n.info.path, guid: null, type: "", q: "" }); store.closeNavIfOverlay(); },
+            toggled: (n) => { if (n.open && !n.children) void this.load(n); this.requestUpdate(); },
+            details: true,
+            filter: { from: FILTER_FROM, text: this.filter, changed: (text) => (this.filter = text) },
+          })}</div>
         <div class="nav-section"><div class="nav-title"><span>By type${r.folder ? html` <span class="muted">in ${r.folder}</span>` : nothing}</span></div>
           ${!this.types.length ? html`<div class="muted small" style="padding:4px 8px">No schemas visible here yet.</div>` : nothing}
           <ul class="tree">${(["entry", "document"] as const).filter((k) => groups[k]?.length).map((k) => html`<li>

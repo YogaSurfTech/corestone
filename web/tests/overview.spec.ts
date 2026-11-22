@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { Schema, Summary } from "../src/types";
+import type { Schema, Summary } from "../src/components/types";
 import { expect, test, type Page } from "./fixtures";
 
 let script: string;
@@ -11,7 +11,8 @@ const styles = readFileSync(new URL("../packages/ui/src/ui.css", import.meta.url
 test.beforeAll(async () => {
   const result = await build({
     stdin: {
-      contents: 'import "./overview"; import { installRouter } from "./router"; installRouter();',
+      // the overview alone, with the providers the application's element gives its components
+      contents: 'import "./overview"; import { installRouter } from "./router"; import { provideServices } from "./components/services"; import { services } from "./services"; provideServices(document, services); installRouter();',
       resolveDir: fileURLToPath(new URL("../src/", import.meta.url)), sourcefile: "overview-test.ts",
     },
     bundle: true, format: "esm", target: "es2022", write: false,

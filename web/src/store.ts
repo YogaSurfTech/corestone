@@ -1,4 +1,6 @@
-import type { PickOptions, RepoStatus, Summary, View } from "./types";
+import type { RepoStatus, View } from "./types";
+import type { PickerOptions } from "./components/picker";
+import type { Kind, Summary, Theme } from "./components/types";
 import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
@@ -19,16 +21,52 @@ export interface Route {
   at: string;            // the commit that version is viewed at
 }
 
-export type Theme = "auto" | "light" | "dark";
 
 export interface Toast { id: number; text: string; level: "info" | "error" | "success"; action?: { label: string; run: () => void } }
 
 export interface Presence { viewers: string[]; editors: string[] }
 
-export interface Dialog {
-  kind: "new" | "pick" | "confirm" | "prompt" | "config" | "account";
-  [k: string]: unknown;
+/** What the "New" dialog starts with. */
+export interface NewOptions {
+  /** The folder the artifact goes to; without it the folder that is shown. */
+  folder?: string;
+  /** The kinds whose types are offered; without it all. */
+  kinds?: Kind[];
+  /** The type that is chosen already. */
+  type?: string;
+  /** The entry the new one inherits from. */
+  base?: { guid: string; label: string };
 }
+
+export interface ConfirmOptions {
+  text: string;
+  /** Shown below the text (a template). */
+  body?: unknown;
+  /** The confirm button warns. */
+  danger?: boolean;
+  confirmLabel?: string;
+  /** A second way to go on, beside confirming. */
+  altLabel?: string;
+  /** Nothing to confirm: the dialog only tells, and has one button. */
+  noConfirm?: boolean;
+  /** The dialog has a grip; its size is remembered under this name. */
+  resizable?: string;
+}
+
+/** How a confirmation ended. */
+export type Choice = "confirm" | "alt" | "cancel";
+
+/** The dialog that is open. Its `done` is called once, when it closes. */
+export type Dialog =
+  | ({ kind: "new" } & NewOptions)
+  | ({ kind: "confirm"; title: string; done: (choice: Choice) => void } & ConfirmOptions)
+  | ({ kind: "prompt"; title: string; done: (value: string | null) => void } & PromptOptions)
+  | { kind: "account" };
+
+/** The open artifact picker: one artifact is chosen, or several with checkboxes and a "<verb> n" button. */
+export type PickerDialog = PickerOptions & (
+  | { multi?: undefined; done: (picked: Summary | null) => void }
+  | { multi: { verb: string }; done: (guids: string[]) => void });
 
 export interface PromptOptions {
   text?: string;
@@ -58,7 +96,7 @@ export interface State {
   presence: Record<string, Presence>;
   toasts: Toast[];
   dialog: Dialog | null;
-  picker: Dialog | null; // an artifact picker shown above the current dialog
+  picker: PickerDialog | null; // an artifact picker shown above the current dialog
   refreshTick: number;
   navCollapsed: boolean;
 }
@@ -117,7 +155,14 @@ class Store {
   /** Asks the user for one line of text; resolves null when cancelled. */
   prompt(title: string, opts: PromptOptions = {}): Promise<string | null> {
     return new Promise((resolve) => {
-      this.set({ dialog: { kind: "prompt", title, ...opts, onSubmit: (v: string) => resolve(v), onCancel: () => resolve(null) } });
+      this.set({ dialog: { kind: "prompt", title, ...opts, done: resolve } });
+    });
+  }
+
+  /** Asks the user to confirm something; resolves with what they chose. */
+  confirm(title: string, opts: ConfirmOptions): Promise<Choice> {
+    return new Promise((resolve) => {
+      this.set({ dialog: { kind: "confirm", title, ...opts, done: resolve } });
     });
   }
 
@@ -167,9 +212,16 @@ export const store = new Store();
 
 /** Shows something that was thrown as an error toast. */
 /** Opens the artifact picker for one artifact: the chosen one, or null when the picker is closed without. */
-export function pickArtifact(options: PickOptions): Promise<Summary | null> {
+export function pickArtifact(options: PickerOptions): Promise<Summary | null> {
   return new Promise((resolve) => {
-    store.set({ picker: { kind: "pick", ...options, onPick: (s: Summary) => resolve(s), onCancel: () => resolve(null) } });
+    store.set({ picker: { ...options, done: resolve } });
+  });
+}
+
+/** Opens the artifact picker for several artifacts: the GUIDs of the chosen ones, none when it is closed without. */
+export function pickArtifacts(options: PickerOptions, verb: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    store.set({ picker: { ...options, multi: { verb }, done: resolve } });
   });
 }
 

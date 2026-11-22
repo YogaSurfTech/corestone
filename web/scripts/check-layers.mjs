@@ -30,7 +30,7 @@ export const MODULES = [
   { id: "components", dir: "packages/components/src/", packages: ["@corestone/ui", "lit"], modules: [], typesOf: ["@corestone/editor"] },
   // Components of the application: they show Corestone's data, which is handed to them.
   // The field editor contains the rich-text editor, so the editor package is allowed here.
-  { id: "app/components", dir: "src/components/", packages: ["@corestone/ui", "@corestone/editor", "lit"], modules: [], files: ["src/types.ts"] },
+  { id: "app/components", dir: "src/components/", packages: ["@corestone/ui", "@corestone/editor", "lit"], modules: [] },
   { id: "app", dir: "src/" },
 ];
 
@@ -39,12 +39,21 @@ export const MODULES = [
  * state, and the shell that puts the views together. Every other file directly
  * in src/ is a view, and only the shell imports a view.
  */
-export const APP_BASE = ["src/api.ts", "src/ws.ts", "src/store.ts", "src/router.ts", "src/types.ts", "src/files.ts"];
+export const APP_BASE = ["src/api.ts", "src/ws.ts", "src/store.ts", "src/router.ts", "src/types.ts", "src/files.ts", "src/services.ts", "src/store-controller.ts", "src/artifact-state.ts"];
 export const APP_SHELL = ["src/app.ts", "src/main.ts"];
 
 /** True for a view of the application: a file directly in src/ that is neither base nor shell. */
 export function isView(path) {
   return /^src\/[^/]+\.ts$/.test(path) && !APP_BASE.includes(path) && !APP_SHELL.includes(path);
+}
+
+/**
+ * The view a file is a part of: src/detail/state.ts belongs to src/detail.ts.
+ * Only the view and its other parts import a part.
+ */
+export function viewOfPart(path) {
+  const m = /^src\/(?!components\/)([^/]+)\/.+\.ts$/.exec(path);
+  return m ? `src/${m[1]}.ts` : null;
 }
 
 /** The globals only one file may use. */
@@ -96,6 +105,8 @@ export function violations(path, source) {
       const to = moduleOf(target + ".ts");
       if (!to) return add(node, `imports ${target}`);
       if (isView(target + ".ts") && !APP_SHELL.includes(path)) return add(node, `imports the view ${target}`);
+      const view = viewOfPart(target + ".ts");
+      if (view && path !== view && viewOfPart(path) !== view) return add(node, `imports ${target}, a part of the view ${view.slice(0, -3)}`);
       if (to === mod || !mod.packages || mod.modules.includes(to.id) || mod.files?.includes(target + ".ts")) return;
       return add(node, `imports ${target}`);
     }

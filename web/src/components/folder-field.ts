@@ -1,15 +1,15 @@
-import { html, nothing, type TemplateResult } from "lit";
+import { html, nothing } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import { api } from "../api";
-import type { FolderInfo } from "../types";
+import { folderNode, folderTree, loadFolders, type FolderNode } from "./folder-tree";
+import { servicesFor } from "./services";
+import type { FolderInfo } from "./types";
 
 // Folder input (design guide §7.3): folders exist only through what they
 // contain, so any path may be typed — the field shows which segments exist,
 // which would be created by the write, warns about near-misses of an existing
 // sibling, and offers the existing hierarchy to pick from.
 
-interface Node { info: FolderInfo; children: Node[] | null; open: boolean }
 interface Segment { name: string; path: string; exists: boolean; similar?: string }
 
 const clean = (p: string) => p.trim().replace(/\\/g, "/").split("/").map((s) => s.trim()).filter(Boolean).join("/");
@@ -34,7 +34,7 @@ export class FolderField extends LightElement {
   @property() ignore = "";
   @state() private segments: Segment[] = [];
   @state() private browsing = false;
-  @state() private root: Node = { info: { name: "Repository", path: "", artifacts: 0, direct: 0, hasConfig: false }, children: null, open: true };
+  @state() private root = folderNode("Repository", "", true);
   private cache = new Map<string, Promise<FolderInfo[]>>();
   private timer = 0;
   private seq = 0;
@@ -45,7 +45,8 @@ export class FolderField extends LightElement {
   private subfolders(path: string): Promise<FolderInfo[]> {
     let p = this.cache.get(path);
     if (!p) {
-      p = api.tree(path, false, 1).then((t) => t.folders);
+      // the folders come from the page (services.ts); without a provider there are none to offer
+      p = servicesFor(this).folders?.children(path) ?? Promise.resolve([]);
       p.catch(() => this.cache.delete(path));
       this.cache.set(path, p);
     }
@@ -84,26 +85,14 @@ export class FolderField extends LightElement {
     if (now) this.resolve(); else this.timer = window.setTimeout(() => this.resolve(), 200);
   }
 
-  private async load(n: Node) {
-    n.children = (await this.subfolders(n.info.path).catch(() => [])).map((f) => ({ info: f, children: null, open: false }));
+  private async load(n: FolderNode) {
+    await loadFolders(n, { children: (path) => this.subfolders(path) });
     this.requestUpdate();
   }
 
   private browse() {
     this.browsing = !this.browsing;
     if (this.browsing && !this.root.children) this.load(this.root);
-  }
-
-  private node(n: Node, depth: number): TemplateResult {
-    const hasKids = n.children === null || n.children.length > 0;
-    return html`<li>
-      <div class="row ${clean(this.value) === n.info.path ? "selected" : ""}" data-pick=${n.info.path} @click=${() => this.set(n.info.path, true)}>
-        <span class="caret ${hasKids ? "" : "empty"}" @click=${(e: Event) => { e.stopPropagation(); n.open = !n.open; if (n.open && !n.children) this.load(n); this.requestUpdate(); }}>${n.open ? "▾" : "▸"}</span>
-        <span class="name">${depth === 0 ? html`<b>${n.info.name}</b>` : n.info.name}</span>
-        ${n.info.artifacts ? html`<span class="count">${n.info.artifacts}</span>` : nothing}
-      </div>
-      ${n.open && n.children?.length ? html`<ul>${n.children.map((c) => this.node(c, depth + 1))}</ul>` : nothing}
-    </li>`;
   }
 
   private status() {
@@ -129,7 +118,11 @@ export class FolderField extends LightElement {
         <button type="button" class="btn sm" data-test="folder-browse" aria-expanded=${this.browsing} @click=${() => this.browse()}>${this.browsing ? "Hide" : "Browse…"}</button>
       </div>
       ${this.status()}
-      ${this.browsing ? html`<div class="folder-browser"><ul class="tree">${this.node(this.root, 0)}</ul>
+      ${this.browsing ? html`<div class="folder-browser">${folderTree(this.root, {
+          selected: (path) => clean(this.value) === path,
+          pick: (n) => this.set(n.info.path, true),
+          toggled: (n) => { if (n.open && !n.children) void this.load(n); this.requestUpdate(); },
+        })}
         <div class="help">Pick an existing folder, then append <code>/name</code> above for a new subfolder.</div></div>` : nothing}
     </div>`;
   }

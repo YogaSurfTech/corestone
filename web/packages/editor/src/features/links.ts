@@ -1,0 +1,223 @@
+import type { EditorView } from "prosemirror-view";
+import { linkAt, removeLink, setLink, type LinkTarget } from "../core/commands";
+import type { Feature, ItemLinks } from "../core/feature";
+import type { EntryFiles } from "../core/files";
+import type { ImagesFeature } from "./images";
+import { safeHref, schema } from "../core/schema";
+import { button, el, Overlay } from "@corestone/ui";
+
+// Links: the popover that sets one (Ctrl+K or the toolbar), the bubble that
+// shows the link at the cursor (open, edit, remove), and opening links.
+// Item links point to things of the host application; the host supplies
+// how to pick, name and open them (the editor knows nothing of them).
+
+
+/** Opens a link: web addresses and files in a new tab, items through the host. */
+export function openLink(t: LinkTarget, newTab: boolean, items: ItemLinks | undefined, files: EntryFiles | undefined) {
+  if (t.ref) items?.open(t.ref, newTab);
+  else if (t.file) { const u = files?.url(t.file); if (u) window.open(u, "_blank", "noopener"); }
+  else if (t.href && safeHref(t.href)) window.open(safeHref(t.href)!, "_blank", "noopener,noreferrer");
+}
+
+const BAD_ADDRESS = "Enter a web address (https://…), a mail address (mailto:…) or ftp://…";
+
+class LinkUI {
+  private readonly pop: HTMLElement;
+  private readonly input: HTMLInputElement;
+  private readonly msg: HTMLElement;
+  private readonly pickBtn: HTMLButtonElement;
+  private readonly fileBtn: HTMLButtonElement;
+  private readonly removeBtn: HTMLButtonElement;
+  private readonly bubble: HTMLElement;
+  private readonly overlay: Overlay;
+  private shown = ""; // the link the bubble shows, to refresh it only on change
+
+  constructor(
+    private readonly view: () => EditorView,
+    private readonly root: HTMLElement,
+    private readonly items: () => ItemLinks | undefined,
+    private readonly files: () => EntryFiles | undefined,
+    /** Lets the user pick or add a file of the entry. */
+    private readonly pickFile: (chosen: (name: string) => void) => void,
+  ) {
+    this.overlay = new Overlay({ root, onEscape: () => this.view().focus() });
+    this.pop = this.overlay.panel("ui-pop cs-pop cs-linkpop", "dialog", "Link");
+    this.input = el("input", "addr") as HTMLInputElement;
+    this.input.placeholder = "https://…";
+    this.input.setAttribute("aria-label", "Address");
+    const apply = button({ cls: "lb apply", text: "Apply", run: () => this.apply() });
+    this.pickBtn = button({ cls: "lb pick", text: "Item…", run: () => this.pick() });
+    this.pickBtn.title = "Link to an item";
+    this.fileBtn = button({ cls: "lb file", text: "File…", run: () => this.file() });
+    this.fileBtn.title = "Link to a file of this entry";
+    this.removeBtn = button({ cls: "lb unlink", text: "Remove", run: () => this.unlink() });
+    this.msg = el("div", "msg");
+    const row = el("div", "row");
+    row.append(this.input, apply, this.pickBtn, this.fileBtn, this.removeBtn);
+    this.pop.append(row, this.msg);
+    this.input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); this.apply(); }
+    });
+    this.input.addEventListener("input", () => { this.input.classList.remove("bad"); this.msg.textContent = ""; });
+
+    this.bubble = el("div", "cs-linkbubble");
+    // clicks in the bubble keep the cursor in the text
+    this.bubble.addEventListener("mousedown", (e) => e.preventDefault());
+    this.bubble.hidden = true;
+    root.append(this.bubble);
+  }
+
+  get open() { return !this.pop.hidden; }
+
+  /** Opens the popover for the selection, or for the link at the cursor. */
+  edit() {
+    const view = this.view();
+    const at = linkAt(view.state);
+    this.input.value = at?.href ?? "";
+    this.input.classList.remove("bad");
+    this.msg.textContent = at?.ref ? "Linked to an item. Enter an address to link to the web instead."
+      : at?.file ? `Linked to the file ${at.file}. Enter an address to link to the web instead.` : "";
+    this.pickBtn.hidden = !this.items();
+    this.fileBtn.hidden = !this.files();
+    this.removeBtn.hidden = !at && !view.state.doc.rangeHasMark(view.state.selection.from, view.state.selection.to, view.state.schema.marks.link);
+    this.bubble.hidden = true;
+    const c = view.coordsAtPos(at?.from ?? view.state.selection.from);
+    this.overlay.open(this.pop, { x: c.left, y: c.bottom + 4 });
+    this.input.focus();
+    this.input.select();
+  }
+
+  close(refocus: boolean) {
+    if (this.pop.hidden) return;
+    this.overlay.close();
+    if (refocus) this.view().focus();
+  }
+
+  private apply() {
+    const typed = this.input.value.trim();
+    const href = safeHref(typed);
+    if (!href) {
+      this.input.classList.add("bad");
+      this.msg.textContent = BAD_ADDRESS;
+      return;
+    }
+    const view = this.view();
+    setLink({ href }, typed)(view.state, view.dispatch);
+    this.close(true);
+  }
+
+  private pick() {
+    const items = this.items();
+    if (!items) return;
+    void items.pick().then((r) => {
+      if (!r) return;
+      const view = this.view();
+      setLink({ ref: r.ref }, r.label)(view.state, view.dispatch);
+      this.close(false); // a picker of the host may have closed it already
+      view.focus();
+    });
+  }
+
+  private file() {
+    this.close(false);
+    this.pickFile((name) => {
+      const view = this.view();
+      setLink({ file: name }, name)(view.state, view.dispatch);
+      view.focus();
+    });
+  }
+
+  private unlink() {
+    const view = this.view();
+    removeLink(view.state, view.dispatch);
+    this.close(true);
+  }
+
+  /** Shows the bubble while the cursor is in a link (and the text has the focus). */
+  update(view: EditorView, readonly: boolean) {
+    const at = !readonly && this.pop.hidden && view.hasFocus() ? linkAt(view.state) : null;
+    const sel = view.state.selection;
+    if (!at || sel.from < at.from || sel.to > at.to) {
+      this.bubble.hidden = true;
+      this.shown = "";
+      return;
+    }
+    const key = `${at.href ?? ""}|${at.ref ?? ""}|${at.file ?? ""}|${at.from}`;
+    if (key !== this.shown) {
+      this.shown = key;
+      this.bubble.replaceChildren();
+      const target = el("a", "tgt") as HTMLAnchorElement;
+      if (at.ref) {
+        target.textContent = "Item";
+        target.title = at.ref;
+        void this.items()?.label?.(at.ref).then((name) => { if (this.shown === key) target.textContent = name; }).catch(() => undefined);
+      } else if (at.file) {
+        target.textContent = at.file;
+        target.title = "File: " + at.file;
+      } else {
+        target.textContent = at.href ?? "";
+        target.title = at.href ?? "";
+        target.href = at.href ?? "";
+      }
+      target.addEventListener("click", (e) => { e.preventDefault(); openLink(at, e.ctrlKey || e.metaKey, this.items(), this.files()); });
+      this.bubble.append(target,
+        button({ cls: "lb edit", text: "Edit", run: () => this.edit() }),
+        button({ cls: "lb unlink", text: "Remove", run: () => { removeLink(this.view().state, this.view().dispatch); } }));
+    }
+    this.bubble.hidden = false;
+    this.place(this.bubble, at.from);
+  }
+
+  hideBubble() { this.bubble.hidden = true; this.shown = ""; }
+
+  /** Puts the bubble under the text at pos, inside the editor (the popover is the overlay's to place). */
+  private place(panel: HTMLElement, pos: number) {
+    const view = this.view();
+    const c = view.coordsAtPos(pos);
+    const r = this.root.getBoundingClientRect();
+    const left = Math.max(0, Math.min(c.left - r.left, r.width - panel.offsetWidth));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${c.bottom - r.top + 4}px`;
+  }
+
+  destroy() { this.close(false); }
+}
+
+/** Links: the Link button and Ctrl+K with the popover, the bubble at a link, opening links, and pasted addresses. */
+export const linksFeature: Feature = (ctx) => {
+  const ui = new LinkUI(ctx.view, ctx.root, ctx.items, ctx.files,
+    (chosen) => { void (ctx.feature("images") as ImagesFeature | undefined)?.pick({ images: false, chosen: (name) => chosen(name) }); });
+  return {
+    id: "links",
+    keys: { "Mod-k": () => { if (ctx.readonly()) return false; ui.edit(); return true; } },
+    toolbar: [{ group: "ins", id: "link", tip: { text: "Link…", shortcut: "Ctrl+K" }, run: () => ui.edit(), pressed: (s) => !!linkAt(s) }],
+    // links open on a click when reading, and on Ctrl/⌘+click while editing
+    click(view, e) {
+      const a = (e.target as HTMLElement).closest("a");
+      if (!a || !view.dom.contains(a)) return false;
+      e.preventDefault();
+      const newTab = e.ctrlKey || e.metaKey;
+      if (!ctx.readonly() && !newTab) return false;
+      openLink({ href: a.getAttribute("href"), ref: a.getAttribute("data-ref"), file: a.getAttribute("data-file") }, newTab, ctx.items(), ctx.files());
+      return true;
+    },
+    // a pasted web address links the selected text, or is inserted as a link
+    paste(view, data, drop) {
+      if (drop) return false;
+      const text = data.getData("text/plain").trim();
+      const href = /\n/.test(text) ? null : safeHref(text);
+      if (!href) return false;
+      const link = schema.marks.link.create({ href });
+      const { empty, from, to } = view.state.selection;
+      const tr = view.state.tr;
+      if (empty) tr.replaceSelectionWith(schema.text(text, link.addToSet(view.state.storedMarks ?? view.state.selection.$from.marks())), false);
+      else tr.removeMark(from, to, schema.marks.link).addMark(from, to, link);
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    },
+    update: (view) => ui.update(view, ctx.readonly()),
+    blur: () => ui.hideBubble(),
+    setReadonly: (on) => { if (on) { ui.close(false); ui.hideBubble(); } },
+    destroy: () => ui.destroy(),
+  };
+};

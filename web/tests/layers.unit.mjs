@@ -34,22 +34,22 @@ test("the app imports anything", () => {
   assert.deepEqual(what("src/detail.ts", `import { RichTextEditor } from "@corestone/editor"; import { api } from "./api"; import "x";`), []);
 });
 
-test("components of the app take types from it, and nothing of the server, the store or the views", () => {
-  assert.deepEqual(what("src/components/table.ts", `
+test("components of the app take nothing of the server, the store or the views", () => {
+  assert.deepEqual(what("src/components/table/table.ts", `
     import { html } from "lit";
     import { LightElement } from "@corestone/ui";
     import "@corestone/editor";
     import type { Summary } from "../types";
     import { compare } from "./sorting";
   `), []);
-  assert.deepEqual(what("src/components/table.ts", `
-    import { api } from "../api";
-    import { store } from "../store";
-    import { navigate } from "../router";
-    import "../dialogs";
+  assert.deepEqual(what("src/components/table/table.ts", `
+    import { api } from "../../api";
+    import { store } from "../../store";
+    import { navigate } from "../../router";
+    import "../../dialogs";
     import { EditorView } from "prosemirror-view";
   `), ["imports src/api", "imports src/store", "imports src/router", "imports the view src/dialogs", "imports prosemirror-view"]);
-  assert.deepEqual(what("src/overview.ts", `import "./components/table";`), []);
+  assert.deepEqual(what("src/overview.ts", `import "./components/table/table";`), []);
 });
 
 test("only the shell imports a view", () => {
@@ -89,4 +89,13 @@ test("the allowlist covers a file and kind; lines nothing matches are reported",
   const { fresh, stale } = compare(all, new Set(["src/detail.ts: uses fetch", "src/gone.ts: uses fetch"]));
   assert.deepEqual(fresh.map(entry), ["src/detail.ts: uses localStorage"]);
   assert.deepEqual(stale, ["src/gone.ts: uses fetch"]);
+});
+
+test("the parts of a view are imported by that view and by each other only", () => {
+  assert.deepEqual(what("src/detail.ts", `import { DetailState } from "./detail/state";`), []);
+  assert.deepEqual(what("src/detail/fields.ts", `import { sectionOf } from "./parts"; import type { DetailState } from "./state";`), []);
+  assert.deepEqual(what("src/document/sidebars/entry.ts", `import type { DocumentState } from "../state";`), []);
+  assert.deepEqual(what("src/document.ts", `import { DetailState } from "./detail/state";`), ["imports src/detail/state, a part of the view src/detail"]);
+  assert.deepEqual(what("src/app.ts", `import "./detail/state";`), ["imports src/detail/state, a part of the view src/detail"]);
+  assert.deepEqual(what("src/detail/fields.ts", `import "../document";`), ["imports the view src/document"]);
 });

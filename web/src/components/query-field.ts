@@ -5,9 +5,9 @@
 import { html, nothing, render, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import type { EnumOption, QueryWarning, Schema } from "../types";
+import type { EnumOption, QueryWarning, Schema } from "./types";
 import { markIcon } from "./icons";
-import { hidLabel } from "./util";
+import { hidLabel } from "./artifact";
 import "./enum-control";
 import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 

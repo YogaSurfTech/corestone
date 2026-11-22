@@ -69,15 +69,11 @@ export function clearLeaveGuard(g: LeaveGuard) {
 async function mayLeave(): Promise<boolean> {
   const g = guard;
   if (!g || !g.dirty()) return true;
-  const choice = await new Promise<"save" | "discard" | "cancel">((resolve) => store.set({ dialog: {
-    kind: "confirm", title: "Unsaved changes", text: `${g.label()} has changes that are not saved yet.`,
-    confirmLabel: "Save", onConfirm: () => resolve("save"),
-    altLabel: "Discard changes", onAlt: () => resolve("discard"),
-    onCancel: () => resolve("cancel"),
-  } }));
-  if (choice === "save") return g.save();
-  if (choice === "discard") g.discard();
-  return choice === "discard";
+  const choice = await store.confirm("Unsaved changes", {
+    text: `${g.label()} has changes that are not saved yet.`, confirmLabel: "Save", altLabel: "Discard changes" });
+  if (choice === "confirm") return g.save();
+  if (choice === "alt") g.discard();
+  return choice === "alt";
 }
 
 function apply(next: Route, replace: boolean) {
