@@ -643,10 +643,11 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await page.locator(".doc-page cs-document .ProseMirror").click();
   await page.keyboard.type("Hello");
   await expect(page.locator("[data-test=save]")).toBeEnabled();
-  // close without saving: asked first; discarding keeps the stored content
-  await page.locator("corestone-document button[aria-label='Close detail view']").click();
+  // reload without saving: asked first; discarding brings the stored content back
+  await page.locator("corestone-document [data-test=reload]").click();
   await page.locator(".dialog", { hasText: "Unsaved changes" }).locator("[data-test=dialog-alt]").click();
-  await expect(page.locator("corestone-document")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
+  await expect(page.locator(".doc-page cs-document .ProseMirror")).not.toContainText("Hello");
 });
 
 test("a document opens under the table like an entry, expands to fill the workspace, and back", async ({ page }) => {
@@ -665,13 +666,13 @@ test("a document opens under the table like an entry, expands to fill the worksp
   await expect(table).toBeVisible();
   // full size and back; the URL keeps it, as for an entry
   await doc.locator("[data-test=expand]").click();
-  await expect(page).toHaveURL(/x=1/);
+  await expect(page).toHaveURL(/max=artifact/);
   await expect(table).toBeHidden();
-  await page.goto(`/artifact/${a.meta.guid}?x=1`);
+  await page.goto(`/artifact/${a.meta.guid}?max=artifact`);
   await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
   await expect(table).toBeHidden();
   await doc.locator("[data-test=expand]").click();
-  await expect(page).not.toHaveURL(/x=1/);
+  await expect(page).not.toHaveURL(/max=/);
   await expect(table).toBeVisible();
   // the top line, as an entry's: dates and the actions; a document is moved and deleted like an entry
   await expect(doc.locator(".doc-top .dh-dates")).toContainText("created:");
@@ -686,14 +687,26 @@ test("a document opens under the table like an entry, expands to fill the worksp
   await page.locator("[data-test=delete]").click();
   await page.locator(".dialog [data-test=dialog-confirm]").click();
   await expect(doc).toHaveCount(0);
-  // closing leaves the table alone, not expanded
+  // Escape closes it: the table is back, not expanded
   await page.goto(`/folder/${folder}`);
   await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
   await doc.locator("[data-test=expand]").click();
-  await doc.locator("button[aria-label='Close detail view']").click();
+  await page.keyboard.press("Escape");
   await expect(doc).toHaveCount(0);
-  await expect(page).not.toHaveURL(/x=1/);
+  await expect(page).not.toHaveURL(/max=/);
   await expect(table).toBeVisible();
+  // the table fills the workspace and back, symmetric to the artifact; opening a row shows it beside the table again
+  await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
+  await page.locator("[data-test=maximize-table]").click();
+  await expect(page).toHaveURL(/max=table/);
+  await expect(doc).toBeHidden();
+  await expect(page.locator(".main > .splitter")).toBeHidden();
+  await page.locator("[data-test=maximize-table]").click();
+  await expect(doc).toBeVisible();
+  await page.locator("[data-test=maximize-table]").click();
+  await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
+  await expect(page).not.toHaveURL(/max=/);
+  await expect(doc).toBeVisible();
 });
 
 test("the old block format is refused", async () => {

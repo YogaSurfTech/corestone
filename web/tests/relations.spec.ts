@@ -23,15 +23,15 @@ test("two workflow fields on one artifact, with diagram and rework", async ({ pa
   await expect(dev.locator(".pill.state")).toHaveText("open"); // untouched
   await dev.locator("select").selectOption("submit");
   await expect(dev.locator("[data-test=pending-state-status]")).toHaveText("review");
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 transitions");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /2 transitions/);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(pub.locator(".pill.state")).toHaveText("released");
   await expect(dev.locator(".pill.state")).toHaveText("review");
   await expect(dev.locator("select option")).toHaveCount(3); // placeholder + approve + rework
   await dev.locator("select").selectOption("rework");
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(dev.locator(".pill.state")).toHaveText("open");
   await dev.locator("button", { hasText: "diagram" }).click();
   await expect(dev.locator(".wf-state")).toHaveCount(3);
@@ -71,9 +71,9 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   await page.locator("corestone-picker input[type=search]").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row.pending-add")).toHaveCount(2);
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 links added");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /2 links added/);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(rel.locator(".link-row")).toHaveCount(2);
   await expect(rel.locator(".link-row.pending-add")).toHaveCount(0);
   await expect(rel.locator(".link-row", { hasText: "relates to" }).locator(".arrow")).toHaveText("→");
@@ -155,14 +155,14 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await page.locator("[data-field=effort] [data-test=override]").click();
   await page.locator("[data-field=effort] input").fill("");
   await expect(page.locator("[data-field=effort] .inherited")).toContainText("inherited from base");
-  await expect(page.locator("[data-test=save]")).toHaveCount(0); // nothing changed
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved"); // nothing changed
   // an unlocked but unsaved override can be reverted before saving
   await page.locator("[data-field=priority] [data-test=override]").click();
   await page.locator("[data-field=priority] .enum-trigger").click();
   await page.locator('[data-field=priority] .enum-option[data-value="low"]').click();
   await page.locator("[data-field=priority] [data-test=revert]").click();
   await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("high");
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Mid ${id}`);

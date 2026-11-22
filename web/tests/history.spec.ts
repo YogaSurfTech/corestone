@@ -45,7 +45,7 @@ test("the history opens read-only historic versions, also across a move", async 
   await expect(page.locator("[data-test=title]")).not.toBeEditable();
   await expect(page.locator("[data-test=hid]")).not.toBeEditable();
   await expect(page.locator("#sec-fields input, #sec-fields textarea").first()).not.toBeEditable();
-  await expect(page.locator(".savebar")).toHaveCount(0);
+  await expect(page.locator("corestone-detail [data-test=save]")).toHaveCount(0); // nothing to save in the past
 
   // After the move: the second title in the new folder, with the link of then.
   await page.locator("#sec-history .history-row").nth(1).locator("[data-test=history-version]").click();

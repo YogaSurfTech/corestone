@@ -69,7 +69,7 @@ export class App extends LightElement {
     const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     if (e.key === "/" && !typing) { e.preventDefault(); (this.querySelector<HTMLElement>("corestone-overview [data-test=search]") ?? this.querySelector<HTMLElement>("corestone-overview [data-test=query-add]"))?.focus(); }
     if (e.key === "n" && !typing && !this.s.dialog) { e.preventDefault(); store.set({ dialog: { kind: "new", folder: this.s.route.folder } }); }
-    if (e.key === "Escape" && !typing && this.s.route.guid && !this.s.dialog) navigate({ guid: null, expanded: false });
+    if (e.key === "Escape" && !typing && this.s.route.guid && !this.s.dialog) navigate({ guid: null, tab: "" });
   };
 
   private pollStatus() {
@@ -106,8 +106,8 @@ export class App extends LightElement {
     const p = status?.projection;
     const health = !status ? "bad" : p?.maintenance ? "warn" : status.inSync ? "ok" : "warn";
     const healthText = !status ? "server unreachable" : p?.maintenance ? `maintenance: ${p.phase || p.reason || ""} ${p.total ? `${p.progress}/${p.total}` : ""}` : status.inSync ? "in sync" : "syncing…";
-    // an entry and a document open under the table, or fill the workspace when expanded
-    const mainClass = route.guid && route.expanded ? "expanded" : "";
+    // an entry and a document open under the table, or fill the workspace; or the table fills it
+    const mainClass = route.maximized === "table" ? "table-max" : route.guid && route.maximized === "artifact" ? "expanded" : "";
     return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}" style=${`--nav-w:${this.nav.value}px`}>
       <header class="header">
         <button class="btn sm icon" title="Toggle navigation" aria-label="Toggle navigation" @click=${() => store.toggleNav()}>☰</button>

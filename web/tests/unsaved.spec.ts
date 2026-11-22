@@ -39,7 +39,7 @@ for (const choice of ["cancel", "alt", "confirm"] as const) {
       await expect(dialog).toHaveCount(0);
       await expect(page).toHaveURL(currentURL);
       await expect(title).toHaveValue(edited);
-      await expect(page.locator(".savebar")).toBeVisible();
+      await expect(page.locator("corestone-detail [data-test=save]")).toHaveClass(/dirty/);
       expect(await stored(guid)).toBe(original);
     } else {
       await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
@@ -138,10 +138,12 @@ test("a document with unsaved changes asks before closing", async ({ page }) => 
   await docTitle.click();
   await page.keyboard.press("End");
   await page.keyboard.type(" v2");
-  await page.locator("corestone-document button[aria-label='Close detail view']").click();
+  // reloading asks first, like leaving
+  await page.locator("corestone-document [data-test=reload]").click();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await dialog.locator("[data-test=dialog-confirm]").click();
-  await expect(page.locator("corestone-document")).toHaveCount(0);
+  await expect(page.locator("corestone-document [data-test=save]")).toHaveText("Saved");
+  await expect(docTitle).toHaveValue(`Doc ${id} v2`);
   const doc = await get<{ meta: { title: string } }>(`/documents/${guids.d}`);
   expect(doc.meta.title).toBe(`Doc ${id} v2`);
 });

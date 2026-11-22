@@ -3,6 +3,7 @@ import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relT
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate, showKind } from "./router";
+import { appIcon } from "./components/icons";
 import { store, type NewOptions, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
@@ -295,7 +296,9 @@ export class Overview extends LightElement {
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
         <corestone-kind-menu .kind=${r.kind} @kind-change=${(e: CustomEvent<string>) => showKind(e.detail, { type: r.type })}></corestone-kind-menu>
         ${r.folder && !r.q && !r.type ? html`<button class="btn sm" data-test="move-folder" title="Move or rename this folder" @click=${this.moveFolder}>Move folder…</button>` : nothing}
-        <button class="btn sm" title="Reload" aria-label="Reload overview" @click=${() => store.refresh()}>↻</button>
+        <button class="btn sm icon" data-test="maximize-table" title=${r.maximized === "table" ? "Restore layout" : "Expand the table"}
+          @click=${() => navigate({ maximized: r.maximized === "table" ? "" : "table" })}>${r.maximized === "table" ? "⤡" : "⤢"}</button>
+        <button class="btn sm icon" data-test="reload-table" title="Reload" aria-label="Reload overview" @click=${() => store.refresh()}>${appIcon("reload", 15)}</button>
       </div>
       ${this.error ? html`<div class="notice error">${this.error}</div>` : nothing}
       ${total === 0 ? html`<div class="empty-state"><div class="big">Nothing here yet</div>

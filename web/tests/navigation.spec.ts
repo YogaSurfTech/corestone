@@ -54,18 +54,19 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
 });
 
 test("deep links: section tab, expanded layout, folder context", async ({ page }) => {
-  await page.goto(`/artifact/${guids.a}?tab=history&x=1`);
+  await page.goto(`/artifact/${guids.a}?tab=history&max=artifact`);
   await expect(page.locator(".quicklinks a.active")).toHaveText(/History/);
   await expect(page.locator("corestone-overview")).toBeHidden();
   await expect(page.locator(".tree .row.selected")).toContainText("alpha"); // folder inferred from the artifact
   await page.locator(".detail-head button[title='Restore layout']").click();
   await expect(page.locator("corestone-overview")).toBeVisible();
-  await expect(page).not.toHaveURL(/x=1/);
+  await expect(page).not.toHaveURL(/max=/);
   await page.locator(".quicklinks a", { hasText: "Comments" }).click();
   await expect(page).toHaveURL(/tab=comments/);
   await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
-  // the ✕ closes and drops the tab from the URL
-  await page.locator(".detail-head button[title=Close]").click();
+  // Escape closes it and drops the tab from the URL
+  await page.locator(".quicklinks a", { hasText: "Comments" }).blur();
+  await page.keyboard.press("Escape");
   await expect(page).not.toHaveURL(/tab=/);
 });
 
@@ -309,7 +310,7 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await bar.dblclick();
   await expect.poll(height).toBeCloseTo(initial, -1);
   // hidden when the detail view is expanded
-  await page.goto(`/artifact/${guids.a}?x=1`);
+  await page.goto(`/artifact/${guids.a}?max=artifact`);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);

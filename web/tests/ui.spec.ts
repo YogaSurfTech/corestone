@@ -108,10 +108,10 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Editable");
   await page.locator("[data-test=title]").fill("Editable (v2)");
   await page.locator("[data-field=effort] input").fill("3");
-  await expect(page.locator(".savebar .dirty")).toBeVisible();
-  await page.locator("[data-test=save]").click();
+  await expect(page.locator("[data-test=save]")).toHaveClass(/dirty/);
+  await page.keyboard.press("Control+s"); // Ctrl+S saves, as in a document
   await expect(page.locator(".toast.success")).toContainText("Saved");
-  await expect(page.locator(".savebar")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue("Editable (v2)");
   // a concurrent change of the same property: Save names it; Cancel keeps the draft
   await page.locator("[data-test=title]").fill("my version");
@@ -142,7 +142,7 @@ test("edit fields, save with optimistic concurrency, and see history", async ({ 
   await page.locator("[data-test=save]").click();
   expect(Math.round((await dialog.boundingBox())!.height)).toBe(Math.round(after.height));
   await page.locator(".dialog [data-test=dialog-confirm]").click();
-  await expect(page.locator(".toast.success").last()).toContainText("Saved");
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(page.locator("[data-test=title]")).toHaveValue("my version");
   expect((await (await fetch(`${api}/artifacts/${e.meta.guid}`)).json()).data.title).toBe("my version");
   await page.locator(".quicklinks a", { hasText: "History" }).click();
@@ -161,7 +161,7 @@ test("workflow transitions from the detail view", async ({ page }) => {
   // the transition waits for Save
   await expect(wf.locator("[data-test=pending-state-status]")).toHaveText("review");
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(wf.locator(".pill.state")).toHaveText("review");
   await wf.locator("button", { hasText: "diagram" }).click();
   await expect(wf.locator(".wf-state.current")).toHaveText("review");
@@ -177,7 +177,7 @@ test("relationships: link two artifacts and navigate between them", async ({ pag
   await page.locator(".picker-results .row", { hasText: `Linked requirement ${stamp}` }).click();
   await expect(page.locator("#sec-relationships .link-row.pending-add")).toHaveCount(1);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const row = page.locator("#sec-relationships .link-row");
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("verifies");
@@ -201,11 +201,11 @@ test("one Save publishes edits, a transition, a link and a comment as a single c
   await page.locator("[data-test=comment-text]").fill("staged remark");
   await page.locator("[data-test=comment-send]").click();
   await expect(page.locator("#sec-comments .comment.pending-add")).toHaveCount(1);
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("1 transition, 1 link added, 1 comment");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /1 transition, 1 link added, 1 comment/);
   // nothing was written yet
   const before = await get<{ history: unknown[] }>(`/artifacts/${e.meta.guid}/history`);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(page.locator(".workflow[data-workflow=status] .pill.state")).toHaveText("review");
   await expect(page.locator("#sec-relationships .link-row")).toHaveCount(1);
   await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
