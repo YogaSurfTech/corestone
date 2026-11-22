@@ -2,6 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from "lit";
 import { deepEqual } from "@corestone/ui";
 import { clearLeaveGuard, setLeaveGuard, type LeaveGuard } from "./router";
 import { announceEdit } from "./ws";
+import { store, type State } from "./store";
 
 // What the entry view and the document view share about an artifact that is
 // being edited, without any rendering: what a save sends for the fields, and
@@ -43,4 +44,34 @@ export class EditSession implements ReactiveController {
   done(): void {
     if (this.editing) { announceEdit(this.guid(), false); this.editing = false; }
   }
+}
+
+/** What a view's state needs of the element that shows it. */
+export interface ViewHost extends ReactiveControllerHost, HTMLElement {
+  /** The artifact the view shows. */
+  guid: string;
+}
+
+/**
+ * A field of a state part that the view shows: assigning it asks the view
+ * for a new rendering. A field without it is bookkeeping the view never shows.
+ */
+export function tracked(proto: object, key: string) {
+  const slot = Symbol(key);
+  Object.defineProperty(proto, key, {
+    get(this: Record<symbol, unknown>) { return this[slot]; },
+    set(this: Record<symbol, unknown> & StatePart, value: unknown) { this[slot] = value; this.host.requestUpdate(); },
+    enumerable: true, configurable: true,
+  });
+}
+
+/**
+ * The base of a view's state and of the parts it is made of: a part holds
+ * data and what is done with it and renders nothing; the element is its host.
+ */
+export abstract class StatePart<H extends ViewHost = ViewHost> {
+  constructor(readonly host: H) {}
+  get guid(): string { return this.host.guid; }
+  /** The application's state. */
+  get s(): State { return store.state; }
 }

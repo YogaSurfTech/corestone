@@ -10,16 +10,15 @@ import { sectionOf } from "./parts";
 
 export function attachmentSection(dt: DetailState) {
   const h = dt.historic;
-  const p = dt.pending;
   type Row = Attachment & { file?: File };
-  const staged = new Set(p.files.map((f) => f.name));
+  const staged = new Set(dt.files.added.map((f) => f.name));
   const att: Row[] = [...(dt.view?.attachments ?? []).filter((a) => h || !staged.has(a.name)),
-    ...(h ? [] : p.files.map((f) => ({ name: f.name, path: "", etag: "", size: f.size, file: f })))];
+    ...(h ? [] : dt.files.added.map((f) => ({ name: f.name, path: "", etag: "", size: f.size, file: f })))];
   const url = (a: Attachment) => h ? api.versionFileUrl(dt.guid, h.etag, h.commit.sha, a.name) : api.fileUrl(dt.guid, a.name);
-  const removing = (a: Row) => !a.file && p.removedFiles.includes(a.name);
+  const removing = (a: Row) => !a.file && dt.files.removed.includes(a.name);
   const remove = (a: Row) => a.file
-    ? (dt.pending = { ...p, files: p.files.filter((f) => f !== a.file) })
-    : dt.toggleFileRemoval(a.name);
+    ? dt.files.drop(a.file)
+    : dt.files.toggleRemoval(a.name);
   return sectionOf(dt, "attachments", () => html`
     ${!att.length ? html`<div class="muted small">Files stored in the artifact's GUID directory appear here.</div>` : nothing}
     ${!att.length ? nothing : html`<corestone-table class="detail-table" .items=${att} .rowKey=${(a: Row) => (a.file ? "pending:" : "") + a.name}
@@ -30,5 +29,5 @@ export function attachmentSection(dt: DetailState) {
         ? html`<button class="btn sm" title="Keep attachment" aria-label="Keep attachment" @click=${() => remove(a)}>↺</button>`
         : html`<button class="btn sm" title="Remove attachment" aria-label="Remove attachment" @click=${() => remove(a)}>✕</button>` }]),
     ] satisfies TableColumn<Row>[]}></corestone-table>`}`,
-    h ? nothing : html`<label class="btn sm">＋ Upload<input type="file" multiple hidden @change=${(e: Event) => dt.upload(e)} /></label>`);
+    h ? nothing : html`<label class="btn sm">＋ Upload<input type="file" multiple hidden @change=${(e: Event) => dt.files.upload(e)} /></label>`);
 }

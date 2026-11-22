@@ -1,13 +1,12 @@
-import { type ReactiveControllerHost } from "lit";
 import { deepEqual, errorText } from "@corestone/ui";
 import { type DocNode, type DocumentElement, type EntryFiles, type ItemLinks, type OutlineItem, type RichText } from "@corestone/editor";
 import { api, ApiError, type SaveChanges } from "../api";
 import { navigate } from "../router";
-import { store, type State } from "../store";
+import { store } from "../store";
 import { itemLinks } from "../services";
 import { type CommentView, type LogEntry, type Relationships, type View } from "../types";
 import { type Field, type Schema } from "../components/types";
-import { EditSession, fieldsPatch } from "../artifact-state";
+import { EditSession, fieldsPatch, StatePart, tracked } from "../artifact-state";
 import { commentTypeOf, hidLabel } from "../components/artifact";
 import { createFiles } from "../files";
 
@@ -37,51 +36,30 @@ export function mapKeys<T>(v: T, f: (key: string) => string): T {
   return out as T;
 }
 
-/** What the state needs of the element that shows it. */
-export interface DocumentViewElement extends ReactiveControllerHost, HTMLElement {
-  guid: string;
-}
+export class DocumentState extends StatePart {
+  @tracked view: View | null = null;
+  @tracked schema: Schema | null = null;
 
-/** Makes every assignment to one of the object's fields ask for a new rendering. */
-function observe(target: object, changed: () => void) {
-  const fields = target as Record<string, unknown>;
-  for (const key of Object.keys(fields)) {
-    let value = fields[key];
-    if (typeof value === "function") continue;
-    Object.defineProperty(fields, key, { get: () => value, set: (v) => { value = v; changed(); }, enumerable: true, configurable: true });
-  }
-}
+  @tracked docTitle = "";
+  @tracked content: DocNode[] = [];
 
-export class DocumentState {
-  constructor(readonly element: DocumentViewElement) {
-    observe(this, () => element.requestUpdate());
-  }
-  get guid(): string { return this.element.guid; }
-  get s(): State { return store.state; }
+  @tracked fields: Record<string, unknown> = {};
+  @tracked outline: OutlineItem[] = [];
 
-  view: View | null = null;
-  schema: Schema | null = null;
+  @tracked current: string | null = null; // the placed entry last clicked
+  @tracked busy = false;
+  @tracked error = "";
 
-  docTitle = "";
-  content: DocNode[] = [];
+  @tracked rel: Relationships | null = null;
+  @tracked comments: CommentView[] = [];
 
-  fields: Record<string, unknown> = {};
-  outline: OutlineItem[] = [];
+  @tracked commentType: string | null = null;
+  @tracked history: LogEntry[] = [];
 
-  current: string | null = null; // the placed entry last clicked
-  busy = false;
-  error = "";
+  @tracked commentText = "";
+  @tracked pendingFiles: File[] = [];
 
-  rel: Relationships | null = null;
-  comments: CommentView[] = [];
-
-  commentType: string | null = null;
-  history: LogEntry[] = [];
-
-  commentText = "";
-  pendingFiles: File[] = [];
-
-  removedFiles: string[] = [];
+  @tracked removedFiles: string[] = [];
   lastTick = -1;
 
   loadSeq = 0;
@@ -100,24 +78,24 @@ export class DocumentState {
 
   checkTimer = 0;
   /** The missing fields in the entry sidebar flash (to draw attention to them). */
-  flash = false;
+  @tracked flash = false;
 
   schemas = new Map<string, Promise<Schema | null>>();
 
   observer?: IntersectionObserver;
-  dragId: string | null = null;
+  @tracked dragId: string | null = null;
 
-  dropAt: number | "end" | null = null;
+  @tracked dropAt: number | "end" | null = null;
 
   /** The router asks before leaving this document with unsaved changes; the others see that it is being edited. */
-  session = new EditSession(this.element, () => this.guid, {
+  session = new EditSession(this.host, () => this.guid, {
     dirty: () => this.dirty,
     save: async () => { await this.save(); return !this.dirty; },
     discard: () => this.discard(),
     label: () => (this.view ? hidLabel(this.view.meta) : "This document"),
   });
 
-  get editor(): DocumentElement | null { return this.element.querySelector("cs-document"); }
+  get editor(): DocumentElement | null { return this.host.querySelector("cs-document"); }
 
   /** Drops unsaved edits: title, content, fields and files go back to the stored version. */
   discard() {
@@ -176,8 +154,8 @@ export class DocumentState {
     if (!tab.startsWith("entry:")) return;
     const guid = tab.slice("entry:".length);
     navigate({ tab: "" }, true);
-    await this.element.updateComplete;
-    const el = this.element.querySelector(`.cs-placement[data-placement="${CSS.escape(guid)}"]`);
+    await this.host.updateComplete;
+    const el = this.host.querySelector(`.cs-placement[data-placement="${CSS.escape(guid)}"]`);
     if (!el) return;
     this.current = guid;
     el.scrollIntoView({ block: "center" });
@@ -216,7 +194,7 @@ export class DocumentState {
     }
     this.entries.set(guid, loaded);
     this.editor?.refresh(); // shown again, with its name in cross-references
-    if (this.current === guid) this.element.requestUpdate();
+    if (this.current === guid) this.host.requestUpdate();
   }
 
   /** After changes elsewhere: the entries shown are loaded again. */
@@ -268,7 +246,7 @@ export class DocumentState {
     if (this.held.get(key) !== h) return true;
     if (problems.length) this.problems.set(key, problems); else this.problems.delete(key);
     this.editor?.refresh(); // the card shows what is missing
-    this.element.requestUpdate();
+    this.host.requestUpdate();
     return !problems.length && !this.missing(h).length;
   }
 
@@ -288,7 +266,7 @@ export class DocumentState {
     change(h);
     this.touch();
     this.editor?.refresh();
-    this.element.requestUpdate();
+    this.host.requestUpdate();
     window.clearTimeout(this.checkTimer);
     this.checkTimer = window.setTimeout(() => void this.check(key), 400);
   }

@@ -19,19 +19,19 @@ export function hasSection(dt: DetailState, s: string): boolean {
     case "relationships": return k !== "comment";
     case "attachments": return k === "entry" || k === "document";
     case "documents": return k === "entry" && !dt.historic;
-    case "overlay": return !!dt.overlay;
+    case "overlay": return !!dt.base.overlay;
     default: return true;
   }
 }
 
 export function isEmpty(dt: DetailState, s: Section): boolean {
   switch (s) {
-    case "fields": return !(dt.schema?.fields ?? []).length && !Object.keys(dt.draft?.fields ?? {}).length;
-    case "relationships": return dt.view?.meta.kind !== "link" && (!dt.rel || !(dt.rel.incoming.length + dt.rel.outgoing.length));
-    case "comments": return !dt.comments.length;
+    case "fields": return !(dt.schema?.fields ?? []).length && !Object.keys(dt.edit.draft?.fields ?? {}).length;
+    case "relationships": return dt.view?.meta.kind !== "link" && (!dt.links.rel || !(dt.links.rel.incoming.length + dt.links.rel.outgoing.length));
+    case "comments": return !dt.comments.list.length;
     case "attachments": return !dt.view?.attachments?.length;
     case "documents": return !dt.documents.length;
-    case "overlay": return !dt.overlay || (dt.overlay.chain.length <= 1 && !dt.overlay.overlays.length);
+    case "overlay": return !dt.base.overlay || (dt.base.overlay.chain.length <= 1 && !dt.base.overlay.overlays.length);
     case "history": case "metadata": return true; // closed unless asked for
     default: return false;
   }
@@ -47,20 +47,20 @@ export function setOpen(dt: DetailState, s: Section, open: boolean, persist = tr
   if (dt.historic && sectionChange(dt, s).length) { dt.versionOpen = { ...dt.versionOpen, [s]: open }; return; }
   dt.openPrefs = { ...dt.openPrefs, [s]: open };
   if (persist) prefs.setJson(OPEN_KEY, dt.openPrefs, { session: true });
-  if (s === "history" && open && !dt.historyLoaded) void dt.loadHistory();
+  if (s === "history" && open && !dt.history.loaded) void dt.history.load();
 }
 
 export function sectionName(dt: DetailState, s: string) { return { comment: "Comment", fields: "Fields", relationships: "Relationships", comments: "Comments", attachments: "Attachments", documents: "Documents", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
 
 export function sectionCount(dt: DetailState, s: string): string {
   switch (s) {
-    case "fields": return String((dt.schema?.fields ?? []).length || Object.keys(dt.draft?.fields ?? {}).length || "");
-    case "relationships": return dt.view?.meta.kind === "link" ? "" : String((dt.rel?.incoming.length ?? 0) + (dt.rel?.outgoing.length ?? 0) || "");
-    case "comments": return String(dt.comments.length || "");
+    case "fields": return String((dt.schema?.fields ?? []).length || Object.keys(dt.edit.draft?.fields ?? {}).length || "");
+    case "relationships": return dt.view?.meta.kind === "link" ? "" : String((dt.links.rel?.incoming.length ?? 0) + (dt.links.rel?.outgoing.length ?? 0) || "");
+    case "comments": return String(dt.comments.list.length || "");
     case "attachments": return String(dt.view?.attachments?.length || "");
     case "documents": return String(dt.documents.length || "");
-    case "history": return dt.historyLoaded ? (dt.history.length ? dt.history.length + (dt.historyMore ? "+" : "") : "") : "";
-    case "overlay": return String(((dt.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (dt.overlay?.overlays.length ?? 0) || "");
+    case "history": return dt.history.loaded ? (dt.history.entries.length ? dt.history.entries.length + (dt.history.more ? "+" : "") : "") : "";
+    case "overlay": return String(((dt.base.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (dt.base.overlay?.overlays.length ?? 0) || "");
     default: return "";
   }
 }
@@ -77,11 +77,11 @@ export function sectionChange(dt: DetailState, s: Section): string[] {
     case "comment": return dt.changed("text") ? ["changed"] : [];
     case "relationships": {
       if (dt.view?.meta.kind === "link") return dt.changed("source") || dt.changed("target") ? ["changed"] : [];
-      const n = added([...(dt.rel?.incoming ?? []), ...(dt.rel?.outgoing ?? [])].map((r) => r.link.guid));
+      const n = added([...(dt.links.rel?.incoming ?? []), ...(dt.links.rel?.outgoing ?? [])].map((r) => r.link.guid));
       return [...(n ? [`${plural(n, "link")} added`] : []), ...(c.removedLinks ? [`${plural(c.removedLinks, "link")} removed`] : [])];
     }
     case "comments": {
-      const n = added(dt.comments.map((x) => x.meta.guid));
+      const n = added(dt.comments.list.map((x) => x.meta.guid));
       return [...(n ? [`${plural(n, "comment")} added`] : []), ...(c.removedComments ? [`${plural(c.removedComments, "comment")} removed`] : [])];
     }
     default: return [];
@@ -90,13 +90,12 @@ export function sectionChange(dt: DetailState, s: Section): string[] {
 
 /** The same badges for what waits for Save. */
 export function pendingChange(dt: DetailState, s: Section, plural: (n: number, what: string) => string): string[] {
-  const p = dt.pending;
   const badges = (n: number, what: string, verb: string) => (n ? [`${plural(n, what)} ${verb}`] : []);
   switch (s) {
-    case "fields": return (dt.draft && dt.view && dt.edited.includes("fields")) || Object.keys(p.transitions).length ? ["changed"] : [];
-    case "relationships": return [...badges(p.links.length, "link", "added"), ...badges(p.removedLinks.length, "link", "removed")];
-    case "comments": return badges(p.comments.length, "comment", "added");
-    case "attachments": return [...badges(p.files.length, "attachment", "added"), ...badges(p.removedFiles.length, "attachment", "removed")];
+    case "fields": return (dt.edit.draft && dt.view && dt.edit.edited.includes("fields")) || Object.keys(dt.edit.transitions).length ? ["changed"] : [];
+    case "relationships": return [...badges(dt.links.added.length, "link", "added"), ...badges(dt.links.removed.length, "link", "removed")];
+    case "comments": return badges(dt.comments.added.length, "comment", "added");
+    case "attachments": return [...badges(dt.files.added.length, "attachment", "added"), ...badges(dt.files.removed.length, "attachment", "removed")];
     default: return [];
   }
 }

@@ -50,6 +50,11 @@ at the top of `scripts/check-layers.mjs`.
   renders nothing) and one file per section or sidebar, each a function of
   that state. Only the view and its own parts import a part; the layer check
   enforces it.
+- A view's state extends `StatePart` (`src/artifact-state.ts`); a field the view
+  shows is marked `@tracked`, so assigning it renders again. A state that grows
+  is made of parts (`detail/state/`): each owns the data of one concern,
+  fetches it, and says what of it waits for Save (`DetailPart`); the state asks
+  all parts the same things and knows none of their fields.
 
 ## The allowlist
 

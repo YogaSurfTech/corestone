@@ -10,9 +10,9 @@ import { artifactRef, refHref, refRoute, sectionOf } from "./parts";
 /** A comment itself: what it is on (and whom it answers), then its author, time and text. */
 export function ownCommentSection(dt: DetailState) {
   const v = dt.view!;
-  const sub = dt.subject;
+  const sub = dt.comments.subject;
   const parent = String(v.data.parent ?? "");
-  const answered = parent ? dt.comments.find((c) => c.meta.guid === parent) : undefined;
+  const answered = parent ? dt.comments.list.find((c) => c.meta.guid === parent) : undefined;
   const on = !sub ? artifactRef(dt, v.meta.subject, null)
     : sub.meta.kind !== "link" ? artifactRef(dt, sub.meta.guid, sub.meta)
     : html`${artifactRef(dt, sub.meta.source, sub.source)}
@@ -33,10 +33,10 @@ export function ownCommentSection(dt: DetailState) {
 export function commentSection(dt: DetailState) {
   const byParent = new Map<string, CommentView[]>();
   // Pending comments sit in their thread like stored ones, marked until saved.
-  const pending: CommentView[] = dt.pending.comments.map((c, i) => ({
+  const pending: CommentView[] = dt.comments.added.map((c, i) => ({
     meta: { guid: "pending-" + i, kind: "comment", type: c.type ?? "comment", folder: "", path: "", author: dt.s.user, links: 0, comments: 0 },
     data: { type: c.type, text: c.text, parent: c.parent } }));
-  const all = [...dt.comments, ...pending];
+  const all = [...dt.comments.list, ...pending];
   const known = new Set(all.map((c) => c.meta.guid));
   for (const c of all) {
     let p = String(c.data?.parent ?? "");
@@ -46,19 +46,19 @@ export function commentSection(dt: DetailState) {
   const seen = new Set<string>();
   const render = (parent: string, depth: number): TemplateResult[] => (byParent.get(parent) ?? []).filter((c) => !seen.has(c.meta.guid) && seen.add(c.meta.guid) && depth < 50).map((c) => { const pi = c.meta.guid.startsWith("pending-") ? Number(c.meta.guid.slice(8)) : -1; return html`<div class="comment ${depth ? "reply" : ""} ${c.meta.guid === dt.guid ? "current" : ""} ${dt.added(c.meta.guid) ? "added" : ""} ${pi >= 0 ? "pending-add" : ""}" data-comment=${c.meta.guid}>
     <div class="who"><b>${c.meta.author || "anonymous"}</b> · ${pi >= 0 ? html`<i>unsaved</i>` : fmtTime(c.meta.created)} ${c.data?.type && c.data.type !== "comment" ? html`<span class="pill">${String(c.data.type)}</span>` : nothing}
-      ${pi >= 0 ? html`<a href="#" data-test="comment-drop" @click=${(e: Event) => { e.preventDefault(); dt.pending = { ...dt.pending, comments: dt.pending.comments.filter((_, i) => i !== pi) }; }}>remove</a>`
-      : dt.commentType ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); dt.replyTo = c.meta.guid; dt.host.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
+      ${pi >= 0 ? html`<a href="#" data-test="comment-drop" @click=${(e: Event) => { e.preventDefault(); dt.comments.drop(pi); }}>remove</a>`
+      : dt.comments.type ? html`<a href="#" @click=${(e: Event) => { e.preventDefault(); dt.comments.replyTo = c.meta.guid; dt.host.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>reply</a>` : nothing}</div>
     <div class="text">${String(c.data?.text ?? "")}</div>
     ${render(c.meta.guid, depth + 1)}</div>`; });
-  const actions = dt.historic ? nothing : !dt.commentType
+  const actions = dt.historic ? nothing : !dt.comments.type
     ? html`<span class="muted small" data-test="no-comment-type">No comment type is defined here, so no comments can be added.</span>`
     : html`<button class="btn sm" data-test="comment-add" @click=${async () => { await dt.reveal("comments"); dt.host.querySelector<HTMLTextAreaElement>("#comment-text")?.focus(); }}>＋ Comment</button>`;
   return sectionOf(dt, "comments", () => html`
     ${!all.length ? html`<div class="muted small">No comments yet.</div>` : render("", 0)}
-    ${!dt.commentType ? nothing : html`<div class="inline-form">
-      <textarea id="comment-text" data-test="comment-text" placeholder=${dt.replyTo || dt.view?.meta.kind === "comment" ? "Reply…" : "Write a comment…"} .value=${dt.commentText} @input=${(e: Event) => (dt.commentText = (e.target as HTMLTextAreaElement).value)}></textarea>
+    ${!dt.comments.type ? nothing : html`<div class="inline-form">
+      <textarea id="comment-text" data-test="comment-text" placeholder=${dt.comments.replyTo || dt.view?.meta.kind === "comment" ? "Reply…" : "Write a comment…"} .value=${dt.comments.text} @input=${(e: Event) => (dt.comments.text = (e.target as HTMLTextAreaElement).value)}></textarea>
       <div style="display:flex;flex-direction:column;gap:4px">
-        <button class="btn primary sm" data-test="comment-send" title=${dt.dirty ? "Saved together with your other changes" : "Publishes the comment now"} @click=${() => dt.addComment()}>${dt.dirty ? "Add" : "Post"}</button>
-        ${dt.replyTo ? html`<button class="btn sm" @click=${() => (dt.replyTo = null)}>cancel reply</button>` : nothing}
+        <button class="btn primary sm" data-test="comment-send" title=${dt.edit.dirty ? "Saved together with your other changes" : "Publishes the comment now"} @click=${() => dt.comments.post()}>${dt.edit.dirty ? "Add" : "Post"}</button>
+        ${dt.comments.replyTo ? html`<button class="btn sm" @click=${() => (dt.comments.replyTo = null)}>cancel reply</button>` : nothing}
       </div></div>`}`, actions);
 }

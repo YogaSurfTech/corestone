@@ -14,8 +14,8 @@ export function historySection(dt: DetailState) {
   const linkable = (h: HistoryEntry) => !!h.blob && dt.view?.meta.kind !== "document";
   const shown = (h: HistoryEntry) => !!dt.historic && h.sha === dt.historic.commit.sha;
   const open = (h: HistoryEntry) => { if (linkable(h)) navigate({ version: h.blob!, at: h.sha }); };
-  return sectionOf(dt, "history", () => !dt.historyLoaded ? html`<div class="muted small">Loading…</div>` : html`
-    ${!dt.history.length ? nothing : html`<corestone-table class="detail-table" data-test="history" .items=${dt.history} .rowKey=${(h: HistoryEntry) => h.sha}
+  return sectionOf(dt, "history", () => !dt.history.loaded ? html`<div class="muted small">Loading…</div>` : html`
+    ${!dt.history.entries.length ? nothing : html`<corestone-table class="detail-table" data-test="history" .items=${dt.history.entries} .rowKey=${(h: HistoryEntry) => h.sha}
       .rowClass=${(h: HistoryEntry) => `history-row ${linkable(h) ? "open-row" : ""} ${shown(h) ? "shown" : ""}`} .columns=${[
       { id: "when", name: "When", width: 150, value: (h) => h.time, render: (h) => html`<span class="when" title=${h.time}>${fmtTime(h.time)}</span>` },
       { id: "change", name: "Change", value: (h) => h.subject, render: (h) => html`${linkable(h)
@@ -28,6 +28,6 @@ export function historySection(dt: DetailState) {
       { id: "author", name: "Author", width: 130, value: (h) => h.author, render: (h) => html`<span class="muted small">${h.author}</span>` },
       { id: "commit", name: "Commit", width: 100, value: (h) => h.sha, render: (h) => html`<span class="mono muted">${h.sha.slice(0, 8)}</span>` },
     ] satisfies TableColumn<HistoryEntry>[]} @row-click=${(e: CustomEvent<HistoryEntry>) => open(e.detail)}></corestone-table>`}
-    ${!dt.history.length ? html`<div class="muted small">No history yet.</div>` : nothing}
-    ${dt.historyMore ? html`<button class="btn sm" data-test="history-more" style="margin-top:6px" @click=${() => dt.loadHistory(true)}>Load older changes</button>` : nothing}`);
+    ${!dt.history.entries.length ? html`<div class="muted small">No history yet.</div>` : nothing}
+    ${dt.history.more ? html`<button class="btn sm" data-test="history-more" style="margin-top:6px" @click=${() => dt.history.load(true)}>Load older changes</button>` : nothing}`);
 }

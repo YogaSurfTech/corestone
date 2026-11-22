@@ -13,44 +13,44 @@ export function pickBase(dt: DetailState) {
   const v = dt.view!;
   const base = v.meta.base;
   const actions: PickerAction[] = [{ label: "Create new base…", test: "create-base", tone: "add", run: () => startUnderlay(dt) }];
-  if (base) actions.push({ label: `Remove base ${dt.levelLabel(base)}`, test: "remove-base", tone: "remove", run: () => { void previewBase(dt, null); } });
+  if (base) actions.push({ label: `Remove base ${dt.base.levelLabel(base)}`, test: "remove-base", tone: "remove", run: () => { void previewBase(dt, null); } });
   void pickArtifact({ title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: dt.guid, actions })
     .then((s) => { if (s) void previewBase(dt, s); });
 }
 
 export function startUnderlay(dt: DetailState) {
-  dt.baseChange = null;
-  dt.underlay = { title: dt.view?.meta.title ?? "", fields: new Set(Object.keys(dt.ownFields())) };
+  dt.base.change = null;
+  dt.base.underlay = { title: dt.view?.meta.title ?? "", fields: new Set(Object.keys(dt.base.ownFields())) };
   void dt.reveal("overlay");
 }
 
 export function toggleUnderlayField(dt: DetailState, id: string, on: boolean) {
-  const fields = new Set(dt.underlay!.fields);
+  const fields = new Set(dt.base.underlay!.fields);
   if (on) fields.add(id); else fields.delete(id);
-  dt.underlay = { ...dt.underlay!, fields };
+  dt.base.underlay = { ...dt.base.underlay!, fields };
 }
 
 /** One commit: the new base with the moved fields, and this entry inheriting them. */
 export async function applyUnderlay(dt: DetailState) {
-  const u = dt.underlay, v = dt.view;
+  const u = dt.base.underlay, v = dt.view;
   if (!u || !v) return;
-  const fields = Object.keys(dt.ownFields()).filter((id) => u.fields.has(id) || dt.mustMove(id));
-  dt.busy = true;
+  const fields = Object.keys(dt.base.ownFields()).filter((id) => u.fields.has(id) || dt.base.mustMove(id));
+  dt.edit.busy = true;
   try {
     const res = await api.underlay(dt.guid, u.title.trim(), fields, v.etag);
     store.toast(`New base ${label(res.base.meta)} created`, "success");
-    dt.underlay = null;
+    dt.base.underlay = null;
     dt.reload(true);
     store.refresh();
   } catch (e) { toastError(e); }
-  finally { dt.busy = false; }
+  finally { dt.edit.busy = false; }
 }
 
 export async function previewBase(dt: DetailState, to: Summary | null) {
   try {
     const next = to ? await api.overlay(to.guid) : null;
-    dt.underlay = null;
-    dt.baseChange = { to, next, keep: true };
+    dt.base.underlay = null;
+    dt.base.change = { to, next, keep: true };
     void dt.reveal("overlay");
   } catch (e) { toastError(e); }
 }
@@ -58,8 +58,8 @@ export async function previewBase(dt: DetailState, to: Summary | null) {
 /** Effective values before and after the base change. Values set in this entry stay; on
  *  removal with "keep", inherited values are copied into the entry. */
 export function baseChangeRows(dt: DetailState) {
-  const c = dt.baseChange!, ov = dt.overlay!;
-  const own = dt.ownFields();
+  const c = dt.base.change!, ov = dt.base.overlay!;
+  const own = dt.base.ownFields();
   const after: Record<string, unknown> = {}, afterFrom: Record<string, string> = {};
   if (c.next) for (const [k, v] of Object.entries(c.next.fields)) { after[k] = v; afterFrom[k] = c.next.origin[k]; }
   if (!c.to && c.keep) for (const [k, v] of Object.entries(ov.fields)) { after[k] = v; afterFrom[k] = dt.guid; }
@@ -74,20 +74,20 @@ export function baseChangeRows(dt: DetailState) {
 
 /** One update: the new base, plus on removal with "keep" the inherited values. */
 export async function applyBase(dt: DetailState) {
-  const c = dt.baseChange, v = dt.view, ov = dt.overlay;
+  const c = dt.base.change, v = dt.view, ov = dt.base.overlay;
   if (!c || !v || !ov) return;
   const patch: Record<string, unknown> = { base: c.to?.guid ?? "" };
   if (!c.to && c.keep) {
     const copy = Object.fromEntries(Object.entries(ov.fields).filter(([k]) => ov.origin[k] !== dt.guid));
     if (Object.keys(copy).length) patch.fields = copy;
   }
-  dt.busy = true;
+  dt.edit.busy = true;
   try {
     await api.update(dt.guid, patch, v.etag);
     store.toast(c.to ? `Base changed to ${label(c.to)}` : "Base removed", "success");
-    dt.baseChange = null;
+    dt.base.change = null;
     dt.reload(true);
     store.refresh();
   } catch (e) { toastError(e); }
-  finally { dt.busy = false; }
+  finally { dt.edit.busy = false; }
 }

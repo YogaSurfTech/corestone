@@ -64,7 +64,7 @@ export class Detail extends LightElement {
       // A deep link to a section (?tab=history) opens it.
       const tab = store.state.route.tab;
       if ((SECTIONS as readonly string[]).includes(tab)) setOpen(this.d, tab as Section, true, false);
-      this.d.draft = null; this.d.reload(false);
+      this.d.edit.draft = null; this.d.reload(false);
     }
   }
 
@@ -73,7 +73,7 @@ export class Detail extends LightElement {
   override render() {
     if (!this.d.view && (this.d.loading || !this.d.error)) return html`<div class="empty-state">Loading…</div>`;
     if (!this.d.view) return html`<div class="empty-state"><div class="big">Artifact not available</div>${this.d.error}<br><button class="btn" @click=${() => navigate({ guid: null })}>Back</button></div>`;
-    if (!this.d.draft) return html`<div class="empty-state">Loading…</div>`;
+    if (!this.d.edit.draft) return html`<div class="empty-state">Loading…</div>`;
     const r = this.s.route;
     const order = sectionOrder(this.d);
     const active = r.tab || order[0];
@@ -93,26 +93,26 @@ export class Detail extends LightElement {
       <div class="detail-body">
         <nav class="quicklinks">${order.map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.d.reveal(s); }}>${sectionName(this.d, s)}<span class="n">${sectionCount(this.d, s)}</span></a>`)}</nav>
         <div class="sections">
-          ${this.d.error ? html`<div class="notice error" role="alert">${this.d.error} ${this.d.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.d.draft = null; this.d.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
+          ${this.d.error ? html`<div class="notice error" role="alert">${this.d.error} ${this.d.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.d.edit.draft = null; this.d.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
           ${order.map((s) => body[s]())}
         </div>
       </div>
-      ${this.d.dirty ? html`<div class="savebar"><span class="dirty" data-test="unsaved-summary">Unsaved changes: ${this.d.pendingSummary()}</span>
+      ${this.d.edit.dirty ? html`<div class="savebar"><span class="dirty" data-test="unsaved-summary">Unsaved changes: ${this.d.edit.pendingSummary()}</span>
         <button class="btn" @click=${() => this.d.resetDraft()}>Discard</button>
-        <button class="btn primary" data-test="save" ?disabled=${this.d.busy} @click=${() => this.d.save()}>${this.d.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
+        <button class="btn primary" data-test="save" ?disabled=${this.d.edit.busy} @click=${() => this.d.edit.save()}>${this.d.edit.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
   }
 
   /** Three lines: dates and actions, the editable identity, the folder breadcrumb. */
   private header() {
     const v = this.d.view!;
-    const d = this.d.draft!;
+    const d = this.d.edit.draft!;
     const r = this.s.route;
     const presence = this.s.presence[this.guid];
     const others = presence ? [...presence.editors].filter((n) => n !== this.s.user) : [];
     const typeName = this.d.schema?.displayName ?? v.meta.type;
     const hidCfg = this.d.schema?.hid;
     const hidHint = hidCfg?.prefix ? hidCfg.prefix + (hidCfg.separator ?? "-") : "HID";
-    const ov = this.d.overlay;
+    const ov = this.d.base.overlay;
     const base = ov && ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
     const overlays = ov?.overlays.length ?? 0;
     const segs = v.meta.folder ? v.meta.folder.split("/") : [];
@@ -131,14 +131,14 @@ export class Detail extends LightElement {
         ${v.meta.kind === "comment" ? html`<h2 class="dh-static" data-test="comment-heading">${typeName} by ${v.meta.author || "anonymous"}</h2>` : html`
         <input class="hid-input ${d.hid ? "" : "empty"} ${this.d.changedClass("hid")}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint} ?readonly=${!!this.d.historic}
           size=${Math.max((d.hid || hidHint).length, 3)}
-          title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${() => this.d.touched()}
-          @input=${(e: Event) => { this.d.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} />
+          title="Human-readable identifier; must be unique. Previous HIDs stay resolvable through history." @focus=${() => this.d.edit.touched()}
+          @input=${(e: Event) => { this.d.edit.draft = { ...d, hid: (e.target as HTMLInputElement).value }; }} />
         ${d.hid ? html`<span class="dash">–</span>` : nothing}
-        <h2><input class="title-input ${this.d.changedClass("title")}" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} ?readonly=${!!this.d.historic} @focus=${() => this.d.touched()}
-          @input=${(e: Event) => { this.d.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>`}
+        <h2><input class="title-input ${this.d.changedClass("title")}" type="text" data-test="title" aria-label="Title" .value=${d.title} placeholder=${"untitled " + v.meta.kind} ?readonly=${!!this.d.historic} @focus=${() => this.d.edit.touched()}
+          @input=${(e: Event) => { this.d.edit.draft = { ...d, title: (e.target as HTMLInputElement).value }; }} /></h2>`}
         </div>
         ${others.length ? html`<span class="presence" title="concurrent editing">✎ ${others.join(", ")} editing</span>` : nothing}
-        ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.d.reveal("overlay")}>overlay of ${this.d.levelLabel(base.guid)}</button>` : nothing}
+        ${base ? html`<button class="pill badge" data-test="badge-overlay" @click=${() => this.d.reveal("overlay")}>overlay of ${this.d.base.levelLabel(base.guid)}</button>` : nothing}
         ${overlays ? html`<button class="pill badge" data-test="badge-overlays" @click=${() => this.d.reveal("overlay")}>${overlays} overlay${overlays === 1 ? "" : "s"}</button>` : nothing}
         <button class="btn sm" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
         <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, tab: "", expanded: false })}>✕</button>

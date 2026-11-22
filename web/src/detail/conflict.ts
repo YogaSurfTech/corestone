@@ -21,5 +21,5 @@ export function conflictDialog(dt: DetailState, c: SaveConflict) {
     body: html`<p><a href=${`/artifact/${v.meta.guid}`} target="_blank" rel="noopener" data-test="conflict-current">Open the current version in a new tab</a></p>
       <table class="base-diff conflict-table" data-test="conflicts"><thead><tr><th></th><th>Theirs (now)</th><th>Yours</th></tr></thead>
       <tbody>${c.conflicts.map(row)}</tbody></table>`,
-  }).then((choice) => { if (choice === "confirm") void dt.save(c.etag); });
+  }).then((choice) => { if (choice === "confirm") void dt.edit.save(c.etag); });
 }
