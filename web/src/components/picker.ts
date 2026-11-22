@@ -2,14 +2,20 @@ import { html, nothing } from "lit";
 import { LightElement, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import type { PickOptions, SortLevel, Summary, TableFilter } from "./types";
+import type { Kind, PickOptions, Schema, SortLevel, Summary, TableFilter } from "./types";
 import type { Table, TableColumn } from "./table/table";
+import { queryFields, type LockedCriterion } from "./query-field";
+import type { QueryField } from "./query-model";
+import { kindPlural } from "./artifact";
+import { servicesFor, type Services } from "./services";
 import "./table/table";
+import "./query-field";
 import "./type-icon";
 
-// The artifact picker: a search over the artifacts, from which one or several
-// are chosen. It reads the artifacts through the table's provider and says
-// what happened with events; the dialog around it is the page's.
+// The artifact picker: a query over the artifacts, built like the overview's,
+// from which one or several are chosen. It reads the artifacts through the
+// table's provider and says what happened with events; the dialog around it
+// is the page's.
 
 /** A button besides picking a row; "add" shows a green ＋, "remove" a red ✕. The picker is cancelled, then it runs. */
 export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
@@ -22,6 +28,30 @@ export interface PickerOptions extends PickOptions {
 }
 
 const PICKER_SORT_KEY = "corestone.pickerSort";
+const DEFAULT_KINDS: Kind[] = ["entry", "document"];
+
+/** Whether a type is one the picker offers: of its kinds and, when it names types, one of them ("<kind>/*": all of a kind). */
+function offered(s: Schema, kinds: Kind[], types?: string[]): boolean {
+  return kinds.includes(s.kind) && (!types?.length || types.some((t) => t === s.type || t === `${s.kind}/*`));
+}
+
+/** The criteria the picker is opened with, shown locked; their title says why they are there. */
+function lockedCriteria(o: PickerOptions, schemas: Schema[]): LockedCriterion[] {
+  const why = o.why ?? "Set by what opened the picker";
+  const out: LockedCriterion[] = [];
+  // (the kinds offered anyway are no restriction)
+  const kinds = o.kinds ?? DEFAULT_KINDS;
+  if (kinds.length !== DEFAULT_KINDS.length || kinds.some((k) => !DEFAULT_KINDS.includes(k))) out.push({ label: kinds.map((k) => kindPlural[k]).join(" or "), title: why });
+  if (o.types?.length) {
+    const name = (t: string) => {
+      const kind = t.endsWith("/*") ? t.slice(0, -2) as Kind : null;
+      return kind ? `all ${kindPlural[kind]?.toLowerCase() ?? kind}` : schemas.find((s) => s.type === t)?.displayName ?? t;
+    };
+    out.push({ label: `Type: ${o.types.map(name).join(", ")}`, title: why });
+  }
+  if (o.query) out.push({ label: o.query, title: why });
+  return out;
+}
 
 function pickerSort(): SortLevel[] {
   try {
@@ -59,36 +89,57 @@ export class Picker extends LightElement {
   /** Choose several: rows get checkboxes (a click on a row ticks it), and "<verb> n" or
    *  "<verb> all" (every match of the search) ends the choice. */
   @property({ attribute: false }) multi?: { verb: string };
+  /** The query typed or built here; the picker's own restriction comes on top. */
   @state() private q = "";
   @state() private filter: TableFilter = {};
+  @state() private schemas: Schema[] = [];
+  /** The fields a query can name: none that need a picker themselves. */
+  @state() private fields: QueryField[] = [];
   @state() private total = -1;
   /** Choosing several: the chosen rows, in the order chosen. */
   @state() private chosen = new Set<string>();
   private sort = pickerSort();
   private columns: TableColumn[] = [];
-  private timer = 0;
+  private services: Partial<Services> = {};
   override connectedCallback() {
     super.connectedCallback();
+    this.services = servicesFor(this);
     this.columns = pickerColumns(this.options.taken, this.multi ? () => this.chosen : undefined);
     this.applyFilter();
-    this.updateComplete.then(() => this.querySelector<HTMLInputElement>("input")?.focus());
+    void this.loadFields();
+    this.updateComplete.then(() => this.querySelector<HTMLInputElement>("corestone-query-field input[type=search]")?.focus());
   }
-  override disconnectedCallback() { window.clearTimeout(this.timer); super.disconnectedCallback(); }
+
+  /** The types of the folder the picker is opened for: their fields can be asked for. */
+  private async loadFields() {
+    const s = this.services;
+    if (!s.types || !s.query) return;
+    const kinds = this.options.kinds ?? DEFAULT_KINDS;
+    const folder = this.options.folder ?? "";
+    const schemas = (await s.types.types(folder)).filter((t) => offered(t, kinds, this.options.types));
+    // one type: its fields, and no field "Type"
+    const only = schemas.length === 1 && this.options.types?.length === 1 && this.options.types[0] === schemas[0].type ? schemas[0].type : "";
+    this.schemas = schemas;
+    this.fields = queryFields(schemas, folder, only, s.query).filter((f) => f.input !== "artifact");
+  }
 
   /** "<kind>/*" in types allows every type of a kind; other entries are type ids. */
   private applyFilter() {
-    const kinds = this.options.kinds ?? ["entry", "document"];
+    const kinds = this.options.kinds ?? DEFAULT_KINDS;
     const types = this.options.types;
-    // options.query narrows what is offered, in the query language
-    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}), query: this.options.query || undefined };
+    // options.query narrows what is offered, in the query language; what is asked here comes on top
+    const query = [this.options.query, this.q.trim()].filter(Boolean).map((q) => `(${q})`).join(" AND ");
+    this.filter = { kind: kinds, ...(types?.length ? { types } : {}), query: query || undefined };
   }
 
-  private onInput(e: Event) {
-    this.q = (e.target as HTMLInputElement).value;
-    window.clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => this.applyFilter(), 150);
+  /** In the query field's text: the arrow down moves into the list. */
+  private onFieldKey(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" || !(e.target as Element).matches("input[data-test=search]")) return;
+    e.preventDefault();
+    this.querySelector<HTMLElement>("corestone-table")?.focus();
   }
 
+  /** In the list: the keys move and pick. */
   private onKey(e: KeyboardEvent) {
     const table = this.querySelector<Table>("corestone-table");
     if (!table) return;
@@ -133,8 +184,11 @@ export class Picker extends LightElement {
     // Optional actions besides picking, e.g. creating or removing a base.
     const actions = this.options.actions ?? [];
     return html`<h2>${this.options.title}</h2>
-      <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
-      <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
+      <corestone-query-field class="picker-query" keepKey="" historyKey="corestone.picker.history" placeholder="Search or query: priority:high"
+        .value=${this.q} .folder=${this.options.folder ?? ""} .fields=${this.fields} .source=${this.services.query}
+        .locked=${lockedCriteria(this.options, this.schemas)} @keydown=${this.onFieldKey}
+        @query-change=${(e: CustomEvent<{ text: string }>) => { this.q = e.detail.text; this.applyFilter(); }}></corestone-query-field>
+      <corestone-table class="picker-results" tabindex="0" aria-label="Matching artifacts" @keydown=${this.onKey} navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         .selected=${this.multi ? (r: Summary) => this.chosen.has(r.guid) : undefined}
         @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; prefs.setJson(PICKER_SORT_KEY, e.detail); }}

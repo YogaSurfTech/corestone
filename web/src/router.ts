@@ -1,3 +1,4 @@
+import { prefs } from "@corestone/ui";
 import { api } from "./api";
 import { defaultRoute, store, type Route } from "./store";
 
@@ -89,6 +90,33 @@ function sameArtifactView(a: Route, b: Route): boolean {
   return a.guid === b.guid && a.version === b.version && a.at === b.at;
 }
 
+const QUERY_BY_KIND = "corestone.queryByKind";
+
+/** The query last shown per kind of artifacts (route.kind: "" is entries and documents). */
+function queriesByKind(): Record<string, string> {
+  const kept = prefs.json<Record<string, string>>(QUERY_BY_KIND, {});
+  return kept && typeof kept === "object" && !Array.isArray(kept) ? kept : {};
+}
+
+/** Each kind keeps its own query: whatever query is shown is remembered for its kind. */
+function rememberQuery() {
+  let last = "";
+  store.subscribe((s) => {
+    const { kind, q } = s.route;
+    if (`${kind}\n${q}` === last) return;
+    last = `${kind}\n${q}`;
+    const all = queriesByKind();
+    if (all[kind] !== q) prefs.setJson(QUERY_BY_KIND, { ...all, [kind]: q });
+  });
+}
+
+/** Shows another kind of artifacts, with the query last shown for it. */
+export function showKind(kind: string, patch: Partial<Route> = {}) {
+  if (kind === store.state.route.kind) { navigate(patch); return; }
+  const q = queriesByKind()[kind];
+  navigate({ ...patch, kind, q: typeof q === "string" ? q : "" });
+}
+
 export function navigate(patch: Partial<Route>, replace = false) {
   const next = { ...store.state.route, ...patch };
   // A version belongs to its artifact: opening another one shows it as it is now.
@@ -101,6 +129,7 @@ export function navigate(patch: Partial<Route>, replace = false) {
 export function installRouter() {
   const initial = parseRoute();
   store.setRoute(initial);
+  rememberQuery();
   // A link to an artifact without a folder (bookmarked or shared) shows it in
   // the context of its folder. Only on page load: inside the app, opening an
   // artifact keeps the current folder, including the repository root.

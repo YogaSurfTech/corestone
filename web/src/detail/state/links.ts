@@ -60,7 +60,8 @@ export class Links extends DetailPart {
 
   /** A new link waits for Save. */
   add(asSource: boolean, type: string, role: string, types?: string[]) {
-    void pickArtifact({ title: asSource ? `${type}: choose target` : `${type}: choose source`, types, exclude: this.guid, kinds: ["entry", "document"] })
+    void pickArtifact({ title: asSource ? `${type}: choose target` : `${type}: choose source`, types, exclude: this.guid, kinds: ["entry", "document"],
+      why: `A ${type} link allows only these types as its ${asSource ? "target" : "source"}`, folder: this.d.view?.meta.folder })
       .then((other) => {
         if (!other) return;
         const link = asSource ? { type, source: this.guid, target: other.guid } : { type, source: other.guid, target: this.guid };

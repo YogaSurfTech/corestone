@@ -211,17 +211,18 @@ function narrowScreen(): boolean {
 export const store = new Store();
 
 /** Shows something that was thrown as an error toast. */
-/** Opens the artifact picker for one artifact: the chosen one, or null when the picker is closed without. */
+/** Opens the artifact picker for one artifact: the chosen one, or null when the picker is closed without.
+ *  Its query can name the fields of the types in the folder shown, unless options name another. */
 export function pickArtifact(options: PickerOptions): Promise<Summary | null> {
   return new Promise((resolve) => {
-    store.set({ picker: { ...options, done: resolve } });
+    store.set({ picker: { ...options, folder: options.folder ?? store.state.route.folder, done: resolve } });
   });
 }
 
 /** Opens the artifact picker for several artifacts: the GUIDs of the chosen ones, none when it is closed without. */
 export function pickArtifacts(options: PickerOptions, verb: string): Promise<string[]> {
   return new Promise((resolve) => {
-    store.set({ picker: { ...options, multi: { verb }, done: resolve } });
+    store.set({ picker: { ...options, folder: options.folder ?? store.state.route.folder, multi: { verb }, done: resolve } });
   });
 }
 

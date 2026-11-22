@@ -2,11 +2,11 @@ import { html, nothing } from "lit";
 import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
-import { navigate } from "./router";
-import { pickArtifact, store, type NewOptions, type State, toastError } from "./store";
+import { navigate, showKind } from "./router";
+import { store, type NewOptions, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
-import type { QueryField, QuerySource } from "./components/query-model";
+import type { QueryField } from "./components/query-model";
 import { fieldValue } from "./components/table/sorting";
 import { hasSource, knownOptions, withMissing } from "./components/options";
 import { services } from "./services";
@@ -48,15 +48,6 @@ const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row
 /** The total when the table could not be loaded: its own notice says why. */
 const FAILED = -2;
 
-/** What the query field asks for: the server reads queries and knows the options, the store shows the picker. */
-const querySource: QuerySource = {
-  check: (text) => api.parseQuery(text).then((r) => r.warnings),
-  enumOptions: (type, field, folder) => api.options(type, field, folder).then((r) => r.options),
-  workflowStates: (workflow, type, folder) => api.workflowDef(workflow, type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation }))),
-  pick: pickArtifact,
-  failed: toastError,
-};
-
 @customElement("corestone-overview")
 export class Overview extends LightElement {
   private readonly watch = new StoreController(this, (s) => {
@@ -89,8 +80,10 @@ export class Overview extends LightElement {
   private offered: { key: unknown[]; fields: QueryField[] } | null = null;
   private queryFields(): QueryField[] {
     const r = this.s.route;
-    const key = [this.schemas, r.folder, r.type];
-    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type, querySource) };
+    // the fields of the kind shown: links by their ends and role, comments by what they are on
+    const kind = r.kind === "link" || r.kind === "comment" || r.kind === "entry" || r.kind === "document" ? r.kind : "";
+    const key = [this.schemas, r.folder, r.type, kind];
+    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type, services.query, kind) };
     return this.offered.fields;
   }
 
@@ -294,11 +287,13 @@ export class Overview extends LightElement {
           <button class="btn primary" data-test="new" aria-haspopup="menu" aria-expanded="false"
             @click=${(e: Event) => this.newMenu.toggle(e.currentTarget as HTMLElement)}>＋ New</button>
         </div>
-        <corestone-query-field class="query-field" .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()} .source=${querySource}
+        <corestone-query-field class="query-field" placeholder="Search or query: priority:high  /"
+          keepKey=${r.kind ? `corestone.query.${r.kind}` : "corestone.query"}
+          historyKey=${r.kind === "link" || r.kind === "comment" ? `corestone.query.history.${r.kind}` : "corestone.query.history"} .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()} .source=${services.query}
           @query-change=${(e: CustomEvent<{ text: string; replace: boolean }>) => navigate({ q: e.detail.text, guid: null }, e.detail.replace)}></corestone-query-field>
         <span class="hint" data-test="count">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} ${this.counted(total)}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
-        <corestone-kind-menu .kind=${r.kind} @kind-change=${(e: CustomEvent<string>) => navigate({ kind: e.detail, type: r.type })}></corestone-kind-menu>
+        <corestone-kind-menu .kind=${r.kind} @kind-change=${(e: CustomEvent<string>) => showKind(e.detail, { type: r.type })}></corestone-kind-menu>
         ${r.folder && !r.q && !r.type ? html`<button class="btn sm" data-test="move-folder" title="Move or rename this folder" @click=${this.moveFolder}>Move folder…</button>` : nothing}
         <button class="btn sm" title="Reload" aria-label="Reload overview" @click=${() => store.refresh()}>↻</button>
       </div>

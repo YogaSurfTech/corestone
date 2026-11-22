@@ -49,6 +49,9 @@ func show(n *Node) string {
 	if n.Field != "" {
 		s += ":"
 	}
+	if n.Query != nil {
+		return s + "(" + show(n.Query) + ")"
+	}
 	s += n.Compare
 	switch {
 	case n.Null:
@@ -102,6 +105,12 @@ func TestParse(t *testing.T) {
 		{"NOT has_link:(~verifies)", "NOT has_link:(~verifies)"},
 		{"has_link:(a, has_link:(b, has_link:(c)) AND x:1)", "has_link:(a, (has_link:(b, has_link:(c)) AND x:1))"},
 		{"has_link", "has_link"}, // a word without the colon
+		// an end takes a whole query in brackets, a single value names the artifact
+		{"source:(type:tc AND folder:tests/*)", "source:((type:tc AND folder:tests/*))"},
+		{"type:verifies AND target:(priority:high) AND source:TC-1", "(type:verifies AND target:(priority:high) AND source:TC-1)"},
+		{"subject:(target:(a))", "subject:(target:(a))"},
+		{"source:(REQ-1 REQ-2)", "source:((REQ-1 or REQ-2))"},
+		{"tags:(a b)", "(tags:a or tags:b)"}, // other fields keep their value group
 		{"Größe:über", "Größe:über"},
 	} {
 		n, err := Parse(c.query)
@@ -140,6 +149,9 @@ func TestParseErrors(t *testing.T) {
 		"has_link:(a,)": 12,
 		"tags:(a b:c)":  9,
 		"has_link:(a, has_link:(b, has_link:(c, has_link:(d))))": 39,
+		"source:(target:(source:(target:(a))))":                  24,
+		"source:(a":                                              7,
+		"source:()":                                              8,
 	} {
 		_, err := Parse(query)
 		var e *Error

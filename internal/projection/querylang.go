@@ -221,6 +221,28 @@ func (c *compiler) link(n *query.Node, a string) []any {
 	return append(out, ")")
 }
 
+// end is a criterion on another artifact the artifact points at: a link's
+// source or target, or what a comment is on. In brackets the other artifact
+// must match a whole query; a single value names it by HID or GUID.
+func (c *compiler) end(n *query.Node, a string) []any {
+	col := a + "." + n.Field
+	switch {
+	case n.Compare != "":
+		return c.never(n, "%s cannot be compared", n.Field)
+	case n.Null:
+		return seq("COALESCE(" + col + ", '') = ''")
+	}
+	c.links++
+	o := "e" + strconv.Itoa(c.links)
+	out := seq("EXISTS (SELECT 1 FROM artifacts " + o + " WHERE " + o + ".guid = " + col + " AND ")
+	if n.Query != nil {
+		out = append(out, c.node(n.Query, o)...)
+	} else {
+		out = append(out, "(lower("+o+".hid) = lower(", bound{n.Value}, ") OR "+o+".guid = lower(", bound{n.Value}, "))")
+	}
+	return append(out, ")")
+}
+
 // allWords joins values without a field that stand side by side into one
 // search, exactly as the search box always worked: "table view" finds the
 // artifacts that have both words, or the whole text in their title or HID.
@@ -323,6 +345,9 @@ func (c *compiler) term(n *query.Node, a string) []any {
 	}
 	if n.Reverse && n.Field != "base" {
 		return c.never(n, "~ in front is for base only (~base:REQ-1 is the base of REQ-1)")
+	}
+	if query.Ends[n.Field] && n.Sub == "" {
+		return c.end(n, a)
 	}
 	if n.Sub != "" {
 		return c.field(n, a)

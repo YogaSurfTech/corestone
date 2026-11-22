@@ -527,7 +527,7 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await expect(rows).toHaveCount(4);
   await page.locator("[data-test=query-as-text]").click();
   await expect(page.locator("[data-test=search]")).toHaveValue("created:>=2020-02-03");
-  // with text in the field, a criterion joins it as text
+  // typed text stays beside the criteria: a criterion added joins it by AND
   await page.locator("[data-test=search]").fill("title:beta");
   // the list of fields is a menu: the arrow keys move through it, Escape closes it
   await page.locator("[data-test=query-add]").click();
@@ -546,7 +546,27 @@ test("query builder: criteria as buttons, NOT, the operator between them, a rang
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await page.locator("[data-test=query-no]").click();
-  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta AND finished:false");
+  await expect(clauses).toHaveText(["Finished: no"]);
+  await expect(page.locator("[data-test=search]")).toHaveValue("title:beta");
+  await expect(rows).toHaveCount(1);
+  await expect(page).toHaveURL(/q=finished%3Afalse\+AND\+title%3Abeta|q=finished%3Afalse%20AND%20title%3Abeta/);
+  // a single word beside the criteria narrows them; Enter runs it, and it survives a reload with them
+  await page.locator("[data-test=search]").fill("alpha");
+  await page.locator("[data-test=search]").press("Enter");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Alpha one ${id}`);
+  await page.locator("[data-test=search]").fill("");
+  await page.locator("[data-test=search]").press("Enter");
+  await expect(page).toHaveURL(/q=finished%3Afalse(&|$)/);
+  await page.reload();
+  await expect(clauses).toHaveText(["Finished: no"]);
+  await expect(page.locator("[data-test=search]")).toHaveValue("");
+  // removing the last criterion keeps what is typed
+  await page.locator("[data-test=search]").fill("gamma");
+  await page.locator("[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-remove]").click();
+  await expect(clauses).toHaveCount(0);
+  await expect(page.locator("[data-test=search]")).toHaveValue("gamma");
   await expect(rows).toHaveCount(1);
 });
 
@@ -586,6 +606,108 @@ test("query builder: based on and base of are chosen in the artifact picker", as
   await expect(page.locator("[data-test=query-clause]")).toHaveText([`Base of: ${overlay.meta.hid}`]);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(`Base ${id}`);
+});
+
+test("query builder: links by their ends and role, comments by what they are on, each end a query of its own", async ({ page }) => {
+  const own = `${folder}/trace`;
+  const high = await post("/entries", { path: own, type: "req", title: `Trace high ${id}`, fields: { priority: "high" } });
+  const low = await post("/entries", { path: own, type: "req", title: `Trace low ${id}`, fields: { priority: "low" } });
+  const a = await post("/entries", { path: own, type: "tc", title: `Trace A ${id}` });
+  const b = await post("/entries", { path: own, type: "tc", title: `Trace B ${id}` });
+  const verifies = await post("/links", { type: "verifies", source: a.meta.guid, target: high.meta.guid });
+  await post("/links", { type: "verifies", source: b.meta.guid, target: low.meta.guid });
+  await post("/comments", { subject: high.meta.guid, text: "on the high one" });
+  await post("/comments", { subject: low.meta.guid, text: "on the low one" });
+  await post("/comments", { subject: verifies.meta.guid, text: "on the link" });
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  const clauses = page.locator("corestone-overview .query-field > .qf-box [data-test=query-clause]");
+  const fields = page.locator("corestone-overview [data-test=query-fields]").first();
+  const end = page.locator("[data-test=query-end]");
+  // links: from, role and to; nothing that only entries have
+  // (links and comments are found in the folder where their types are defined)
+  await page.goto(`/folder/${folder}?kind=link&subtree=1`);
+  await page.locator("[data-test=query-add]").first().click();
+  await expect(fields.locator(".mi").nth(0)).toHaveText("From");
+  await expect(fields.locator(".mi").nth(1)).toHaveText("Role");
+  await expect(fields.locator(".mi").nth(2)).toHaveText("To");
+  await expect(fields.locator('.mi[data-field="title"], .mi[data-field="base"], .mi[data-field="finished"]')).toHaveCount(0);
+  // from: a query typed in the end's own field
+  await fields.locator('.mi[data-field="source"]').click();
+  await end.locator("input[data-test=search]").fill(`A ${id}`);
+  await end.locator("input[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText([`From: A ${id}`]);
+  await expect(rows).toHaveCount(1);
+  // to: a query built in the end's own field, with the fields of entries but no picker
+  await page.locator("[data-test=query-add]").first().click();
+  await fields.locator('.mi[data-field="target"]').click();
+  await end.locator("[data-test=query-add]").click();
+  const endFields = end.locator("[data-test=query-fields]");
+  await expect(endFields.locator('.mi[data-field="priority"]')).toBeVisible();
+  await expect(endFields.locator('.mi[data-field="base"], .mi[data-field="source"]')).toHaveCount(0);
+  await endFields.locator('.mi[data-field="priority"]').click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await expect(end.locator("[data-test=query-clause]")).toHaveText(["Priority: low"]);
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: low"]);
+  await expect(rows).toHaveCount(0); // A verifies the high one
+  await expect(page).toHaveURL(/target%3A%28priority%3Alow%29/);
+  // the end's criteria come back when it is changed: high
+  await clauses.nth(1).click();
+  await end.locator("[data-test=query-clause]").click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=high]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(a.meta.hid!);
+  await expect(rows.first()).toContainText(high.meta.hid!);
+  // comments: what they are on
+  await page.goto(`/folder/${folder}?kind=comment&subtree=1`);
+  await page.locator("[data-test=query-add]").first().click();
+  await expect(fields.locator(".mi").first()).toHaveText("On");
+  await expect(fields.locator('.mi[data-field="title"], .mi[data-field="base"]')).toHaveCount(0);
+  await fields.locator('.mi[data-field="subject"]').click();
+  await end.locator("input[data-test=search]").fill(`(Trace ${id}) AND priority:low`);
+  await end.locator("input[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("on the low one");
+  // what a comment is on can be of any kind: here a link (one of the high one's)
+  await clauses.first().click();
+  await end.locator("input[data-test=search]").fill(""); // the typed query goes
+  await end.locator("[data-test=query-add]").click();
+  await expect(end.locator("[data-test=query-fields] .mi").first()).toHaveText("Kind");
+  await end.locator('[data-test=query-fields] .mi[data-field="kind"]').click();
+  await expect(end.locator("[data-test=query-editor] .enum-option")).toHaveText([/Entry$/, /Document$/, /Link$/, /Comment$/]);
+  await end.locator("[data-test=query-editor] .enum-option[data-value=link]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText(["On: Kind: Link"]);
+  await expect(page).toHaveURL(/subject%3A%28kind%3Alink%29/);
+  await expect(rows.filter({ hasText: "on the link" })).toHaveCount(1);
+  await expect(rows.filter({ hasText: "on the low one" })).toHaveCount(0);
+  // asked for links there, the end offers the fields of links: their ends and role, one level deeper
+  await clauses.first().click();
+  await end.locator("[data-test=query-add]").click();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="source"]')).toBeVisible();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="coverage"]')).toBeVisible();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="priority"], [data-test=query-fields] .mi[data-field="title"]')).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  // each kind keeps its own query: the links' comes back, the comments' too
+  const kind = page.locator("[data-test=kind]");
+  const show = async (k: string) => { await kind.click(); await page.locator(`[data-test=kind-menu] [data-test=kind-${k}]`).click(); await expect(kind).toHaveAttribute("data-kind", k); };
+  await show("link");
+  await expect(page).toHaveURL(/target%3A%28priority%3Ahigh%29/);
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: high"]);
+  await show("all");
+  await expect(clauses).toHaveCount(0);
+  await expect(page.locator("corestone-overview .query-field > .qf-box input[data-test=search]")).toHaveValue("");
+  await show("comment");
+  await expect(clauses).toHaveText(["On: Kind: Link"]);
 });
 
 test("menus of the toolbar and the entry: a second click and Escape close them, the arrow keys move", async ({ page }) => {

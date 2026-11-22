@@ -17,7 +17,7 @@ import { type DocumentState, isNew } from "./state";
 export function documentHost(ds: DocumentState): DocumentHost {
   return {
       guid: undefined,
-      pickEntries: (taken) => pickArtifacts({ title: "Insert entries", kinds: ["entry"],
+      pickEntries: (taken) => pickArtifacts({ title: "Insert entries", kinds: ["entry"], why: "Only entries can be placed in a document", folder: ds.view?.meta.folder,
         taken: { guids: new Set(taken), note: "already in this document" } }, "Insert"),
       renderEntry: (el, p) => renderEntry(ds, el, p),
       openEntry: (key, newTab) => {

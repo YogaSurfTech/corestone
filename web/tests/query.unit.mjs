@@ -124,3 +124,41 @@ test("a field's value as the table sorts and shows it", () => {
   assert.equal(fieldValue(row({ r: [{ text: "Hello" }, { text: "world" }] }), "r"), "Hello\nworld");
   assert.equal(fieldValue(row({ o: { state: "done", other: 1 } }), "o"), "{…}");
 });
+
+test("an end (from, to, on) is a query on the artifact there, written in brackets", () => {
+  const from = field("source", "From", "query");
+  const inner = [clause(field("type", "Type", "enum"), { kind: "enum", values: [{ value: "tc", label: "Test case" }] }),
+    clause(field("priority", "Priority", "enum"), { kind: "enum", values: [{ value: "high", label: "high" }] }, { join: "OR", not: true })];
+  const built = clause(from, { kind: "query", text: toText(inner), clauses: inner });
+  assert.equal(toText([built]), "source:(type:tc OR NOT priority:high)");
+  assert.equal(clauseLabel(built), "From: Type: Test case OR NOT Priority: high");
+  // typed: the text is shown as it is
+  const typed = clause(field("target", "To", "query"), { kind: "query", text: "hid:REQ-1", clauses: null }, { not: true });
+  assert.equal(toText([typed]), "NOT target:(hid:REQ-1)");
+  assert.equal(clauseLabel(typed), "To: hid:REQ-1");
+});
+
+test("the kind a row of criteria asks for: one value, not negated, joined by AND", async () => {
+  const { kindOf } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const kind = (values, more = {}) => clause(field("kind", "Kind", "enum"), { kind: "enum", values: values.map((v) => ({ value: v, label: v })) }, more);
+  const other = (more = {}) => clause(field("title"), text("x"), more);
+  assert.equal(kindOf(null), "");
+  assert.equal(kindOf([]), "");
+  assert.equal(kindOf([kind(["link"])]), "link");
+  assert.equal(kindOf([other(), kind(["comment"])]), "comment");
+  assert.equal(kindOf([kind(["link", "comment"])]), "");
+  assert.equal(kindOf([kind(["link"], { not: true })]), "");
+  assert.equal(kindOf([kind(["link"]), other({ join: "OR" })]), "");
+  assert.equal(kindOf([kind(["link"]), kind(["entry"])]), "");
+});
+
+test("criteria and typed text run together, joined by AND, in brackets where needed", async () => {
+  const { combine } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const fin = clause(field("finished", "Finished", "bool"), { kind: "bool", value: false });
+  const pri = clause(field("priority"), text("high"), { join: "OR" });
+  assert.equal(combine([], "  pump "), "pump");
+  assert.equal(combine([fin], ""), "finished:false");
+  assert.equal(combine([fin], "pump"), "finished:false AND pump");
+  assert.equal(combine([fin], "pump valve"), "finished:false AND (pump valve)");
+  assert.equal(combine([fin, pri], "type:task"), "(finished:false OR priority:high) AND type:task");
+});

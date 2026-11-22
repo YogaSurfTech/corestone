@@ -85,7 +85,8 @@ xor       = and { "XOR" and } ;
 and       = not { "AND" not } ;
 not       = [ "NOT" ] primary ;
 primary   = "(" query ")" | link | criterion | value ;
-criterion = field ":" ( compare value | value | "(" values ")" ) ;
+criterion = field ":" ( compare value | value | "(" values ")" ) | end ;
+end       = ( "source" | "target" | "subject" ) ":" "(" query ")" ;      (* section 4.5 *)
 values    = the same rules as query, with value in place of primary's criterion and link ;
 field     = [ "~" ] id [ "." id ] [ "~" number ] ;   (* "~" in front only for base, section 4.4; ".id" for
                                                     workflow fields, section 6; "~n" only for folder, section 4.2 *)
@@ -120,10 +121,12 @@ values that have ids: enumeration options, workflow states, types, link types.
 | `valid` | `true` or `false` |
 | `finished` | `true` or `false`: whether the artifact's workflows have reached a final state (section 6) |
 | `base` | the entry this entry is based on, by HID or GUID; `~base` reads it the other way round (section 4.4) |
+| `source`, `target` | a link's ends, by HID or GUID, or a query in brackets (section 4.5) |
+| `subject` | what a comment is on, the same way (section 4.5) |
 | `has_link` | section 9 |
 
-These names are **reserved**: no configured field may use one as its id. The configuration check
-reports such a field as invalid, like any other invalid definition.
+These names are **reserved**: no configured field may use one as its id. Section 4.6 lists every
+reserved name, including those kept free for later.
 
 `folder:specs/brakes` matches artifacts directly in that folder. `folder~1:specs` matches
 artifacts one level below `specs`. `folder:specs/*` matches `specs` and everything below it
@@ -262,6 +265,71 @@ every artifact where the field is set.
   with nothing after it) is an error in both modes, reported with its position. There is no
   sensible result to give.
 
+### 4.5 The ends of links and comments
+
+A link points at two artifacts, a comment at one. Three fields ask for them (decided 2026-11-22,
+TSK-53):
+
+| Criterion | Finds |
+|---|---|
+| `source:TC-1` | links whose source is TC-1 (by HID or GUID, case ignored) |
+| `target:(priority:high)` | links whose target matches the query in brackets |
+| `source:(type:tc) AND type:verifies AND target:(NOT status:done)` | a trace table: test cases verifying open requirements |
+| `subject:(type:req)` | comments on requirements |
+
+- In brackets the field takes a **whole query**, which the artifact at that end must match. This
+  differs from the value group of other fields: `source:(REQ-1 REQ-2)` is the words REQ-1 and
+  REQ-2 searched at the source, not two artifacts. Name several with `source:(hid:REQ-1 OR
+  hid:REQ-2)`.
+- The query may contain ends and `has_link` again; together they nest at most 3 deep.
+- `source:NULL` matches artifacts without a source: everything but links.
+- The ends cannot be compared (`<`, `>`), and take no `~`.
+- On an entry or a document the criterion matches nothing: it has no ends.
+
+### 4.6 Reserved names
+
+The language owns the names below. A configured field (and, where noted, a configured id of
+another kind) must not use one; the list is not complete yet and grows with the language, so a
+name can only be added, never given back.
+
+**Built-in fields**, in use (section 4.2):
+
+| Name | Section |
+|---|---|
+| `kind`, `type`, `title`, `hid`, `guid` | 4.2 |
+| `folder` (also as `folder~n`) | 4.2 |
+| `author`, `created`, `modified` | 4.2 |
+| `valid`, `finished` | 4.2, 6 |
+| `base` (also as `~base`) | 4.4 |
+| `source`, `target`, `subject` | 4.5 |
+| `has_link` | 9 |
+
+**Words of the grammar**, reserved as values too (section 3.3): `AND`, `OR`, `NOT`, `XOR`, `NULL`.
+In capitals only; in lower case they are ordinary words.
+
+**Parts after a dot** of a workflow field (section 6): `state`, `transition`, `previous`. They are
+reserved as sub-names, not as field ids: `status.transition` is the workflow field `status`.
+
+**Kept free for later**, not in the language yet but named in this document or likely next:
+
+| Name | For |
+|---|---|
+| `defined` | whether a type has a field (section 7) |
+| `parent` | the comment a reply answers (stored already, beside `subject`) |
+| `links`, `comments` | counting links and comments (section 9, out of this revision) |
+| `id` | an alias of `guid` or `hid` that users will try |
+| `text` | the full text, as the field-less search does (section 4.3) |
+
+**Characters and forms** with a meaning of their own, so no id may start or end with them: `~` in
+front (the other way round: `~base`, `~depends_on`, `~title` in a sort), `~n` behind (`folder~1`),
+`.` inside (a part of a workflow field), and `*` at the end of a folder.
+
+**Not enforced yet.** The configuration check does not reject a field with a reserved id today.
+Such a field cannot be asked for: the built-in meaning wins, without a warning. Until the check
+exists, this list is what a configuration author goes by. Field ids of the configuration layer
+itself (`type`, `kind`, `inheritance` as keys of a type definition) are a separate rule of the
+configuration.
+
 ## 9. Links
 
 `has_link:(role, query)` matches artifacts that have a link of the given link type to an
@@ -284,11 +352,16 @@ counting links.
 Decided 2026-11-21, and built for the overview. This replaces the earlier proposal (one query in
 two views, explicit brackets).
 
-- The query field stands in the overview's toolbar, between "New" and the count. It holds either
-  a typed text or built criteria.
+- The query field stands in the overview's toolbar, between "New" and the count. It holds built
+  criteria and, always beside them, a text to type words or a query into (decided 2026-11-22). What
+  runs is the criteria AND the typed text: `(a OR b) AND (pump valve)`, each in brackets where
+  it needs them. A single word can always be searched without touching the criteria.
 - "+" at the left inside the field lists the fields that can be asked here: the general ones
   (text, type, title, ID, folder, created, modified, author, finished, based on, base of) and the
-  fields of the types of the folder, or of the one type the view is filtered by. A small text
+  fields of the types of the folder, or of the one type the view is filtered by. The links view
+  offers instead from, role (the link type), to, created, modified, author and the fields of the
+  link types; the comments view offers on, text, created, modified, author and the fields of the
+  comment types (TSK-53). A small text
   field at the top of the list narrows it: a field stays if its name contains the text typed, at
   any place and in any case.
 - A field opens the editor that fits its type:
@@ -303,9 +376,14 @@ two views, explicit brackets).
 | text | a text field; several words in a field are a phrase |
 | reference | the artifact picker |
 | based on (`base`) | the artifact picker, offering only entries something is based on |
+| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with its kind (entry, document, link, comment: a comment may be on a link, a reply on a comment) first; the other fields follow the kind asked for there (one kind, not negated, joined by AND), else those of entries and documents; none that needs the picker |
 | base of (`~base`) | the artifact picker, offering only entries that have a base |
 | attachment, JSON | only "is empty" |
 
+- **Each kind keeps its own query** (decided 2026-11-22): entries and documents, entries,
+  documents, links and comments each remember the query last shown for them, with its criteria,
+  in the browser. Switching the kind brings that query back. The history below is kept per family
+  of fields: one for entries and documents, one for links, one for comments.
 - Beside the list of fields stands the **history**: the fifteen criteria used last, the newest
   first. A click adds one again. A criterion can be pinned; pinned ones stand first, are never
   forgotten and do not count among the fifteen. The history is kept in the browser.
@@ -322,7 +400,8 @@ two views, explicit brackets).
 - The whole query can be turned into text. A text is never turned back into criteria. The
   criteria of a built query are kept in the browser beside their text, so they survive a reload
   there; elsewhere the same link shows the query as text.
-- While a text is typed in the field, a criterion from "+" joins it as text, with AND.
+- A criterion from "+" joins the criteria; what is typed stays beside them. Removing the last
+  criterion leaves the typed text as the whole query.
 - Not in the builder: `has_link`, `kind` (the kind buttons beside the field do that), `folder~n`,
   `valid`, `guid`.
 

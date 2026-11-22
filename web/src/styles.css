@@ -84,8 +84,13 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qf-btn { border: none; background: none; border-radius: 6px; padding: 2px 7px; cursor: pointer; color: var(--muted); font-size: 12.5px; }
 .qf-btn:hover { background: var(--panel-2); color: inherit; }
 .qb-clauses { flex: 1; display: flex; flex-wrap: wrap; align-items: center; row-gap: 3px; min-width: 0; }
+/* beside the criteria: words or a query, joined to them by AND */
+.qf-box .qb-clauses input.qb-typed { flex: 1 1 140px; min-width: 100px; margin-left: 4px; }
 .qb-clause { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); font-size: 12.5px; max-width: 100%; }
 .qb-clause button { border: none; background: none; cursor: pointer; padding: 2px 6px; }
+/* a criterion the picker is opened with: always applies, its title says why */
+.qb-locked { gap: 4px; padding: 2px 6px; color: var(--muted); cursor: help; margin-right: 2px; flex-shrink: 1; min-width: 0; }
+.qb-locked .qb-label { max-width: 200px; }
 .qb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .qb-not { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; color: var(--muted); opacity: 0.45; border-right: 1px solid var(--border) !important; }
 .qb-not.on { opacity: 1; color: var(--danger); }
@@ -107,6 +112,9 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-pop .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
 .qb-pop .item:is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
 .menu-like { display: flex; flex-direction: column; }
+/* the editor of an end holds a query field of its own, whose menus hang out of it */
+.qb-pop.qb-has-end { overflow: visible; max-height: none; width: min(520px, 90vw); max-width: none; }
+.qb-nested { display: block; position: relative; margin: 4px 0 6px; }
 .qb-pop.qb-two:not([hidden]) { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
 .qb-col { display: flex; flex-direction: column; min-width: 200px; }
 .qb-history { border-left: 1px solid var(--border); padding-left: 8px; min-width: 220px; max-width: 320px; }
@@ -462,7 +470,9 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog.resizable .dialog-body { flex: 1; min-height: 0; overflow: auto; }
 table.conflict-table td { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The artifact picker: resizable from its corner; the result list takes the extra room. */
-.dialog.picker { position: relative; display: flex; flex-direction: column; height: min(560px, 86vh); min-width: 360px; min-height: 260px; max-width: 96vw; max-height: 92vh; overflow: hidden; }
+.dialog.picker { position: relative; display: flex; flex-direction: column; height: min(560px, 86vh); min-width: 360px; min-height: 260px; max-width: 96vw; max-height: 92vh; overflow: visible; /* the query field's menus hang out of it */ }
+.picker-query { display: block; position: relative; }
+.picker-results:focus-visible { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .dialog.picker corestone-picker { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dialog.picker .picker-results { flex: 1; max-height: none; min-height: 80px; }
 .resize-grip { position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px; cursor: nwse-resize; touch-action: none; opacity: .55;
