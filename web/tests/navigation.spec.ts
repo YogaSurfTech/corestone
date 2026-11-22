@@ -594,10 +594,11 @@ test("query builder: links by their ends and role, comments by what they are on,
   const low = await post("/entries", { path: own, type: "req", title: `Trace low ${id}`, fields: { priority: "low" } });
   const a = await post("/entries", { path: own, type: "tc", title: `Trace A ${id}` });
   const b = await post("/entries", { path: own, type: "tc", title: `Trace B ${id}` });
-  await post("/links", { type: "verifies", source: a.meta.guid, target: high.meta.guid });
+  const verifies = await post("/links", { type: "verifies", source: a.meta.guid, target: high.meta.guid });
   await post("/links", { type: "verifies", source: b.meta.guid, target: low.meta.guid });
   await post("/comments", { subject: high.meta.guid, text: "on the high one" });
   await post("/comments", { subject: low.meta.guid, text: "on the low one" });
+  await post("/comments", { subject: verifies.meta.guid, text: "on the link" });
   const rows = page.locator("corestone-overview table.grid tbody tr");
   const clauses = page.locator("corestone-overview .query-field > .qf-box [data-test=query-clause]");
   const fields = page.locator("corestone-overview [data-test=query-fields]").first();
@@ -654,6 +655,20 @@ test("query builder: links by their ends and role, comments by what they are on,
   await page.locator("[data-test=query-apply]").click();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("on the low one");
+  // what a comment is on can be of any kind: here a link (one of the high one's)
+  await clauses.first().click();
+  await end.locator("input[data-test=search]").fill(""); // the typed query goes
+  await end.locator("[data-test=query-add]").click();
+  await expect(end.locator("[data-test=query-fields] .mi").first()).toHaveText("Kind");
+  await end.locator('[data-test=query-fields] .mi[data-field="kind"]').click();
+  await expect(end.locator("[data-test=query-editor] .enum-option")).toHaveText([/Entry$/, /Document$/, /Link$/, /Comment$/]);
+  await end.locator("[data-test=query-editor] .enum-option[data-value=link]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText(["On: Kind: Link"]);
+  await expect(page).toHaveURL(/subject%3A%28kind%3Alink%29/);
+  await expect(rows.filter({ hasText: "on the link" })).toHaveCount(1);
+  await expect(rows.filter({ hasText: "on the low one" })).toHaveCount(0);
 });
 
 test("menus of the toolbar and the entry: a second click and Escape close them, the arrow keys move", async ({ page }) => {

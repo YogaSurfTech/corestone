@@ -7,7 +7,7 @@ import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/u
 import { customElement, property, state } from "lit/decorators.js";
 import type { EnumOption, Kind, QueryWarning, Schema } from "./types";
 import { markIcon } from "./icons";
-import { hidLabel } from "./artifact";
+import { hidLabel, kindLabel } from "./artifact";
 import "./enum-control";
 import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 
@@ -29,9 +29,12 @@ export function queryFields(schemas: Schema[], folder: string, type: string, sou
   const own = schemas.filter((s) => kinds.includes(s.kind));
   const typeField = (name: string) => type ? [] : [general("type", name, "enum", { options: own.map((s) => ({ value: s.type, label: s.displayName ?? s.type })) })];
   const dates = [general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text")];
-  // the artifact at an end: an entry or a document, asked for without a picker
-  const end = (id: string, name: string) => general(id, name, "query",
-    { fields: () => queryFields(schemas, folder, "", source).filter((f) => f.input !== "artifact") });
+  // the artifact at an end: of any kind (a comment may be on a link, a reply on a comment), asked
+  // for with the fields of entries and documents, without a picker
+  const end = (id: string, name: string) => general(id, name, "query", { fields: () => [
+    general("kind", "Kind", "enum", { options: (["entry", "document", "link", "comment"] as Kind[]).map((k) => ({ value: k, label: kindLabel[k] })) }),
+    ...queryFields(schemas, folder, "", source).filter((f) => f.input !== "artifact"),
+  ] });
   let out: QueryField[];
   if (kind === "link") {
     out = [end("source", "From"), ...typeField("Role"), end("target", "To"), ...dates];

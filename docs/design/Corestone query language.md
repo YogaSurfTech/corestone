@@ -374,7 +374,7 @@ two views, explicit brackets).
 | text | a text field; several words in a field are a phrase |
 | reference | the artifact picker |
 | based on (`base`) | the artifact picker, offering only entries something is based on |
-| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with the fields of entries and documents but none that needs the picker |
+| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with its kind (entry, document, link, comment: a comment may be on a link, a reply on a comment) and the fields of entries and documents, but none that needs the picker |
 | base of (`~base`) | the artifact picker, offering only entries that have a base |
 | attachment, JSON | only "is empty" |
 
