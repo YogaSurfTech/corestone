@@ -1,6 +1,9 @@
 import { Fragment, type Node, type ResolvedPos } from "prosemirror-model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type Command, type EditorState, type Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "prosemirror-view";
+import { chainCommands } from "prosemirror-commands";
+import { keymap } from "prosemirror-keymap";
+import type { Feature } from "./feature";
 import { fromStorage, newSectionId, type RichText } from "./model";
 import type { EntryTypeChoice } from "./toolbar";
 import { schema } from "./schema";
@@ -401,7 +404,7 @@ export function placedEntries(doc: Node): string[] {
 /** Where a placed entry goes for the cursor: after the block the cursor is in (a list or a
  *  table as a whole), at the start of a section's content from its heading; an empty paragraph
  *  is replaced. */
-function placeAt(state: EditorState): { from: number; to: number } | null {
+export function placeAt(state: EditorState): { from: number; to: number } | null {
   const sel = state.selection;
   if (sel instanceof NodeSelection && (sel.node.type === schema.nodes.placement || sel.node.type === schema.nodes.toc)) return { from: sel.to, to: sel.to };
   const $f = sel.$from;
@@ -520,36 +523,6 @@ export function entryToText(guid: string, text: RichText): Command {
 /** Whether an entry can be placed at the cursor. */
 export const canPlace: Command = (state) => !!placeAt(state);
 
-/** Inserts a table of contents (a list generated from the sections) at the cursor, where an
- *  entry would be placed. A document may have several, e.g. with different levels. */
-export const insertToc: Command = (state, dispatch) => {
-  const at = placeAt(state);
-  if (!at) return false;
-  if (dispatch) {
-    const tr = state.tr.replaceWith(at.from, at.to, schema.node("toc", { kind: "sections" }));
-    dispatch(tr.setSelection(NodeSelection.create(tr.doc, at.from)).scrollIntoView());
-  }
-  return true;
-};
-
-/** Sets how many heading levels the table of contents at pos lists (null: all). */
-export function setTocDepth(pos: number, depth: number | null): Command {
-  return (state, dispatch) => {
-    const n = state.doc.nodeAt(pos);
-    if (n?.type !== schema.nodes.toc) return false;
-    if (dispatch) dispatch(state.tr.setNodeMarkup(pos, null, { ...n.attrs, depth }));
-    return true;
-  };
-}
-
-/** Inserts a cross-reference at the cursor. */
-export function insertXref(ref: string, label: string): Command {
-  return (state, dispatch) => {
-    if (dispatch) dispatch(state.tr.replaceSelectionWith(schema.node("xref", { ref, label })).scrollIntoView());
-    return true;
-  };
-}
-
 /** Moves a section (with everything in it) into a parent (null: the root), before that parent's
  *  index-th section (at the end when there are fewer). */
 export function moveSection(id: string, parentId: string | null, index: number): Command {
@@ -635,95 +608,36 @@ export class PlacementView implements NodeView {
   ignoreMutation() { return true; }
 }
 
-/** A cross-reference: its text made from the document (number and title) or the host. */
-export class XrefView implements NodeView {
-  readonly dom: HTMLElement;
-  constructor(private node: Node, private readonly view: EditorView, private readonly host: () => DocumentHost | undefined) {
-    this.dom = document.createElement("a");
-    this.dom.className = "cs-xref";
-    this.dom.dataset.xref = node.attrs.ref;
-    this.render();
-  }
-  private render() {
-    const { text, missing } = xrefText(this.view.state, this.node.attrs.ref, this.node.attrs.label, this.host());
-    this.dom.textContent = text;
-    this.dom.classList.toggle("missing", missing);
-    this.dom.title = missing ? "Not found: removed or not shown here. Last known: " + (this.node.attrs.label || this.node.attrs.ref) : "";
-  }
-  update(node: Node) {
-    if (node.type !== this.node.type) return false;
-    this.node = node;
-    this.render();
-    return true;
-  }
-  ignoreMutation() { return true; }
-}
-
-/** The text of a cross-reference: "1.2 Start-up" for a section of this document, the number
- *  and name of a placed entry, the host's name of another item, else the last known text. */
-export function xrefText(state: EditorState, ref: string, label: string, host: DocumentHost | undefined): { text: string; missing: boolean } {
-  const nums = structureKey.getState(state);
-  const [guid, sec] = ref.split("#");
-  if (sec) {
-    if (host?.guid && guid !== host.guid) return { text: label || ref, missing: false }; // another document's section
-    const s = nums?.byId.get(sec);
-    return s ? { text: `${s.number} ${s.title}`.trim(), missing: false } : { text: label || ref, missing: true };
-  }
-  const placed = nums?.entries.get(guid);
-  const name = host?.entryLabel?.(guid);
-  if (placed) return { text: [placed.number, name ?? label].filter(Boolean).join(" "), missing: false };
-  return { text: name ?? (label || guid), missing: false };
-}
-
-/** A generated list of the sections (figures and tables come later). */
-export class TocView implements NodeView {
-  readonly dom: HTMLElement;
-  constructor(private node: Node, private readonly view: EditorView) {
-    this.dom = document.createElement("div");
-    this.dom.className = "cs-toc";
-    this.dom.contentEditable = "false";
-    this.render();
-  }
-  private render() {
-    const nums = structureKey.getState(this.view.state);
-    const depth = this.node.attrs.depth ?? 99;
-    this.dom.replaceChildren();
-    const head = document.createElement("div");
-    head.className = "toc-head";
-    head.textContent = this.node.attrs.kind === "sections" ? "Contents" : this.node.attrs.kind === "figures" ? "Figures" : "Tables";
-    this.dom.append(head);
-    if (this.node.attrs.kind !== "sections") return;
-    if (!nums?.sections.length) {
-      const none = document.createElement("div");
-      none.className = "toc-none";
-      none.textContent = "The document has no headings yet.";
-      this.dom.append(none);
-    }
-    for (const s of nums?.sections ?? []) {
-      if (s.depth > depth) continue;
-      const row = document.createElement("div");
-      row.className = "toc-row";
-      row.style.paddingLeft = `${(s.depth - 1) * 16}px`;
-      row.textContent = `${s.number} ${s.title}`;
-      row.dataset.section = s.id;
-      row.title = "Ctrl+click goes to the section";
-      this.dom.append(row);
-    }
-  }
-  update(node: Node) {
-    if (node.type !== this.node.type) return false;
-    this.node = node;
-    this.render();
-    return true;
-  }
-  ignoreMutation() { return true; }
-}
-
 /** The section the cursor is in (its id), if any. */
 export function sectionAt(state: EditorState): string | null {
   const $f = state.selection.$from;
   for (let d = $f.depth; d >= 0; d--) if ($f.node(d).type === schema.nodes.section) return $f.node(d).attrs.id;
   return null;
 }
+
+/** A document's structure: sections with their numbers, the keys that change them the way a
+ *  word processor does, and the paragraph style buttons. */
+export const structureFeature = (host: () => DocumentHost | undefined): Feature => (ctx) => {
+  const S = () => ctx.view().state;
+  const noStyle = () => (styleAt(S()) ? null : "Only paragraphs of the text have a style, not lists, tables or the title.");
+  return {
+    id: "structure",
+    // headings before the text's own keys: Tab / Shift+Tab change a section's level, Enter starts
+    // its content, Backspace at its start makes it normal text
+    plugins: [structurePlugin(host), keymap({
+      // (each takes over the browser's cursor first: a key right after a click acts where the cursor now is)
+      "Tab": synced(chainCommands(titleTab, demoteSection)), "Shift-Tab": synced(promoteSection), "Enter": synced(splitHeading),
+      "Backspace": backspaceStructure, "Delete": synced(deleteStructure),
+      "Mod-Alt-1": makeHeading, "Mod-Alt-0": makeNormal,
+    })],
+    // paragraph style and heading level: ¶ (normal text), then H− (one level up), H (heading), H+ (one level deeper)
+    toolbar: [
+      { group: "style", id: "para", tip: { text: "Normal text", shortcut: "Ctrl+Alt+0", disabled: noStyle }, run: () => ctx.run(makeNormal), pressed: (s) => styleAt(s) === "normal" },
+      { group: "style", id: "hminus", tip: { text: "Heading one level up", shortcut: "Shift+Tab", disabled: () => promoteBlocked(S()) }, run: () => ctx.run(promoteSection) },
+      { group: "style", id: "heading", tip: { text: "Heading", shortcut: "Ctrl+Alt+1", disabled: noStyle }, run: () => ctx.run(makeHeading), pressed: (s) => styleAt(s) === "heading" },
+      { group: "style", id: "hplus", tip: { text: "Heading one level deeper", shortcut: "Tab", disabled: () => demoteBlocked(S()) }, run: () => ctx.run(demoteSection) },
+    ],
+  };
+};
 
 export type { Transaction };

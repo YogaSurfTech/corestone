@@ -7,7 +7,7 @@ import {
 import { icon } from "./icons";
 import { FONTS, SIZE_MAX, SIZE_MIN, SIZES, schema, type Align, type Flag } from "./schema";
 import type { ToolbarItem } from "./feature";
-import { canPlace, demoteBlocked, demoteSection, makeHeading, makeNormal, promoteBlocked, promoteSection, selectedText, styleAt } from "./structure";
+import { canPlace, selectedText } from "./structure";
 
 // The toolbar of docs/design/Corestone editor toolbar demo.html: in a field
 // without paragraph styles and entries, in a document with them; split buttons
@@ -29,10 +29,6 @@ export interface ToolbarHost {
     entryTypes?(): { remember: string; types: EntryTypeChoice[] };
     /** Turns the selected placed entry into text (absent: the host cannot). */
     unmark?(): void;
-    /** Opens the cross-reference picker. */
-    xref(at?: { x: number; y: number }): void;
-    /** Inserts a table of contents at the cursor. */
-    toc(): void;
   };
 }
 
@@ -93,18 +89,11 @@ export class Toolbar {
     this.add(this.button("clear", { text: "Remove formatting", shortcut: "Ctrl+\\", disabled: () => (this.can(clearFormatting) ? null : "No formatting at the cursor or in the selection.") },
       () => this.run(clearFormatting)));
     this.sep();
-    // structure (documents): paragraph style and entries
+    // paragraph style (documents): the main button repeats the last used (at first H), like the other groups
+    if (this.added("style").length) this.split("heading", "Heading level", this.added("style"), "heading");
+    // entries (documents)
     const st = this.host.structure;
     if (st) {
-      // paragraph style and heading level: ¶ (normal text), then H− (one level up), H (heading), H+
-      // (one level deeper); the main button repeats the last used (at first H), like the other groups
-      const noStyle = () => (styleAt(S()) ? null : "Only paragraphs of the text have a style, not lists, tables or the title.");
-      this.split("heading", "Heading level", [
-        { i: "para", tip: { text: "Normal text", shortcut: "Ctrl+Alt+0", disabled: noStyle }, run: () => this.run(makeNormal), pressed: (s) => styleAt(s) === "normal" },
-        { i: "hminus", tip: { text: "Heading one level up", shortcut: "Shift+Tab", disabled: () => promoteBlocked(S()) }, run: () => this.run(promoteSection) },
-        { i: "heading", tip: { text: "Heading", shortcut: "Ctrl+Alt+1", disabled: noStyle }, run: () => this.run(makeHeading), pressed: (s) => styleAt(s) === "heading" },
-        { i: "hplus", tip: { text: "Heading one level deeper", shortcut: "Tab", disabled: () => demoteBlocked(S()) }, run: () => this.run(demoteSection) },
-      ], "heading");
       // entries: insert; and one button that makes an entry of the selected text, or (a placed
       // entry selected) turns that entry into text
       const insert = { i: "entry", tip: { text: "Insert entries…", disabled: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.entry() };
@@ -140,10 +129,7 @@ export class Toolbar {
     this.split("align", "Alignment", aligns.map((x) => ({ i: x.i, tip: { text: x.t, shortcut: x.k }, run: () => this.run(setAlign(x.a)),
       pressed: (s: EditorState) => alignAt(s) === x.a })));
     this.sep();
-    this.split("ins", "Insert", [...this.added("ins"),
-      ...(st ? [{ i: "xref", tip: { text: "Cross-reference…" }, run: () => st.xref(this.pointer) },
-        { i: "toc", tip: { text: "Table of contents", disabled: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.toc() }] : []),
-    ]);
+    this.split("ins", "Insert", this.added("ins"));
   }
 
   // --- building blocks ---

@@ -52,9 +52,9 @@ export interface NodeActions {
   openReadonly?: boolean;
 }
 
-/** A button a feature adds to a group of the toolbar ("fmt": text format, "ins": insert). */
+/** A button a feature adds to a group of the toolbar ("style": paragraph style, "fmt": text format, "ins": insert). */
 export interface ToolbarItem {
-  group: "fmt" | "ins";
+  group: "style" | "fmt" | "ins";
   /** Names the button and its icon. */
   id: string;
   tip: Tip;

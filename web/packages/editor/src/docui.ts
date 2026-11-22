@@ -1,25 +1,22 @@
 import { Fragment } from "prosemirror-model";
-import { NodeSelection, type EditorState } from "prosemirror-state";
+import { NodeSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { openMenu, type MenuItem } from "./menu";
 import { schema } from "./schema";
 import { fileNames, toStorage } from "./model";
-import { entryToText, insertXref, placeEntries, placedEntries, replaceWithEntry, selectedText, setTocDepth, structureKey, xrefText, type DocumentHost } from "./structure";
-import { el, Overlay } from "@corestone/ui";
+import { entryToText, placeEntries, placedEntries, replaceWithEntry, selectedText, type DocumentHost } from "./structure";
+import { Overlay } from "@corestone/ui";
 
-// The document's own panels: the menus of a placed entry and of a table of contents, and the
-// cross-reference picker.
+// The document's panels for placed entries: placing, converting, and the menu of a placed entry.
 
 export class DocumentUI {
   private readonly menu: HTMLElement;
-  private readonly picker: HTMLElement;
   private readonly overlay: Overlay;
 
   constructor(private readonly view: () => EditorView, root: HTMLElement, private readonly host: () => DocumentHost | undefined,
     private readonly notice: (msg: string) => void) {
     this.overlay = new Overlay({ root, onEscape: () => this.view().focus() });
     this.menu = this.overlay.panel("ui-pop ui-menu cs-menu cs-placementmenu", "menu", "Entry");
-    this.picker = this.overlay.panel("ui-pop cs-pop cs-xrefpop", "dialog", "Cross-reference");
   }
 
   /** Lets the host pick entries and places them at the cursor, in the order picked. */
@@ -93,25 +90,6 @@ export class DocumentUI {
     this.showMenu("Entry", items, at);
   }
 
-  /** The menu of the selected table of contents: its levels, and removing it. */
-  openTocMenu(at: { x: number; y: number }) {
-    const sel = this.view().state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type !== schema.nodes.toc) return;
-    const pos = sel.from;
-    const depth = (state: EditorState) => (state.doc.nodeAt(pos)?.attrs.depth as number | null | undefined) ?? null;
-    const level = (d: number | null): MenuItem => ({ label: d === null ? "All levels" : d === 1 ? "1 level" : `${d} levels`,
-      cmd: setTocDepth(pos, d), check: (state) => depth(state) === d });
-    this.showMenu("Table of contents", [
-      { label: "Levels", sub: [null, 1, 2, 3, 4, 5].map(level) },
-      { label: "Remove", danger: true, cmd: (state, dispatch) => {
-        const n = state.doc.nodeAt(pos);
-        if (n?.type !== schema.nodes.toc) return false;
-        dispatch?.(state.tr.delete(pos, pos + n.nodeSize).scrollIntoView());
-        return true;
-      } },
-    ], at);
-  }
-
   private showMenu(label: string, items: MenuItem[], at: { x: number; y: number }) {
     this.menu.setAttribute("aria-label", label);
     openMenu(this.overlay, this.menu, items, this.view, at, (v, it) => {
@@ -119,59 +97,6 @@ export class DocumentUI {
       else it.run?.();
       v.focus();
     });
-  }
-
-  /** The cross-reference picker: the sections and the entries of this document. */
-  openXref(at?: { x: number; y: number }) {
-    const view = this.view();
-    const h = this.host();
-    const nums = structureKey.getState(view.state);
-    const own = h?.guid;
-    const choices: { ref: string; text: string }[] = [];
-    for (const s of nums?.sections ?? []) {
-      if (!own) break; // a section is referenced through its document
-      choices.push({ ref: `${own}#${s.id}`, text: `${s.number} ${s.title}`.trim() });
-    }
-    for (const [guid] of nums?.entries ?? []) choices.push({ ref: guid, text: xrefText(view.state, guid, "", h).text });
-    const head = el("div", "head");
-    head.textContent = "Cross-reference";
-    const filter = el("input", "filter") as HTMLInputElement;
-    filter.placeholder = "Filter sections and entries";
-    filter.setAttribute("aria-label", "Filter");
-    const list = el("div", "list");
-    list.setAttribute("role", "listbox");
-    const show = () => {
-      const q = filter.value.trim().toLowerCase();
-      const shown = choices.filter((c) => !q || c.text.toLowerCase().includes(q));
-      list.replaceChildren(...shown.map((c) => {
-        const b = el("button", "row") as HTMLButtonElement;
-        b.type = "button";
-        b.setAttribute("role", "option");
-        b.textContent = c.text;
-        b.addEventListener("click", () => {
-          this.close();
-          const v = this.view();
-          insertXref(c.ref, c.text)(v.state, v.dispatch);
-          v.focus();
-        });
-        return b;
-      }));
-      if (!shown.length) {
-        const none = el("div", "none");
-        none.textContent = choices.length ? "Nothing matches." : "This document has no sections or entries yet.";
-        list.append(none);
-      }
-    };
-    filter.addEventListener("input", show);
-    filter.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); (list.querySelector("button") as HTMLElement | null)?.click(); }
-      if (e.key === "ArrowDown") { e.preventDefault(); (list.querySelector("button") as HTMLElement | null)?.focus(); }
-    });
-    show();
-    this.picker.replaceChildren(head, filter, list);
-    const c = view.coordsAtPos(view.state.selection.head);
-    this.overlay.open(this.picker, at ?? { x: c.left, y: c.bottom + 4 });
-    filter.focus();
   }
 
   close() { this.overlay.close(); }

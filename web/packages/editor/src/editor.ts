@@ -10,10 +10,7 @@ import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toS
 import { DocumentUI } from "./docui";
 import { codeFeature } from "./code";
 import { nodeUnder, type EditorFeature, type FeatureContext, type NodeActions } from "./feature";
-import {
-  PlacementView, TocView, XrefView, backspaceStructure, insertToc, deleteStructure, demoteSection, makeHeading, makeNormal, moveSection, promoteSection, revealSection,
-  renameEntries, splitHeading, structureKey, structurePlugin, synced, titleTab, type DocumentHost, type OutlineItem,
-} from "./structure";
+import { PlacementView, moveSection, renameEntries, revealSection, structureFeature, structureKey, type DocumentHost, type OutlineItem } from "./structure";
 import type { EntryFiles } from "./files";
 import { imagesFeature } from "./features/images";
 import { fileLinksFeature } from "./features/file-links";
@@ -21,6 +18,7 @@ import { diagramsFeature } from "./diagrams";
 import { formulasFeature } from "./formulas";
 import { linksFeature, type ItemLinks } from "./links";
 import { tablesFeature } from "./tables";
+import { contentsFeature } from "./features/contents";
 import { schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar } from "./toolbar";
 import type { Palette } from "@corestone/ui";
@@ -77,9 +75,10 @@ export class RichTextEditor {
       colors: () => this.toolbar.colorChoices(), feature: (id) => this.features.find((f) => f.id === id),
     };
     // (files before links: pasted files are files even when an address comes with them)
-    this.features = [codeFeature, fileLinksFeature, linksFeature, tablesFeature, imagesFeature, diagramsFeature(() => opts.diagrams?.()), formulasFeature].map((make) => make(ctx));
-    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd),       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); }, xref: (at) => this.doc?.openXref(at),
-        toc: () => { this.run(insertToc); },
+    this.features = [codeFeature, fileLinksFeature, linksFeature, tablesFeature, imagesFeature, diagramsFeature(() => opts.diagrams?.()), formulasFeature,
+      // a document: its structure (its keys go before the text's own, so it is the last with plugins), and what it generates from it
+      ...(opts.document ? [structureFeature(() => opts.document?.()), contentsFeature(() => opts.document?.())] : [])].map((make) => make(ctx));
+    this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd),       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); },
         // (offered when the host can make entries and give their text)
         ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
           ? { convert: (type: string) => { void this.doc?.convert(type); }, unmark: () => { void this.doc?.unmark(); },
@@ -104,7 +103,6 @@ export class RichTextEditor {
       state: this.state(opts.value, files),
       nodeViews: {
         placement: (node, _view, _getPos, decorations) => new PlacementView(node, docHost, decorations),
-        xref: (node, view) => new XrefView(node, view, docHost), toc: (node, view) => new TocView(node, view),
         ...Object.assign({}, ...this.features.map((f) => f.nodeViews)) },
       clipboardSerializer,
       editable: () => !this.readonly,
@@ -120,24 +118,6 @@ export class RichTextEditor {
       handleDOMEvents: {
         // links open on a click when reading, and on Ctrl/⌘+click while editing
         click: (view, e) => {
-          // a cross-reference: to a section of this document, or through the host
-          const x = (e.target as HTMLElement).closest(".cs-xref");
-          if (x && area.contains(x) && (this.readonly || e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            const ref = x.getAttribute("data-xref") ?? "";
-            const [guid, sec] = ref.split("#");
-            const h = docHost();
-            if (sec && (!h?.guid || h.guid === guid) && revealSection(view, sec)) return true;
-            if (!sec && h && structureKey.getState(view.state)?.entries.has(guid)) h.openEntry(guid, e.ctrlKey || e.metaKey);
-            else items()?.open(ref, e.ctrlKey || e.metaKey);
-            return true;
-          }
-          // a row of a table of contents goes to its section (like a cross-reference)
-          const row = (e.target as HTMLElement).closest(".cs-toc .toc-row") as HTMLElement | null;
-          if (row && area.contains(row) && (this.readonly || e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            return revealSection(view, row.dataset.section ?? "");
-          }
           return this.features.some((f) => f.click?.(view, e));
         },
         // the right mouse button on selected cells keeps them selected (to merge them)
@@ -291,7 +271,6 @@ export class RichTextEditor {
       menu: (hit) => { if (!this.doc) return false; this.doc.openMenu(hit.at!); },
       // (only with the pointer: Enter on a selected entry is the text's)
       open: (hit) => { if (!hit.at) return false; this.opts.document?.()?.openEntry(hit.node.attrs.guid, hit.newTab); } },
-    toc: { selector: ".cs-toc", menu: (hit) => { if (!this.doc) return false; this.doc.openTocMenu(hit.at!); } },
   };
 
   /** The actions on nodes of every type: the features' and the ones above. */
@@ -316,14 +295,6 @@ export class RichTextEditor {
 
   private state(value: RichText | DocNode[] | null | undefined, files: () => EntryFiles | undefined = () => this.opts.files?.(), title: string | undefined = this.opts.title): EditorState {
     const isDoc = !!this.opts.document;
-    // in a document, headings first: Tab / Shift+Tab change a section's level, Enter starts its
-    // content, Backspace at its start makes it normal text
-    const docKeys: Record<string, Command> = isDoc ? {
-      // (each takes over the browser's cursor first: a key right after a click acts where the cursor now is)
-      "Tab": synced(chainCommands(titleTab, demoteSection)), "Shift-Tab": synced(promoteSection), "Enter": synced(splitHeading),
-      "Backspace": backspaceStructure, "Delete": synced(deleteStructure),
-      "Mod-Alt-1": makeHeading, "Mod-Alt-0": makeNormal,
-    } : {};
     const keys: Record<string, Command> = {
       "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
       "Mod-b": toggleFlag("bold"), "Mod-i": toggleFlag("italic"), "Mod-u": toggleFlag("underline"),
@@ -349,7 +320,7 @@ export class RichTextEditor {
     // a feature's key: the editor's own command for it first, the feature's when that does not apply
     for (const f of this.features) for (const [key, cmd] of Object.entries(f.keys ?? {})) keys[key] = keys[key] ? chainCommands(keys[key], cmd) : cmd;
     const state = EditorState.create({ doc: isDoc ? documentFromStorage(value as DocNode[], title) : fromStorage(value as RichText),
-      plugins: [history(), ...this.features.flatMap((f) => f.plugins ?? []), ...(isDoc ? [structurePlugin(() => this.opts.document?.()), keymap(docKeys)] : []),
+      plugins: [history(), ...this.features.flatMap((f) => f.plugins ?? []),
         keymap(keys), keymap(baseKeymap)] });
     // what the features repair in a loaded text, outside the undo history
     return this.features.reduce((st, f) => { const fix = f.normalize?.(st); return fix ? st.apply(fix.setMeta("addToHistory", false)) : st; }, state);
