@@ -12,6 +12,7 @@ import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 import "./components/ref";
 import { StoreController } from "./store-controller";
+import { actionsMenu, deleteArtifact, moveArtifact, viewDates } from "./artifact-actions";
 
 import { DocumentState } from "./document/state";
 import { documentHost } from "./document/host";
@@ -66,7 +67,12 @@ export class DocumentView extends LightElement {
     }, { rootMargin: "600px 0px" });
   }
 
+  /** Move and delete, as for an entry. */
+  private readonly actions = actionsMenu(() => { if (this.d.view) moveArtifact(this.d.view, () => void this.d.load()); },
+    () => { if (this.d.view) void deleteArtifact(this.d.view); });
+
   override disconnectedCallback() {
+    this.actions.close();
     this.resizes?.disconnect();
     this.watched = undefined;
     this.d.entries.observer?.disconnect();
@@ -122,10 +128,17 @@ export class DocumentView extends LightElement {
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     this.host.guid = this.guid;
     return html`
+      <div class="dh-top doc-top">
+        ${viewDates(v)}
+        <span class="dh-actions">
+          <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
+            @click=${(e: Event) => this.actions.toggle(e.currentTarget as HTMLElement)}>⋯</button>
+        </span>
+        <button class="btn sm" data-test="expand" title=${r.expanded ? "Restore layout" : "Expand detail"} @click=${() => navigate({ expanded: !r.expanded })}>${r.expanded ? "⤡" : "⤢"}</button>
+        <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${() => navigate({ guid: null, sidebars: [], expanded: false })}>✕</button>
+      </div>
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
-          <div class="doc-left"><button class="icon-btn" data-tip="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [], expanded: false })}>${appIcon("close")}</button>
-          <button class="icon-btn" data-test="doc-expand" aria-pressed=${r.expanded} aria-label=${r.expanded ? "Restore layout" : "Expand document"}
-            data-tip=${r.expanded ? "Restore layout: the table above" : "Expand: fill the workspace"} @click=${() => navigate({ expanded: !r.expanded })}>${appIcon(r.expanded ? "restore" : "expand")}</button>
+          <div class="doc-left">
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>
           <input class="doc-title-input" aria-label="Title" placeholder="Title" .value=${live(this.d.docTitle)} size=${Math.max(8, Math.min(48, this.d.docTitle.length + 1))}
             @input=${(e: Event) => { this.d.docTitle = (e.target as HTMLInputElement).value; this.d.touch(); }}

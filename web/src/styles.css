@@ -260,6 +260,9 @@ corestone-detail.historic .section.changed > h3 { color: var(--changed); }
 .history-row.shown { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .detail-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px 8px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .dh-top { display: flex; justify-content: flex-end; align-items: center; gap: 24px; }
+/* a document's top line: as an entry's, with expanding and closing (its second line is the editor's toolbar) */
+.doc-top { grid-column: 1 / -1; gap: 8px; padding: 4px 14px 0; background: var(--panel); }
+.doc-top .dh-dates { margin-right: 16px; }
 .dh-dates { color: var(--muted); font-size: 11.5px; }
 .dh-dates .gap { display: inline-block; width: 14px; }
 .dh-actions { position: relative; }
@@ -355,7 +358,7 @@ div.attach-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; 
    document's own controls on the left, the editor's toolbar starting at the paper's left edge
    (document.ts alignTools; after a separator when there is no room for that), the sidebar
    switches and Save at the right end. */
-corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; background: var(--bg); }
+corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; min-width: 0; background: var(--bg); }
 .doc-head { grid-column: 1 / -1; position: relative; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px;
   background: var(--panel); border-bottom: 1px solid var(--border); }
 .doc-head.aligned .doc-sep { visibility: hidden; }
@@ -439,11 +442,11 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .outline-row.drop-before::before { left: var(--ind, 4px); top: -2px; }
 .outline-row.drop-after::after { left: 4px; bottom: -2px; }
 /* The sidebars and the bar on their left edge share the second column; the bar lies over the edge. */
-.doc-splitter { grid-column: 2; grid-row: 2; justify-self: start; width: 7px; margin-left: -3px; z-index: 5; cursor: col-resize; touch-action: none; position: relative; }
+.doc-splitter { grid-column: 2; grid-row: 3; justify-self: start; width: 7px; margin-left: -3px; z-index: 5; cursor: col-resize; touch-action: none; position: relative; }
 .doc-splitter:hover, .doc-splitter.dragging, .doc-splitter:focus-visible { background: var(--accent-soft); outline: none; }
 .doc-splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; }
 .doc-splitter:hover::after, .doc-splitter.dragging::after, .doc-splitter:focus-visible::after { background: var(--accent); }
-.doc-side { grid-column: 2; grid-row: 2; width: var(--doc-side-w, 320px); border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 12px 14px 40px; }
+.doc-side { grid-column: 2; grid-row: 3; width: var(--doc-side-w, 320px); border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 12px 14px 40px; }
 .doc-side h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 14px 0 8px; }
 
 /* ---- dialogs & toasts ---- */

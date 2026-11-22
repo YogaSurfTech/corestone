@@ -1,11 +1,11 @@
 import { errorText, prefs } from "@corestone/ui";
 import { api } from "../api";
-import { navigate } from "../router";
 import { StatePart, tracked, type ViewHost } from "../artifact-state";
-import { store, toastError } from "../store";
+import { store } from "../store";
 import type { VersionView, View, WorkflowEval } from "../types";
 import type { Schema, Summary } from "../components/types";
 import { hidLabel, label } from "../components/artifact";
+import { deleteArtifact, moveArtifact } from "../artifact-actions";
 import { sectionOrder, isOpen, setOpen } from "./sections";
 import { type DetailPart } from "./state/part";
 import { Edit } from "./state/edit";
@@ -187,26 +187,9 @@ export class DetailState extends StatePart<DetailHost> {
     }
   }
 
-  async deleteArtifact() {
-    const v = this.view!;
-    const choice = await store.confirm(`Delete ${label(v.meta)}?`, { danger: true, confirmLabel: "Delete",
-      text: `The artifact, its ${v.meta.links} link(s), ${v.meta.comments} comment(s) and ${v.attachments?.length ?? 0} attachment(s) are removed in one commit. History stays in Git.` });
-    if (choice !== "confirm") return;
-    try {
-      await api.remove(this.guid, v.etag);
-      store.toast("Deleted", "success");
-      store.refresh();
-      navigate({ guid: null });
-    } catch (e) { toastError(e); }
-  }
+  deleteArtifact() { void deleteArtifact(this.view!); }
 
-  move() {
-    store.prompt("Move artifact", { text: "Target folder; leave empty for the repository root.", value: this.view?.meta.folder ?? "", confirmLabel: "Move", folder: true }).then((folder) => {
-      if (folder === null) return;
-      api.move(this.guid, folder).then((v) => { this.view = v; store.toast(`Moved to ${folder || "/"}`, "success"); store.refresh(); navigate({ folder }); this.reload(true); })
-        .catch((e) => toastError(e));
-    });
-  }
+  move() { moveArtifact(this.view!, (v) => { this.view = v; this.reload(true); }); }
 
   createOverlay() {
     const v = this.view!;

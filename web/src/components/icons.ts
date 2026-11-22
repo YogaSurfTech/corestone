@@ -20,8 +20,6 @@ const PATHS = {
   open: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   send: '<path d="M4 12 20 4l-5 16-3-7-8-1z"/><path d="m12 13 8-9"/>',
   reload: '<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/>',
-  expand: '<path d="M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6"/>',
-  restore: '<path d="M20 10h-6V4M14 10l6-6M4 14h6v6M10 14l-6 6"/>',
 };
 
 

@@ -138,7 +138,7 @@ test("a document with unsaved changes asks before closing", async ({ page }) => 
   await docTitle.click();
   await page.keyboard.press("End");
   await page.keyboard.type(" v2");
-  await page.locator("corestone-document button[aria-label='Back to overview']").click();
+  await page.locator("corestone-document button[aria-label='Close detail view']").click();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await dialog.locator("[data-test=dialog-confirm]").click();
   await expect(page.locator("corestone-document")).toHaveCount(0);
