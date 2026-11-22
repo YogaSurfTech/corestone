@@ -38,8 +38,8 @@ test("the folder field marks new segments, catches typos and browses the tree", 
   await expect(page.locator("[data-test=folder-status] .folder-path .new")).toHaveText(["boot"]);
 
   await page.locator("[data-test=folder-browse]").click();
-  await page.locator(`.folder-browser .row[data-pick="${folder}"] .caret`).click();
-  await page.locator(`.folder-browser .row[data-pick="${folder}/specs"]`).click();
+  await page.locator(`.folder-browser .row[data-folder="${folder}"] .caret`).click();
+  await page.locator(`.folder-browser .row[data-folder="${folder}/specs"]`).click();
   await expect(input).toHaveValue(`${folder}/specs`);
   await expect(page.locator("[data-test=folder-status]")).toHaveCount(0);
 
