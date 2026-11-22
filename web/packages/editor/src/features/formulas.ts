@@ -1,12 +1,12 @@
 import type { Node } from "prosemirror-model";
 import { NodeSelection, Plugin, type Command, type EditorState } from "prosemirror-state";
 import type { EditorView, NodeView } from "prosemirror-view";
-import type { EntryFiles } from "./files";
-import { icon } from "./icons";
-import type { Feature } from "./feature";
-import { openMenu, type MenuItem } from "./menu";
-import { MAX_FORMULA } from "./model";
-import { schema } from "./schema";
+import type { EntryFiles } from "../core/files";
+import { icon } from "../core/icons";
+import type { Feature } from "../core/feature";
+import { openMenu, type MenuItem } from "../core/menu";
+import { MAX_FORMULA } from "../core/model";
+import { schema } from "../core/schema";
 import { button, dialogHead, el, Overlay } from "@corestone/ui";
 
 // Formulas: LaTeX in the text, shown as a picture of it, a PNG file of the entry

@@ -2,11 +2,11 @@ import type { Node } from "prosemirror-model";
 import { NodeSelection, Plugin, type Command, type EditorState } from "prosemirror-state";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { dataUrlToBlob, dialogHead, el, Overlay, type Point } from "@corestone/ui";
-import type { EditorFeature, FeatureContext } from "../feature";
-import { IMAGE, isImageName, MIME_EXT, type EntryFiles } from "../files";
-import { icon } from "../icons";
-import { openMenu, type MenuItem } from "../menu";
-import { safeFileName, schema } from "../schema";
+import type { EditorFeature, FeatureContext } from "../core/feature";
+import { IMAGE, isImageName, MIME_EXT, type EntryFiles } from "../core/files";
+import { icon } from "../core/icons";
+import { openMenu, type MenuItem } from "../core/menu";
+import { safeFileName, schema } from "../core/schema";
 
 // Pictures in the text: images, which are files of the entry. The view of a
 // picture, the import of pasted ones, the picker for the entry's files, and

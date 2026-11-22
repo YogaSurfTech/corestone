@@ -5,10 +5,10 @@ import {
   columnResizing, deleteRow, deleteTable, fixTables, goToNextCell, isInTable, mergeCells, removeColumn, removeRow, splitCell, tableEditing, TableMap, TableView,
 } from "prosemirror-tables";
 import type { EditorView } from "prosemirror-view";
-import { icon } from "./icons";
-import type { Feature } from "./feature";
-import { buildMenu, runItem, type MenuItem } from "./menu";
-import { schema, tableClass, tableStyle, type Borders, type Stripes } from "./schema";
+import { icon } from "../core/icons";
+import type { Feature } from "../core/feature";
+import { buildMenu, runItem, type MenuItem } from "../core/menu";
+import { schema, tableClass, tableStyle, type Borders, type Stripes } from "../core/schema";
 import { button, customColor, dialogHead, el, Overlay, swatch, type ColorChoices } from "@corestone/ui";
 
 // Tables: inserting one (a size grid), the context menu (rows, columns,

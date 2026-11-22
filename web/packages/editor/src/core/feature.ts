@@ -1,14 +1,24 @@
 import type { Node } from "prosemirror-model";
+import { chainCommands } from "prosemirror-commands";
 import type { Command, EditorState, Plugin, Transaction } from "prosemirror-state";
 import type { EditorView, NodeViewConstructor } from "prosemirror-view";
 import type { ColorChoices, Point, Tip } from "@corestone/ui";
 import type { EntryFiles } from "./files";
-import type { ItemLinks } from "./links";
 
 // A feature of the editor: one kind of content (code listings, pictures,
 // formulas, …) with everything the editor needs for it. The editor knows the
 // features only through this interface: it collects their node views, plugins
 // and keys and sends them the events on their nodes.
+
+/** How the host application links to its items. Without it, only web links are offered. */
+export interface ItemLinks {
+  /** Lets the user choose an item; resolves with its id and a name for the link text, or null. */
+  pick(): Promise<{ ref: string; label: string } | null>;
+  /** The name of an item, shown in the link bubble. */
+  label?(ref: string): Promise<string>;
+  /** Opens an item; newTab when Ctrl/⌘ was held. */
+  open(ref: string, newTab: boolean): void;
+}
 
 /** What a feature gets from the editor it is part of. */
 export interface FeatureContext {
@@ -115,4 +125,15 @@ export function nodeUnder(view: EditorView, e: MouseEvent, nodes: Record<string,
     return { actions, hit: { node, pos, at: { x: e.clientX, y: e.clientY }, newTab: e.ctrlKey || e.metaKey } };
   }
   return null;
+}
+
+/**
+ * The editor's keys with the features': a key several have goes to the
+ * editor's own command first, then to the features' in their order, until
+ * one applies.
+ */
+export function mergeKeys(own: Record<string, Command>, features: Pick<EditorFeature, "keys">[]): Record<string, Command> {
+  const keys = { ...own };
+  for (const f of features) for (const [key, cmd] of Object.entries(f.keys ?? {})) keys[key] = keys[key] ? chainCommands(keys[key], cmd) : cmd;
+  return keys;
 }

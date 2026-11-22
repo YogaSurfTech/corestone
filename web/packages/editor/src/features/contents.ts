@@ -2,10 +2,10 @@ import type { Node } from "prosemirror-model";
 import { NodeSelection, type Command, type EditorState } from "prosemirror-state";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { el, Overlay } from "@corestone/ui";
-import type { Feature } from "../feature";
-import { openMenu, type MenuItem } from "../menu";
-import { schema } from "../schema";
-import { canPlace, placeAt, revealSection, structureKey, type DocumentHost } from "../structure";
+import type { Feature } from "../core/feature";
+import { openMenu, type MenuItem } from "../core/menu";
+import { schema } from "../core/schema";
+import { canPlace, placeAt, revealSection, structureKey, type DocumentHost } from "../core/structure";
 
 // What a document generates from its structure: tables of contents and
 // cross-references to its sections and entries.

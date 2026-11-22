@@ -2,12 +2,12 @@ import { toggleMark } from "prosemirror-commands";
 import type { Node } from "prosemirror-model";
 import { AllSelection, Plugin, TextSelection, type Command, type EditorState } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "prosemirror-view";
-import { icon } from "./icons";
+import { icon } from "../core/icons";
 import { keymap } from "prosemirror-keymap";
-import type { Feature } from "./feature";
-import { popupMenu, type MenuItem } from "./menu";
-import { schema } from "./schema";
-import { synced } from "./structure";
+import type { Feature } from "../core/feature";
+import { popupMenu, type MenuItem } from "../core/menu";
+import { schema } from "../core/schema";
+import { synced } from "../core/structure";
 
 // Code: a listing (a block of plain text in a fixed-width font, with a frame, optional line
 // numbers and a copy button) and code within a line (a character format). One command makes

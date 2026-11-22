@@ -1,8 +1,8 @@
 import { TextSelection, type Command } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import type { Feature } from "../feature";
-import { isImageFile, type EntryFiles } from "../files";
-import { schema } from "../schema";
+import type { Feature } from "../core/feature";
+import { isImageFile, type EntryFiles } from "../core/files";
+import { schema } from "../core/schema";
 import { insertImage } from "./images";
 
 // Files put into the text: pasted, dropped or chosen files are stored with

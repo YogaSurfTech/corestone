@@ -7,18 +7,11 @@ import { EditorState, NodeSelection, TextSelection, type Command } from "prosemi
 import { EditorView } from "prosemirror-view";
 import { clearFormatting, indent, keepAlign, outdent, setAlign, toggleFlag } from "./commands";
 import { documentFromStorage, documentTitle, documentToStorage, fromStorage, toStorage, type DocNode, type RichText } from "./model";
-import { DocumentUI } from "./docui";
-import { codeFeature } from "./code";
-import { nodeUnder, type EditorFeature, type FeatureContext, type NodeActions } from "./feature";
-import { PlacementView, moveSection, renameEntries, revealSection, structureFeature, structureKey, type DocumentHost, type OutlineItem } from "./structure";
+import { DocumentUI } from "../features/entries";
+import { mergeKeys, nodeUnder, type EditorFeature, type Feature, type FeatureContext, type ItemLinks, type NodeActions } from "./feature";
+import { PlacementView, moveSection, renameEntries, revealSection, structureKey, type DocumentHost, type OutlineItem } from "./structure";
 import type { EntryFiles } from "./files";
-import { imagesFeature } from "./features/images";
-import { fileLinksFeature } from "./features/file-links";
-import { diagramsFeature } from "./diagrams";
-import { formulasFeature } from "./formulas";
-import { linksFeature, type ItemLinks } from "./links";
-import { tablesFeature } from "./tables";
-import { contentsFeature } from "./features/contents";
+import { builtinFeatures } from "../features/index";
 import { schema } from "./schema";
 import { DEFAULT_PALETTE, Toolbar } from "./toolbar";
 import type { Palette } from "@corestone/ui";
@@ -44,6 +37,8 @@ export interface EditorOptions {
   files?: () => EntryFiles | undefined;
   /** The address of the draw.io web app, for diagrams (asked each time; absent: no diagrams). */
   diagrams?: () => string | undefined;
+  /** The features of the editor, in their order; absent: the built-in ones (builtinFeatures). */
+  features?: Feature[];
 }
 
 
@@ -74,10 +69,7 @@ export class RichTextEditor {
       notice: (m) => this.notice(m), files, items,
       colors: () => this.toolbar.colorChoices(), feature: (id) => this.features.find((f) => f.id === id),
     };
-    // (files before links: pasted files are files even when an address comes with them)
-    this.features = [codeFeature, fileLinksFeature, linksFeature, tablesFeature, imagesFeature, diagramsFeature(() => opts.diagrams?.()), formulasFeature,
-      // a document: its structure (its keys go before the text's own, so it is the last with plugins), and what it generates from it
-      ...(opts.document ? [structureFeature(() => opts.document?.()), contentsFeature(() => opts.document?.())] : [])].map((make) => make(ctx));
+    this.features = (opts.features ?? builtinFeatures({ diagrams: opts.diagrams, document: opts.document })).map((make) => make(ctx));
     this.toolbar = new Toolbar({ state: () => this.view.state, run: (cmd) => this.run(cmd),       structure: opts.document ? { entry: () => { void this.doc?.insertEntry(); },
         // (offered when the host can make entries and give their text)
         ...(opts.document?.()?.convertToEntry && opts.document?.()?.entryAsText && opts.document?.()?.entryTypes
@@ -317,11 +309,9 @@ export class RichTextEditor {
         return true;
       },
     };
-    // a feature's key: the editor's own command for it first, the feature's when that does not apply
-    for (const f of this.features) for (const [key, cmd] of Object.entries(f.keys ?? {})) keys[key] = keys[key] ? chainCommands(keys[key], cmd) : cmd;
     const state = EditorState.create({ doc: isDoc ? documentFromStorage(value as DocNode[], title) : fromStorage(value as RichText),
       plugins: [history(), ...this.features.flatMap((f) => f.plugins ?? []),
-        keymap(keys), keymap(baseKeymap)] });
+        keymap(mergeKeys(keys, this.features)), keymap(baseKeymap)] });
     // what the features repair in a loaded text, outside the undo history
     return this.features.reduce((st, f) => { const fix = f.normalize?.(st); return fix ? st.apply(fix.setMeta("addToHistory", false)) : st; }, state);
   }

@@ -1,10 +1,10 @@
 import { Fragment } from "prosemirror-model";
 import { NodeSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
-import { openMenu, type MenuItem } from "./menu";
-import { schema } from "./schema";
-import { fileNames, toStorage } from "./model";
-import { entryToText, placeEntries, placedEntries, replaceWithEntry, selectedText, type DocumentHost } from "./structure";
+import { openMenu, type MenuItem } from "../core/menu";
+import { schema } from "../core/schema";
+import { fileNames, toStorage } from "../core/model";
+import { entryToText, placeEntries, placedEntries, replaceWithEntry, selectedText, type DocumentHost } from "../core/structure";
 import { Overlay } from "@corestone/ui";
 
 // The document's panels for placed entries: placing, converting, and the menu of a placed entry.

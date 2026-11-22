@@ -1,9 +1,9 @@
 import type { EditorView } from "prosemirror-view";
-import { linkAt, removeLink, setLink, type LinkTarget } from "./commands";
-import type { Feature } from "./feature";
-import type { EntryFiles } from "./files";
-import type { ImagesFeature } from "./features/images";
-import { safeHref, schema } from "./schema";
+import { linkAt, removeLink, setLink, type LinkTarget } from "../core/commands";
+import type { Feature, ItemLinks } from "../core/feature";
+import type { EntryFiles } from "../core/files";
+import type { ImagesFeature } from "./images";
+import { safeHref, schema } from "../core/schema";
 import { button, el, Overlay } from "@corestone/ui";
 
 // Links: the popover that sets one (Ctrl+K or the toolbar), the bubble that
@@ -11,15 +11,6 @@ import { button, el, Overlay } from "@corestone/ui";
 // Item links point to things of the host application; the host supplies
 // how to pick, name and open them (the editor knows nothing of them).
 
-/** How the host application links to its items. Without it, only web links are offered. */
-export interface ItemLinks {
-  /** Lets the user choose an item; resolves with its id and a name for the link text, or null. */
-  pick(): Promise<{ ref: string; label: string } | null>;
-  /** The name of an item, shown in the link bubble. */
-  label?(ref: string): Promise<string>;
-  /** Opens an item; newTab when Ctrl/⌘ was held. */
-  open(ref: string, newTab: boolean): void;
-}
 
 /** Opens a link: web addresses and files in a new tab, items through the host. */
 export function openLink(t: LinkTarget, newTab: boolean, items: ItemLinks | undefined, files: EntryFiles | undefined) {

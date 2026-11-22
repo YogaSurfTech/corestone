@@ -50,6 +50,12 @@ at the top of `scripts/check-layers.mjs`.
   renders nothing) and one file per section or sidebar, each a function of
   that state. Only the view and its own parts import a part; the layer check
   enforces it.
+- The editor is a core and features (`packages/editor/src/core/`, `features/`).
+  A feature (`EditorFeature`, `core/feature.ts`) is one kind of content with
+  everything the editor needs for it: node views, plugins, keys, toolbar
+  buttons, menus, clipboard, paste. The editor only loops over its features,
+  in their order; a new kind of content is a new feature, listed in
+  `features/index.ts` or passed in with the `features` option.
 - A view's state extends `StatePart` (`src/artifact-state.ts`); a field the view
   shows is marked `@tracked`, so assigning it renders again. A state that grows
   is made of parts (`detail/state/`, `document/state/`): each owns the data of

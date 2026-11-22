@@ -1,11 +1,11 @@
 import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import type { Node } from "prosemirror-model";
-import type { EntryFiles } from "./files";
-import type { Feature } from "./feature";
-import { ImageView, isPicture, pictureForClipboard, type ImagesFeature } from "./features/images";
-import { icon } from "./icons";
-import { schema } from "./schema";
+import type { EntryFiles } from "../core/files";
+import type { Feature } from "../core/feature";
+import { ImageView, isPicture, pictureForClipboard, type ImagesFeature } from "./images";
+import { icon } from "../core/icons";
+import { schema } from "../core/schema";
 import { button, dataUrlToBlob, dialogHead, el } from "@corestone/ui";
 
 // Diagrams: drawn in draw.io, kept as one PNG file of the entry with the
