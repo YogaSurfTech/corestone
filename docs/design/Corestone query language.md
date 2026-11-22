@@ -125,8 +125,8 @@ values that have ids: enumeration options, workflow states, types, link types.
 | `subject` | what a comment is on, the same way (section 4.5) |
 | `has_link` | section 9 |
 
-These names are **reserved**: no configured field may use one as its id. The configuration check
-reports such a field as invalid, like any other invalid definition.
+These names are **reserved**: no configured field may use one as its id. Section 4.6 lists every
+reserved name, including those kept free for later.
 
 `folder:specs/brakes` matches artifacts directly in that folder. `folder~1:specs` matches
 artifacts one level below `specs`. `folder:specs/*` matches `specs` and everything below it
@@ -285,6 +285,50 @@ TSK-53):
 - `source:NULL` matches artifacts without a source: everything but links.
 - The ends cannot be compared (`<`, `>`), and take no `~`.
 - On an entry or a document the criterion matches nothing: it has no ends.
+
+### 4.6 Reserved names
+
+The language owns the names below. A configured field (and, where noted, a configured id of
+another kind) must not use one; the list is not complete yet and grows with the language, so a
+name can only be added, never given back.
+
+**Built-in fields**, in use (section 4.2):
+
+| Name | Section |
+|---|---|
+| `kind`, `type`, `title`, `hid`, `guid` | 4.2 |
+| `folder` (also as `folder~n`) | 4.2 |
+| `author`, `created`, `modified` | 4.2 |
+| `valid`, `finished` | 4.2, 6 |
+| `base` (also as `~base`) | 4.4 |
+| `source`, `target`, `subject` | 4.5 |
+| `has_link` | 9 |
+
+**Words of the grammar**, reserved as values too (section 3.3): `AND`, `OR`, `NOT`, `XOR`, `NULL`.
+In capitals only; in lower case they are ordinary words.
+
+**Parts after a dot** of a workflow field (section 6): `state`, `transition`, `previous`. They are
+reserved as sub-names, not as field ids: `status.transition` is the workflow field `status`.
+
+**Kept free for later**, not in the language yet but named in this document or likely next:
+
+| Name | For |
+|---|---|
+| `defined` | whether a type has a field (section 7) |
+| `parent` | the comment a reply answers (stored already, beside `subject`) |
+| `links`, `comments` | counting links and comments (section 9, out of this revision) |
+| `id` | an alias of `guid` or `hid` that users will try |
+| `text` | the full text, as the field-less search does (section 4.3) |
+
+**Characters and forms** with a meaning of their own, so no id may start or end with them: `~` in
+front (the other way round: `~base`, `~depends_on`, `~title` in a sort), `~n` behind (`folder~1`),
+`.` inside (a part of a workflow field), and `*` at the end of a folder.
+
+**Not enforced yet.** The configuration check does not reject a field with a reserved id today.
+Such a field cannot be asked for: the built-in meaning wins, without a warning. Until the check
+exists, this list is what a configuration author goes by. Field ids of the configuration layer
+itself (`type`, `kind`, `inheritance` as keys of a type definition) are a separate rule of the
+configuration.
 
 ## 9. Links
 
