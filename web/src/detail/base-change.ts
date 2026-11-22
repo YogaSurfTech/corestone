@@ -14,7 +14,8 @@ export function pickBase(dt: DetailState) {
   const base = v.meta.base;
   const actions: PickerAction[] = [{ label: "Create new base…", test: "create-base", tone: "add", run: () => startUnderlay(dt) }];
   if (base) actions.push({ label: `Remove base ${dt.base.levelLabel(base)}`, test: "remove-base", tone: "remove", run: () => { void previewBase(dt, null); } });
-  void pickArtifact({ title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: dt.guid, actions })
+  void pickArtifact({ title: base ? "Change or remove the base" : "Choose or create a base", types: [v.meta.type], kinds: ["entry"], exclude: dt.guid, actions,
+    why: "A base is an entry of the same type", folder: v.meta.folder })
     .then((s) => { if (s) void previewBase(dt, s); });
 }
 

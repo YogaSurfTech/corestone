@@ -169,16 +169,16 @@ export class NewDialog extends LightElement {
             <input id="new-hid" type="text" .value=${this.hid} placeholder=${s.hid ? `auto: ${s.hid.prefix}${s.hid.separator ?? "-"}n` : "optional, e.g. REQ-42"} @input=${(e: Event) => (this.hid = (e.target as HTMLInputElement).value)} /></div></div>
           ${kind === "entry" ? html`<div class="field"><label>Base (overlay)</label><div class="value">
             ${this.base ? html`<span class="ref-chip">${this.baseLabel}<button type="button" title="Clear base artifact" aria-label="Clear base artifact" @click=${() => { this.base = ""; this.baseLabel = ""; }}>✕</button></span>` : nothing}
-            <button type="button" class="btn sm" @click=${() => this.pickArtifact("base", [s.type], ["entry"])}>${this.base ? "Change…" : "＋ Inherit from an entry…"}</button>
+            <button type="button" class="btn sm" @click=${() => this.pickArtifact("base", [s.type], ["entry"], "A base is an entry of the same type")}>${this.base ? "Change…" : "＋ Inherit from an entry…"}</button>
             <div class="help">An overlay keeps only the fields you set here; everything else resolves from its base.</div></div></div>` : nothing}` : nothing}
         ${kind === "link" ? html`
           <div class="field"><label>Source<span class="req">*</span></label><div class="value">
             ${this.base ? html`<span class="ref-chip">${this.baseLabel}</span>` : nothing}
-            <button type="button" class="btn sm" @click=${() => this.pickArtifact("base", s.sourceTypes)}>${this.base ? "Change…" : "Select…"}</button>
+            <button type="button" class="btn sm" @click=${() => this.pickArtifact("base", s.sourceTypes, undefined, `A ${displayName(s, s.type)} link allows only these types as its source`)}>${this.base ? "Change…" : "Select…"}</button>
             ${s.sourceTypes?.length ? html`<div class="help">allowed: ${s.sourceTypes.join(", ")}</div>` : nothing}</div></div>
           <div class="field"><label>Target<span class="req">*</span></label><div class="value">
             ${this.target ? html`<span class="ref-chip">${this.targetLabel}</span>` : nothing}
-            <button type="button" class="btn sm" @click=${() => this.pickArtifact("target", s.targetTypes)}>${this.target ? "Change…" : "Select…"}</button>
+            <button type="button" class="btn sm" @click=${() => this.pickArtifact("target", s.targetTypes, undefined, `A ${displayName(s, s.type)} link allows only these types as its target`)}>${this.target ? "Change…" : "Select…"}</button>
             ${s.targetTypes?.length ? html`<div class="help">allowed: ${s.targetTypes.join(", ")}</div>` : nothing}
             ${s.cardinality ? html`<div class="help">cardinality: ${s.cardinality}</div>` : nothing}</div></div>` : nothing}
         ${kind === "comment" ? html`
@@ -197,8 +197,8 @@ export class NewDialog extends LightElement {
       </form>`;
   }
 
-  private pickArtifact(which: "base" | "target", types?: string[], kinds?: Kind[]) {
-    void pickArtifact({ title: which === "base" ? "Select artifact" : "Select target", types, kinds }).then((s) => {
+  private pickArtifact(which: "base" | "target", types?: string[], kinds?: Kind[], why?: string) {
+    void pickArtifact({ title: which === "base" ? "Select artifact" : "Select target", types, kinds, why, folder: this.path }).then((s) => {
       if (!s) return;
       if (which === "base") { this.base = s.guid; this.baseLabel = label(s); } else { this.target = s.guid; this.targetLabel = label(s); }
     });

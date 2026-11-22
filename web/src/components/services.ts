@@ -1,5 +1,6 @@
 import type { ItemLinks } from "@corestone/editor";
 import type { FolderInfo, PickOptions, Schema, SortLevel, Summary, TableFilter, TableRows } from "./types";
+import type { QuerySource } from "./query-model";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with
@@ -57,6 +58,8 @@ export interface Services {
   options: OptionSource;
   fields: FieldServices;
   table: TableSource;
+  /** What the query builder asks for. */
+  query: QuerySource;
 }
 
 const ASK = "cs-services";

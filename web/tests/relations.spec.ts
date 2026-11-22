@@ -249,6 +249,47 @@ test("change or remove an entry's base with a preview of the effective values", 
   await expect(page.locator("[data-test=remove-base]")).toHaveCount(0);
 });
 
+test("the picker queries with the builder: locked criteria say why, no fields that need a picker, keys by focus", async ({ page }) => {
+  await post("/entries", { path: folder, type: "req", title: `Pick high ${id}`, fields: { priority: "high" } });
+  await post("/entries", { path: folder, type: "req", title: `Pick low ${id}`, fields: { priority: "low" } });
+  await post("/entries", { path: folder, type: "tc", title: `Pick test ${id}` });
+  const e = await post("/entries", { path: folder, type: "req", title: `Pick for ${id}`, fields: { priority: "low" } });
+  await page.goto(`/artifact/${e.meta.guid}`);
+  await page.locator("[data-test=change-base]").click();
+  const picker = page.locator("corestone-picker");
+  const rows = picker.locator(".picker-results .row");
+  // the base must be an entry of the same type: two locked criteria, explained on mouseover
+  const locked = picker.locator("[data-test=query-locked]");
+  await expect(locked).toHaveText(["Entries", "Type: Requirement"]);
+  await expect(locked.first()).toHaveAttribute("title", "A base is an entry of the same type");
+  await expect(locked.locator("button")).toHaveCount(0);
+  // the query field has the keyboard; words search as before
+  await expect(picker.locator("input[data-test=search]")).toBeFocused();
+  await picker.locator("input[data-test=search]").fill(`Pick ${id}`);
+  await expect(rows).toHaveCount(2); // the test case and the entry itself are not offered
+  // the fields of the type, but none that would open a picker again, and no type (it is locked)
+  await picker.locator("[data-test=query-add]").click();
+  const fields = picker.locator("[data-test=query-fields]");
+  await expect(fields.locator(".mi[data-field=priority]")).toBeVisible();
+  await expect(fields.locator(".mi[data-field=base], .mi[data-field='~base'], .mi[data-field=type]")).toHaveCount(0);
+  // Escape closes the list, not the picker
+  await page.keyboard.press("Escape");
+  await expect(fields).toBeHidden();
+  await expect(picker).toBeVisible();
+  // a criterion joins the words
+  await picker.locator("[data-test=query-add]").click();
+  await fields.locator(".mi[data-field=priority]").click();
+  await picker.locator("[data-test=query-editor] .enum-option[data-value=high]").click();
+  await picker.locator("[data-test=query-apply]").click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText(`Pick high ${id}`);
+  // the list takes the keyboard once it has the focus: Enter picks
+  await picker.locator(".picker-results").focus();
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  await expect(page.locator("[data-test=base-change]")).toContainText(`Change the base to Pick high ${id}`);
+});
+
 test("create a new base from an entry's own fields, as a level of its own or below an existing base", async ({ page }) => {
   const a = await post("/entries", { path: folder, type: "req", title: `Under A ${id}`, fields: { priority: "high", rationale: "from A" } });
   const e = await post("/entries", { path: folder, type: "req", title: `Under E ${id}`, base: a.meta.guid, fields: { priority: "low", effort: 3 } });

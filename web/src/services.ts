@@ -2,7 +2,7 @@ import { api, server } from "./api";
 import type { Services } from "./components/services";
 import type { ItemLinks } from "@corestone/editor";
 import { label } from "./components/artifact";
-import { pickArtifact, store } from "./store";
+import { pickArtifact, store, toastError } from "./store";
 import type { Schema } from "./components/types";
 
 // The providers the components get in the application: they ask the server.
@@ -51,5 +51,13 @@ export const services: Services = {
   },
   folders: {
     children: (path) => api.tree(path, false, 1).then((t) => t.folders),
+  },
+  // the server reads queries and knows the options, the store shows the picker
+  query: {
+    check: (text) => api.parseQuery(text).then((r) => r.warnings),
+    enumOptions: (type, field, folder) => api.options(type, field, folder).then((r) => r.options),
+    workflowStates: (workflow, type, folder) => api.workflowDef(workflow, type, folder).then((w) => w.states.map((st) => ({ value: st.id, label: st.name ?? st.id, presentation: st.presentation }))),
+    pick: pickArtifact,
+    failed: toastError,
   },
 };

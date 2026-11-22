@@ -221,7 +221,7 @@ export class FieldEditor extends LightElement {
         this.services?.resolve(g).then((s) => { this.refCache.set(g, s); this.requestUpdate(); }).catch(() => { this.refCache.set(g, null); });
       }
     }
-    const pick = () => void this.services?.pick({ title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes }).then((s) => {
+    const pick = () => void this.services?.pick({ title: `Select ${this.field.name || this.field.id}`, types: this.field.targetTypes, why: `${this.field.name || this.field.id} can only refer to these types`, folder: this.folder }).then((s) => {
       if (s) this.emit(multiple ? [...new Set([...cur, s.guid])] : s.guid);
     });
     const remove = (g: string) => (multiple ? this.emit(cur.filter((x) => x !== g).length ? cur.filter((x) => x !== g) : null) : this.emit(null));

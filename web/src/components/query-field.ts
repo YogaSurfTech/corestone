@@ -25,8 +25,8 @@ export function queryFields(schemas: Schema[], folder: string, type: string, sou
     general("title", "Title", "text"), general("hid", "ID", "text"), general("folder", "Folder", "text"),
     general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text"),
     general("finished", "Finished", "bool"),
-    general("base", "Based on", "artifact", { picker: { title: "Based on: choose the base", kinds: ["entry"], query: "NOT ~base:NULL" } }),
-    general("~base", "Base of", "artifact", { picker: { title: "Base of: choose an entry that has a base", kinds: ["entry"], query: "NOT base:NULL" } }),
+    general("base", "Based on", "artifact", { picker: { title: "Based on: choose the base", kinds: ["entry"], query: "NOT ~base:NULL", why: "Only entries that another entry is based on" } }),
+    general("~base", "Base of", "artifact", { picker: { title: "Base of: choose an entry that has a base", kinds: ["entry"], query: "NOT base:NULL", why: "Only entries that have a base" } }),
   ];
   const taken = new Set(out.map((f) => f.id).concat("type", "kind", "guid", "valid"));
   for (const s of schemas) {
@@ -43,7 +43,7 @@ export function queryFields(schemas: Schema[], folder: string, type: string, sou
       } else if (f.type === "workflow") {
         field.load = () => source.workflowStates(f.workflow ?? "", s.type, folder);
       } else if (field.input === "artifact") {
-        field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes };
+        field.picker = { title: `${field.name}: choose`, kinds: ["entry", "document"], types: f.targetTypes, why: `${field.name} can only refer to these types` };
       }
       out.push(field);
     }
@@ -56,9 +56,10 @@ type Open =
   | { kind: "join"; index: number }
   | { kind: "editor"; field: QueryField; index: number | null };
 
-const STORE = "corestone.query";
+/** A criterion that is set and cannot be changed here; its title says why. */
+export interface LockedCriterion { label: string; title: string }
+
 /** The criteria used last, newest first; pinned ones are never forgotten. */
-const HISTORY = "corestone.query.history";
 const REMEMBERED = 15;
 interface Remembered { clause: Clause; pinned: boolean }
 /** What makes two criteria the same: field, NOT and value, not the operator in front. */
@@ -73,6 +74,13 @@ export class QueryFieldElement extends LightElement {
   @property({ attribute: false }) source!: QuerySource;
   /** The folder of the view: where the icons of enumeration values are looked up. */
   @property() folder = "";
+  /** Where the criteria of the query that runs are kept, so a reload shows them again; none: they are not kept. */
+  @property() keepKey = "corestone.query";
+  /** Where the criteria used last are remembered. */
+  @property() historyKey = "corestone.query.history";
+  @property() placeholder = "Search or query: priority:high";
+  /** Criteria shown before the query, which always apply and cannot be changed or removed. */
+  @property({ attribute: false }) locked: LockedCriterion[] = [];
 
   @state() private text = "";
   @state() private clauses: Clause[] = [];
@@ -93,7 +101,7 @@ export class QueryFieldElement extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    const kept = prefs.json<Remembered[]>(HISTORY, []);
+    const kept = prefs.json<Remembered[]>(this.historyKey, []);
     this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
   }
 
@@ -101,7 +109,7 @@ export class QueryFieldElement extends LightElement {
     // the pinned ones stay; of the others the newest fifteen
     let free = REMEMBERED;
     this.history = history.filter((h) => h.pinned || free-- > 0);
-    prefs.setJson(HISTORY, this.history);
+    prefs.setJson(this.historyKey, this.history);
   }
 
   private remember(clause: Clause) {
@@ -170,7 +178,7 @@ export class QueryFieldElement extends LightElement {
     if (!changed.has("value")) return;
     if (this.clauses.length && toText(this.clauses) === this.value) return; // our own query came back
     // the criteria of a built query survive a reload; any other text is text
-    const kept = prefs.json<{ text: string; clauses: Clause[] } | null>(STORE, null);
+    const kept = this.keepKey ? prefs.json<{ text: string; clauses: Clause[] } | null>(this.keepKey, null) : null;
     this.clauses = this.value && kept?.text === this.value && Array.isArray(kept.clauses) ? kept.clauses : [];
     if (this.text !== this.value || this.clauses.length) this.text = this.value; // never wipe text being typed
     if (this.value !== this.checked) void this.check(this.value);
@@ -201,22 +209,27 @@ export class QueryFieldElement extends LightElement {
     const text = this.text;
     if (!(await this.check(text))) return;
     // the criteria are kept with the text that runs, so a reload finds them for the query it shows
-    if (this.clauses.length && toText(this.clauses) === text) prefs.setJson(STORE, { text, clauses: this.clauses });
+    if (this.clauses.length && toText(this.clauses) === text) this.keepCriteria({ text, clauses: this.clauses });
     this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace } }));
+  }
+
+  /** Keep the criteria of the query that runs, where they are kept. */
+  private keepCriteria(kept: { text: string; clauses: Clause[] } | null) {
+    if (this.keepKey) prefs.setJson(this.keepKey, kept);
   }
 
   /** The criteria changed: write the text and run it. */
   private built(clauses: Clause[]) {
     this.clauses = clauses;
     this.text = toText(clauses);
-    if (!clauses.length) prefs.setJson(STORE, null);
+    if (!clauses.length) this.keepCriteria(null);
     this.open = null;
     void this.run(false);
   }
 
   private asText = () => {
     this.clauses = [];
-    prefs.setJson(STORE, null);
+    this.keepCriteria(null);
     void this.updateComplete.then(() => this.querySelector<HTMLInputElement>("[data-test=search]")?.focus());
   };
 
@@ -277,8 +290,10 @@ export class QueryFieldElement extends LightElement {
   /** Put a criterion into the query: in place of the one at index, or as a new one at the end. */
   private place(clause: Clause, index: number | null) {
     if (!this.clauses.length && this.text.trim()) {
-      // text is being typed: the criterion joins it as text
-      this.text = `${this.text.trim()} AND ${toText([clause])}`;
+      // text is being typed: the criterion joins it as text; in brackets, as words side by side
+      // would otherwise bind looser than AND ("a b AND c" is "a OR (b AND c)")
+      const text = this.text.trim();
+      this.text = `${/\s/.test(text) ? `(${text})` : text} AND ${toText([clause])}`;
       this.open = null;
       void this.run(false);
       return;
@@ -389,6 +404,7 @@ export class QueryFieldElement extends LightElement {
     const built = this.clauses.length > 0;
     return html`
       <div class="qf-box ${this.error ? "invalid" : ""}">
+        ${this.locked.map((l) => html`<span class="qb-clause qb-locked" data-test="query-locked" title=${l.title}>${markIcon("lock", 12)}<span class="qb-label">${l.label}</span></span>`)}
         <button class="qf-btn" data-test="query-add" title="Add a criterion" aria-label="Add a criterion"
           @click=${(e: Event) => {
             // a second click closes the list: the press already closed it, so it is not opened again
@@ -408,7 +424,7 @@ export class QueryFieldElement extends LightElement {
             </span>`)}</div>
           <button class="qf-btn" data-test="query-as-text" title="Edit as text. A text cannot be turned back into criteria." @click=${this.asText}>Aa</button>
           <button class="qf-btn" data-test="query-clear" title="Clear" aria-label="Clear the query" @click=${() => this.built([])}>×</button>`
-        : html`<input type="search" placeholder="Search or query: priority:high  /" .value=${this.text} data-test="search" aria-label="Search or query"
+        : html`<input type="search" placeholder=${this.placeholder} .value=${this.text} data-test="search" aria-label="Search or query"
             aria-invalid=${this.error ? "true" : "false"}
             title="Words find title, ID and text. A query names fields: type:task AND priority:high, status:(open review), NOT finished:true, folder:specs/*"
             @input=${(e: Event) => { this.text = (e.target as HTMLInputElement).value; window.clearTimeout(this.timer); this.timer = window.setTimeout(() => void this.run(true), 250); }}

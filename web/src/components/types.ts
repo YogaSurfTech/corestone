@@ -131,6 +131,10 @@ export interface PickOptions {
   query?: string;
   /** An artifact that is not offered (its GUID). */
   exclude?: string;
+  /** Why kinds, types and query narrow the choice: shown on mouseover of the criteria they lock. */
+  why?: string;
+  /** Where the types are looked up whose fields a query can name; the repository without. */
+  folder?: string;
 }
 
 /** The colour theme; "auto" follows the system setting. */

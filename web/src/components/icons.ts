@@ -48,6 +48,7 @@ export const kindPictogram = iconSet(KINDS, { grid: 16, size: 14, stroke: 1.4 })
 const MARKS = {
   pin: '<path d="M10.2 1.6 14.4 5.8l-1.1 1.1-.9-.2-2.3 2.3.3 2.4-1.2 1.2-2.6-2.6-3.5 3.5-.9.2.2-.9 3.5-3.5L3.3 6.7l1.2-1.2 2.4.3 2.3-2.3-.2-.9z" fill="currentColor" stroke="none"/>',
   calendar: '<path d="M4.5 1.5v2M11.5 1.5v2M2 6.5h12M3.5 3h9A1.5 1.5 0 0 1 14 4.5v8A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-8A1.5 1.5 0 0 1 3.5 3z"/>',
+  lock: '<rect x="3" y="7" width="10" height="7.5" rx="1.3"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
 };
 const mark = iconSet(MARKS, { grid: 16, size: 14, stroke: 1.3 });
 
