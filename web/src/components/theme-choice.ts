@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from "lit";
-import type { Theme } from "../types";
+import type { Theme } from "./types";
 
 const THEMES: [Theme, string][] = [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]];
 

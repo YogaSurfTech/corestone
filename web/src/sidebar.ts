@@ -4,8 +4,8 @@ import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State } from "./store";
-import type { FolderInfo, Schema } from "./types";
-import { displayName, kindPlural } from "./components/util";
+import type { FolderInfo, Schema } from "./components/types";
+import { displayName, kindPlural } from "./components/artifact";
 import { StoreController } from "./store-controller";
 
 // Repository navigation (design guide §7.3): subtree toggle, the

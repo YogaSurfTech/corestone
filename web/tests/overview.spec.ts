@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { Schema, Summary } from "../src/types";
+import type { Schema, Summary } from "../src/components/types";
 import { expect, test, type Page } from "./fixtures";
 
 let script: string;

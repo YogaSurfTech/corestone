@@ -2,8 +2,8 @@ import { html } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { customElement, property } from "lit/decorators.js";
 import { DropMenu, LightElement } from "@corestone/ui";
-import type { Kind } from "../types";
-import { kindMark } from "./util";
+import type { Kind } from "./types";
+import { kindMark } from "./artifact";
 
 /** What the overview can show: "" is entries and documents together. */
 const VIEWS: { kind: "" | Kind; name: string; icons: Kind[] }[] = [

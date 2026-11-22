@@ -1,6 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
-import type { Field, Kind, Schema, Summary, WorkflowValue } from "../types";
+import type { Field, Kind, Schema, Summary, WorkflowValue } from "./types";
 import { plainText, type RichText } from "@corestone/editor/model";
 import { kindPictogram } from "./icons";
 

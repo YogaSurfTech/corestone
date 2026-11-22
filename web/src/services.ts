@@ -1,7 +1,7 @@
 import { api, server } from "./api";
 import type { Services } from "./components/services";
 import { pickArtifact, store } from "./store";
-import type { Schema } from "./types";
+import type { Schema } from "./components/types";
 
 // The providers the components get in the application: they ask the server.
 

@@ -7,9 +7,10 @@ import { fileNames, renameFiles, type Block, type DocNode, type DocumentElement,
 import { api, ApiError, server, type SaveChanges } from "./api";
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { pickArtifact, pickArtifacts, store, type State, toastError } from "./store";
-import type { CommentView, Field, LogEntry, Relationships, Schema, View } from "./types";
+import type { CommentView, LogEntry, Relationships, View } from "./types";
+import type { Field, Schema } from "./components/types";
 import { announceEdit } from "./ws";
-import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/util";
+import { commentTypeOf, hidLabel, label, showValue, undeclaredField, workflowStates } from "./components/artifact";
 import { createFiles } from "./files";
 import "./components/type-icon";
 import { appIcon, type AppIcon } from "./components/icons";

@@ -2,9 +2,9 @@
 // artifacts, and its value is the chosen artifact's GUID. The options are
 // loaded per type, field and folder, and shared briefly by editors and tables.
 // Where they come from is handed in (an OptionSource, see services.ts).
-import type { EnumOption, Field } from "../types";
+import type { EnumOption, Field } from "./types";
 import type { OptionSource } from "./services";
-import { hidLabel } from "./util";
+import { hidLabel } from "./artifact";
 
 const TTL = 30_000;
 const cache = new Map<string, { at: number; loading: Promise<EnumOption[]>; options?: EnumOption[] }>();

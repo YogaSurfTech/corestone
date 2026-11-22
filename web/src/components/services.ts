@@ -1,4 +1,4 @@
-import type { FolderInfo, PickOptions, Schema, SortLevel, Summary, TableFilter, TableRows } from "../types";
+import type { FolderInfo, PickOptions, Schema, SortLevel, Summary, TableFilter, TableRows } from "./types";
 
 // Where the components get their data from. A component imports neither the
 // API nor the store: it asks for a provider, and the application answers with

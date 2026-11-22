@@ -2,9 +2,9 @@ import { html, type PropertyValues } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { styleMap } from "lit/directives/style-map.js";
-import type { Kind, Schema } from "../types";
+import type { Kind, Schema } from "./types";
 import { servicesFor } from "./services";
-import { kindIcon } from "./util";
+import { kindIcon } from "./artifact";
 
 /** URL of an icon as seen from a folder: the nearest folder defining it wins. */
 export function iconUrl(name: string, folder: string): string {

@@ -30,7 +30,7 @@ export const MODULES = [
   { id: "components", dir: "packages/components/src/", packages: ["@corestone/ui", "lit"], modules: [], typesOf: ["@corestone/editor"] },
   // Components of the application: they show Corestone's data, which is handed to them.
   // The field editor contains the rich-text editor, so the editor package is allowed here.
-  { id: "app/components", dir: "src/components/", packages: ["@corestone/ui", "@corestone/editor", "lit"], modules: [], files: ["src/types.ts"] },
+  { id: "app/components", dir: "src/components/", packages: ["@corestone/ui", "@corestone/editor", "lit"], modules: [] },
   { id: "app", dir: "src/" },
 ];
 

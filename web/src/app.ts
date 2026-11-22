@@ -5,7 +5,7 @@ import { api } from "./api";
 import { navigate } from "./router";
 import { store, type State, toastError } from "./store";
 import { announceName, announceView } from "./ws";
-import { folderCrumbs } from "./components/util";
+import { folderCrumbs } from "./components/artifact";
 import { provideServices } from "./components/services";
 import { services } from "./services";
 import "./sidebar";

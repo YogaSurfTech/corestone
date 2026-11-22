@@ -2,7 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { servicesFor } from "./services";
-import type { FolderInfo } from "../types";
+import type { FolderInfo } from "./types";
 
 // Folder input (design guide §7.3): folders exist only through what they
 // contain, so any path may be typed — the field shows which segments exist,

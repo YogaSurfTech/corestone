@@ -1,7 +1,5 @@
-import type {
-  Attachment, CommentView, HistoryEntry, Issue, OverlayView, Relationships, QueryWarning, RepoStatus, Schema, SortLevel, Summary, TableFilter, TableRows, Tree, VersionView, View,
-  Workflow, WorkflowEval,
-} from "./types";
+import type { CommentView, HistoryEntry, Issue, OverlayView, Relationships, RepoStatus, Tree, VersionView, View, WorkflowEval } from "./types";
+import type { Attachment, QueryWarning, Schema, SortLevel, Summary, TableFilter, TableRows, Workflow } from "./components/types";
 import { prefs } from "@corestone/ui";
 
 export class ApiError extends Error {

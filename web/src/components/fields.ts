@@ -4,10 +4,10 @@ import { customElement, property, state } from "lit/decorators.js";
 import "@corestone/editor";
 import "./enum-control";
 import type { EntryFiles, ItemLinks, RichText } from "@corestone/editor";
-import type { Attachment, Field, Summary } from "../types";
+import type { Attachment, Field, Summary } from "./types";
 import { hasSource, knownOptions, withMissing } from "./options";
 import { servicesFor, type FieldServices } from "./services";
-import { label, showValue } from "./util";
+import { label, showValue } from "./artifact";
 
 // Schema-driven field editor (design guide §4.6, §7.10): one element per
 // field definition, rendering the right input for the field type and

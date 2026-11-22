@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { iconSet } from "@corestone/ui";
-import type { Kind } from "../types";
+import type { Kind } from "./types";
 
 // The application's icons (the editor has its own set), all drawn by the icon
 // function of @corestone/ui: the icons of the views on a grid of 24, the

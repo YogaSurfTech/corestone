@@ -34,12 +34,12 @@ test("the app imports anything", () => {
   assert.deepEqual(what("src/detail.ts", `import { RichTextEditor } from "@corestone/editor"; import { api } from "./api"; import "x";`), []);
 });
 
-test("components of the app take types from it, and nothing of the server, the store or the views", () => {
+test("components of the app take nothing of the server, the store or the views", () => {
   assert.deepEqual(what("src/components/table.ts", `
     import { html } from "lit";
     import { LightElement } from "@corestone/ui";
     import "@corestone/editor";
-    import type { Summary } from "../types";
+    import type { Summary } from "./types";
     import { compare } from "./sorting";
   `), []);
   assert.deepEqual(what("src/components/table.ts", `

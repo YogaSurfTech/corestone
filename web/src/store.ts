@@ -1,4 +1,5 @@
-import type { Kind, PickerAction, PickOptions, RepoStatus, Summary, Theme, View } from "./types";
+import type { PickerAction, RepoStatus, View } from "./types";
+import type { Kind, PickOptions, Summary, Theme } from "./components/types";
 import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
