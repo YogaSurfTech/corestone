@@ -35,21 +35,21 @@ test("the app imports anything", () => {
 });
 
 test("components of the app take nothing of the server, the store or the views", () => {
-  assert.deepEqual(what("src/components/table.ts", `
+  assert.deepEqual(what("src/components/table/table.ts", `
     import { html } from "lit";
     import { LightElement } from "@corestone/ui";
     import "@corestone/editor";
-    import type { Summary } from "./types";
+    import type { Summary } from "../types";
     import { compare } from "./sorting";
   `), []);
-  assert.deepEqual(what("src/components/table.ts", `
-    import { api } from "../api";
-    import { store } from "../store";
-    import { navigate } from "../router";
-    import "../dialogs";
+  assert.deepEqual(what("src/components/table/table.ts", `
+    import { api } from "../../api";
+    import { store } from "../../store";
+    import { navigate } from "../../router";
+    import "../../dialogs";
     import { EditorView } from "prosemirror-view";
   `), ["imports src/api", "imports src/store", "imports src/router", "imports the view src/dialogs", "imports prosemirror-view"]);
-  assert.deepEqual(what("src/overview.ts", `import "./components/table";`), []);
+  assert.deepEqual(what("src/overview.ts", `import "./components/table/table";`), []);
 });
 
 test("only the shell imports a view", () => {

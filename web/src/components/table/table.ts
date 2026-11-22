@@ -2,10 +2,10 @@ import { html, nothing, type PropertyValues } from "lit";
 import { LightElement, drag, errorText } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
-import { servicesFor, type TableSource } from "./services";
+import { servicesFor, type TableSource } from "../services";
 import type { SortValue } from "./sorting";
 import { BATCH, batchesFor, promoteSort, sortLocal } from "./table-model";
-import type { SortLevel, Summary, TableFilter } from "./types";
+import type { SortLevel, Summary, TableFilter } from "../types";
 
 /** What a cell can use besides its row: pointed-at artifacts and type names. */
 export interface TableContext {

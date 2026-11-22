@@ -11,8 +11,8 @@ import type { Attachment, Field, Schema, Summary, WorkflowValue } from "./compon
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/artifact";
 import "./components/type-icon";
-import "./components/table";
-import type { TableColumn } from "./components/table";
+import "./components/table/table";
+import type { TableColumn } from "./components/table/table";
 import "./components/fields";
 import { OVERLAY_HELP, type OverlayState } from "./components/fields";
 import { StoreController } from "./store-controller";

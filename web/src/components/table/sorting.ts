@@ -1,6 +1,6 @@
-import type { Summary } from "./types";
+import type { Summary } from "../types";
 import { plainText } from "@corestone/editor/model"; // the stored form only, without the editor (also in Node)
-import { isRichText, isWorkflowValue } from "./artifact";
+import { isRichText, isWorkflowValue } from "../artifact";
 
 interface RankedValue { value: string; rank: number }
 type ScalarValue = string | number | null | RankedValue;

@@ -3,8 +3,8 @@ import { LightElement, prefs } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { store, type PickerDialog } from "./store";
 import type { SortLevel, Summary, TableFilter } from "./components/types";
-import type { Table, TableColumn } from "./components/table";
-import "./components/table";
+import type { Table, TableColumn } from "./components/table/table";
+import "./components/table/table";
 import { live } from "lit/directives/live.js";
 import "./components/type-icon";
 

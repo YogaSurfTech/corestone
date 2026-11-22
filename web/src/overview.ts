@@ -7,12 +7,12 @@ import { pickArtifact, store, type NewOptions, type State, toastError } from "./
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
 import type { QueryField, QuerySource } from "./components/query-model";
-import { fieldValue } from "./components/sorting";
+import { fieldValue } from "./components/table/sorting";
 import { hasSource, knownOptions, withMissing } from "./components/options";
 import { services } from "./services";
 import { kindIcon, kindLabel, workflowStates } from "./components/artifact";
-import type { TableColumn, TableContext } from "./components/table";
-import "./components/table";
+import type { TableColumn, TableContext } from "./components/table/table";
+import "./components/table/table";
 import "./components/type-icon";
 import "./components/enum-control";
 import "./components/kind-menu";

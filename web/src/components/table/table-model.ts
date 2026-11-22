@@ -1,5 +1,5 @@
 import { compare, type SortValue } from "./sorting";
-import type { SortLevel } from "./types";
+import type { SortLevel } from "../types";
 
 /** Rows are fetched in batches of this size as they scroll into view. */
 export const BATCH = 50;
