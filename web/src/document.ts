@@ -123,7 +123,9 @@ export class DocumentView extends LightElement {
     this.host.guid = this.guid;
     return html`
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
-          <div class="doc-left"><button class="icon-btn" data-tip="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [] })}>${appIcon("close")}</button>
+          <div class="doc-left"><button class="icon-btn" data-tip="Back to overview" aria-label="Back to overview" @click=${() => navigate({ guid: null, sidebars: [], expanded: false })}>${appIcon("close")}</button>
+          <button class="icon-btn" data-test="doc-expand" aria-pressed=${r.expanded} aria-label=${r.expanded ? "Restore layout" : "Expand document"}
+            data-tip=${r.expanded ? "Restore layout: the table above" : "Expand: fill the workspace"} @click=${() => navigate({ expanded: !r.expanded })}>${appIcon(r.expanded ? "restore" : "expand")}</button>
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>
           <input class="doc-title-input" aria-label="Title" placeholder="Title" .value=${live(this.d.docTitle)} size=${Math.max(8, Math.min(48, this.d.docTitle.length + 1))}
             @input=${(e: Event) => { this.d.docTitle = (e.target as HTMLInputElement).value; this.d.touch(); }}

@@ -649,6 +649,38 @@ test("document creation from the + menu starts with an empty page", async ({ pag
   await expect(page.locator("corestone-document")).toHaveCount(0);
 });
 
+test("a document opens under the table like an entry, expands to fill the workspace, and back", async ({ page }) => {
+  const a = await newDoc(`Under one ${id}`);
+  await newDoc(`Under two ${id}`);
+  await page.goto(`/folder/${folder}`);
+  const table = page.locator("corestone-overview table.grid");
+  const doc = page.locator("corestone-document");
+  await table.locator("tbody tr", { hasText: `Under one ${id}` }).click();
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(table).toBeVisible();
+  await expect(page.locator(".main > .splitter")).toBeVisible();
+  // going through documents from the table, the table stays
+  await table.locator("tbody tr", { hasText: `Under two ${id}` }).click();
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under two ${id}`);
+  await expect(table).toBeVisible();
+  // full size and back; the URL keeps it, as for an entry
+  await doc.locator("[data-test=doc-expand]").click();
+  await expect(page).toHaveURL(/x=1/);
+  await expect(table).toBeHidden();
+  await page.goto(`/artifact/${a.meta.guid}?x=1`);
+  await expect(doc.locator(".doc-title-input")).toHaveValue(`Under one ${id}`);
+  await expect(table).toBeHidden();
+  await doc.locator("[data-test=doc-expand]").click();
+  await expect(page).not.toHaveURL(/x=1/);
+  await expect(table).toBeVisible();
+  // closing leaves the table alone, not expanded
+  await doc.locator("[data-test=doc-expand]").click();
+  await doc.locator("button[aria-label='Back to overview']").click();
+  await expect(doc).toHaveCount(0);
+  await expect(page).not.toHaveURL(/x=1/);
+  await expect(table).toBeVisible();
+});
+
 test("the old block format is refused", async () => {
   const res = await fetch(`${api}/documents`, { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: folder, type: "spec", title: "old", content: [{ id: "b0", type: "paragraph", text: "x" }] }) });

@@ -106,7 +106,8 @@ export class App extends LightElement {
     const p = status?.projection;
     const health = !status ? "bad" : p?.maintenance ? "warn" : status.inSync ? "ok" : "warn";
     const healthText = !status ? "server unreachable" : p?.maintenance ? `maintenance: ${p.phase || p.reason || ""} ${p.total ? `${p.progress}/${p.total}` : ""}` : status.inSync ? "in sync" : "syncing…";
-    const mainClass = route.guid && this.selectedKind === "document" ? "document" : route.expanded ? "expanded" : "";
+    // an entry and a document open under the table, or fill the workspace when expanded
+    const mainClass = route.guid && route.expanded ? "expanded" : "";
     return html`<div class="shell ${navCollapsed ? "nav-collapsed" : ""}" style=${`--nav-w:${this.nav.value}px`}>
       <header class="header">
         <button class="btn sm icon" title="Toggle navigation" aria-label="Toggle navigation" @click=${() => store.toggleNav()}>☰</button>
