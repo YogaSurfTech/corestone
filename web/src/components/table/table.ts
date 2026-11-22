@@ -22,6 +22,8 @@ export interface TableColumn<T = Summary> {
   cls?: string;
   /** False for columns without an order (buttons). */
   sortable?: boolean;
+  /** Not shown unless chosen (in the table's view). */
+  hidden?: boolean;
   render: (row: T, ctx: TableContext) => unknown;
   title?: (row: T, ctx: TableContext) => string;
   /** The sort key of rows held in the browser (items). */
@@ -48,7 +50,8 @@ const MIN_W = 48, MAX_W = 1200;
  *
  * Events: row-click (detail: row), sort-change (detail: SortLevel[]),
  * table-load (detail: { total, truncated }), rows-load (detail: Summary[]),
- * widths-change (detail: Record<column id, px>).
+ * widths-change (detail: Record<column id, px>), header-menu (a right click on
+ * a column header; detail: { col, x, y }).
  */
 @customElement("corestone-table")
 export class Table extends LightElement {
@@ -343,7 +346,10 @@ export class Table extends LightElement {
     const level = this.sort.findIndex((l) => l.col === c.id);
     const aria = level === 0 ? (this.sort[0].dir === "asc" ? "ascending" : "descending") : "none";
     const sortable = c.sortable !== false && (!this.local || !!c.value);
-    return html`<th data-col=${c.id} aria-sort=${aria}>${sortable
+    return html`<th data-col=${c.id} aria-sort=${aria} @contextmenu=${(e: MouseEvent) => {
+      e.preventDefault();
+      this.dispatchEvent(new CustomEvent("header-menu", { detail: { col: c.id, x: e.clientX, y: e.clientY } }));
+    }}>${sortable
       ? html`<button type="button" class="th-sort" title="Sort by ${c.name}" @click=${() => this.toggleSort(c.id)}>${c.name}${level > 0
         ? html`<sup class="sort-level" title="Sort level ${level + 1}">${level + 1}</sup>` : nothing}</button>`
       : html`<span class="th-label">${c.name}</span>`}${this.resizable

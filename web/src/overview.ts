@@ -5,7 +5,7 @@ import { api } from "./api";
 import { navigate, showKind } from "./router";
 import { appIcon } from "./components/icons";
 import { store, type NewOptions, type State, toastError } from "./store";
-import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
+import type { Kind, Schema, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
 import type { QueryField } from "./components/query-model";
 import { fieldValue } from "./components/table/sorting";
@@ -13,7 +13,9 @@ import { hasSource, knownOptions, withMissing } from "./components/options";
 import { services } from "./services";
 import { kindIcon, kindLabel, workflowStates } from "./components/artifact";
 import type { TableColumn, TableContext } from "./components/table/table";
-import { folderColumn, hidColumn, loadLayout, saveLayout, titleColumn, typeColumn, type TableLayout } from "./components/table/columns";
+import { folderColumn, hidColumn, titleColumn, typeColumn } from "./components/table/columns";
+import { TableViews } from "./components/table/views";
+import "./components/table/columns-dialog";
 import "./components/table/table";
 import "./components/ref";
 import "./components/type-icon";
@@ -26,9 +28,6 @@ import { StoreController } from "./store-controller";
 // come from the schemas of the rows seen so far.
 
 type Column = TableColumn<Summary>;
-
-/** Where the overview keeps its column widths and sort order. */
-const LAYOUT_KEY = "corestone.table";
 
 const schemaKey = (row: Pick<Summary, "folder" | "type">) => JSON.stringify([row.folder, row.type]);
 
@@ -55,7 +54,8 @@ export class Overview extends LightElement {
   @state() private schemas: Record<string, Schema> = {};
   /** The schema of every (folder, type) among the loaded rows; null when the type is not defined there. */
   @state() private rowSchemas: Record<string, Schema | null> = {};
-  @state() private layout = loadLayout(LAYOUT_KEY);
+  /** The table's view: columns, their order and widths, sorting, saved views; each kind keeps its own. */
+  private readonly views = new TableViews(this, () => `corestone.table.${this.s?.route.kind || "all"}`);
   private folderTypes = new Map<string, Promise<Schema[]>>();
   private key = "";
   private loads = 0;
@@ -229,23 +229,20 @@ export class Overview extends LightElement {
   }
 
   /** The columns the schemas of the loaded rows declare for the overview. */
-  private fieldColumns(): { id: string; name: string }[] {
+  /** The fields of the types among the rows: the schemas' columns shown, the other fields to choose
+   *  (links and comments show all their fields). */
+  private fieldColumns(): { id: string; name: string; hidden: boolean }[] {
     const schemas = Object.values(this.rowSchemas).filter((s): s is Schema => !!s);
     const all = this.s.route.kind === "link" || this.s.route.kind === "comment";
     const wanted = new Set<string>();
-    for (const s of schemas) {
-      for (const c of (s.presentation?.columns as string[] | undefined) ?? []) wanted.add(c);
-      if (all) for (const field of s.fields ?? []) wanted.add(field.id);
-    }
-    return [...wanted].map((id) => {
+    for (const s of schemas) for (const c of (s.presentation?.columns as string[] | undefined) ?? []) wanted.add(c);
+    const ids = new Set(wanted);
+    // (the states of workflows have their own column)
+    for (const s of schemas) for (const field of s.fields ?? []) if (all || field.type !== "workflow") ids.add(field.id);
+    return [...ids].map((id) => {
       const f = schemas.flatMap((s) => s.fields ?? []).find((x) => x.id === id);
-      return { id, name: f?.name || id };
+      return { id, name: f?.name || id, hidden: !all && !wanted.has(id) };
     });
-  }
-
-  private saveLayout(layout: TableLayout) {
-    this.layout = layout;
-    saveLayout(LAYOUT_KEY, layout);
   }
 
   /** What the count counts: "Task entries", "entries and docs", "links". */
@@ -261,9 +258,10 @@ export class Overview extends LightElement {
   override render() {
     if (!this.s) return nothing;
     const r = this.s.route;
-    const cols = this.columns();
+    const all = this.columns();
+    const cols = this.views.arrange(all);
     // Built-in columns of other views cannot sort this one; field ids always can.
-    const sort = this.layout.sort.filter((l) => !l.col.startsWith("$") || cols.some((c) => c.id === l.col && c.sortable !== false));
+    const sort = this.views.layout.sort.filter((l) => !l.col.startsWith("$") || all.some((c) => c.id === l.col && c.sortable !== false));
     const sel = r.guid;
     const total = this.total;
     return html`
@@ -288,15 +286,16 @@ export class Overview extends LightElement {
       ${total === 0 ? html`<div class="empty-state"><div class="big">Nothing here yet</div>
         ${r.q ? "No artifacts match your search." : html`Create your first artifact with <b>＋ New</b>, or pick another folder.`}</div>` : nothing}
       <corestone-table class="table-wrap" ?hidden=${total === 0} resizable allFields empty=""
-        .columns=${cols} .filter=${this.filter()} .sort=${sort} .widths=${this.layout.widths}
+        .columns=${cols} .filter=${this.filter()} .sort=${sort} .widths=${this.views.layout.widths}
         .selected=${(row: Summary) => row.guid === sel || (r.kind === "comment" && !!sel && row.subject === sel)}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @table-error=${() => (this.total = FAILED)}
         @rows-load=${this.onRows}
         @open-artifact=${this.openRef}
-        @sort-change=${(e: CustomEvent<SortLevel[]>) => this.saveLayout({ ...this.layout, sort: e.detail })}
-        @widths-change=${(e: CustomEvent<Record<string, number>>) => this.saveLayout({ ...this.layout, widths: e.detail })}
-        @row-click=${(e: CustomEvent<Summary>) => { const row = e.detail; if (row.kind === "comment" && row.subject) navigate({ guid: row.subject, folder: r.folder, tab: "comments" }); else navigate({ guid: row.guid, folder: r.folder }); }}></corestone-table>`;
+        @sort-change=${this.views.setSort} @widths-change=${this.views.setWidths}
+        @header-menu=${(e: CustomEvent<{ col: string; x: number; y: number }>) => this.views.headerMenu(e, all)}
+        @row-click=${(e: CustomEvent<Summary>) => { const row = e.detail; if (row.kind === "comment" && row.subject) navigate({ guid: row.subject, folder: r.folder, tab: "comments" }); else navigate({ guid: row.guid, folder: r.folder }); }}></corestone-table>
+      ${this.views.editing ? html`<corestone-columns-dialog .views=${this.views} .columns=${this.views.editing}></corestone-columns-dialog>` : nothing}`;
   }
 
   private moveFolder = () => {

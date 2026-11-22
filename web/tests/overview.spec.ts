@@ -111,7 +111,7 @@ test("three sort levels are sent to the server, promote without duplicates and p
   await sortBy(page, "text");
   const expected = [{ col: "text", dir: "asc" }, { col: "effort", dir: "desc" }, { col: "priority", dir: "asc" }];
   await expect.poll(() => lastSort(calls)).toEqual(["text", "~effort", "priority"]);
-  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort);
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table.all")!).layout.sort);
   await expect.poll(saved).toEqual(expected);
   await sortBy(page, "$title");
   const promoted = [{ col: "$title", dir: "asc" }, { col: "text", dir: "asc" }, { col: "effort", dir: "desc" }];
@@ -119,20 +119,6 @@ test("three sort levels are sent to the server, promote without duplicates and p
   const after = await mount(page, [row("a", {})]);
   await expect.poll(() => lastSort(after)).toEqual(["$title", "text", "~effort"]);
   await expect(page.locator('th[data-col="$title"]')).toHaveAttribute("aria-sort", "ascending");
-});
-
-test("legacy single-column sort settings remain usable", async ({ page }) => {
-  await mount(page, [row("low", { priority: "low" }), row("high", { priority: "high" })]);
-  await page.evaluate(() => localStorage.setItem("corestone.table", JSON.stringify({
-    widths: {}, sort: { col: "priority", dir: "desc" },
-  })));
-  const calls = await mount(page, [row("low", { priority: "low" }), row("high", { priority: "high" })]);
-  await expect.poll(() => lastSort(calls)).toEqual(["~priority"]);
-  await expect(page.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
-  await sortBy(page, "effort");
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("corestone.table")!).sort)).toEqual([
-    { col: "effort", dir: "asc" }, { col: "priority", dir: "desc" },
-  ]);
 });
 
 test("large results load row details lazily while scrolling", async ({ page }) => {

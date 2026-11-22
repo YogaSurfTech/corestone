@@ -470,6 +470,24 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .dialog-close { position: absolute; top: 10px; right: 10px; z-index: 2; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px;
   background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
 .dialog-close:hover, .dialog-close:focus-visible { background: var(--panel-2); color: var(--text); outline: none; }
+/* a table's columns and sorting: above the picker, whose table it may be */
+.header-menu { position: fixed; z-index: 70; }
+.backdrop.columns-layer { z-index: 65; }
+.dialog.columns-dialog { width: min(620px, 94vw); }
+.columns-dialog .cd-view { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.columns-dialog .cd-start { display: inline-flex; align-items: center; gap: 4px; }
+.columns-dialog .cd-view select { width: auto; flex: 0 1 260px; min-width: 160px; }
+.columns-dialog .cd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 560px) { .columns-dialog .cd-grid { grid-template-columns: 1fr; } }
+.columns-dialog h3 { margin: 0 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.columns-dialog .cd-cols { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.columns-dialog .cd-cols li { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.columns-dialog .cd-cols li:last-child { border-bottom: 0; }
+.columns-dialog .cd-cols label { display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+.columns-dialog .cd-grip { color: var(--muted); cursor: grab; display: inline-flex; }
+.columns-dialog .cd-level { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; margin-bottom: 6px; }
+.columns-dialog .foot { align-items: center; }
+.columns-dialog .cd-name { width: 180px; }
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }

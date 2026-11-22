@@ -1,37 +1,13 @@
 import { html } from "lit";
-import { prefs } from "@corestone/ui";
-import type { Schema, SortLevel, Summary } from "../types";
+import type { Schema, Summary } from "../types";
 import type { TableColumn } from "./table";
 import "../type-icon";
 
-// What the tables of artifacts share: the columns every artifact has, and the
-// layout (column widths and sort order) each table remembers in the browser.
-// The overview and the picker build their columns from these.
+// The columns every artifact has, shared by the tables of artifacts: the
+// overview and the picker build their columns from these. What a table shows
+// of them, in which order, is its view (views.ts).
 
 type Column = TableColumn<Summary>;
-
-/** Column widths and sort order, remembered in the browser per table. */
-export interface TableLayout { widths: Record<string, number>; sort: SortLevel[] }
-
-/** The layout kept under key; anything unreadable is left out. */
-export function loadLayout(key: string): TableLayout {
-  try {
-    const l = prefs.json<Record<string, unknown>>(key, {});
-    const stored: unknown[] = Array.isArray(l.sort) ? l.sort : l.sort ? [l.sort] : [];
-    const sort: SortLevel[] = [];
-    for (const value of stored) {
-      if (typeof value !== "object" || value === null || !("col" in value) || !("dir" in value)) continue;
-      if (typeof value.col !== "string" || !value.col || (value.dir !== "asc" && value.dir !== "desc") || sort.some((s) => s.col === value.col)) continue;
-      sort.push({ col: value.col, dir: value.dir });
-      if (sort.length === 3) break;
-    }
-    return { widths: l.widths && typeof l.widths === "object" && !Array.isArray(l.widths) ? l.widths as Record<string, number> : {}, sort };
-  } catch { return { widths: {}, sort: [] }; }
-}
-
-export function saveLayout(key: string, layout: TableLayout) {
-  prefs.setJson(key, layout);
-}
 
 /** The ID: the HID, or the start of the GUID when there is none. */
 export function hidColumn(more: Partial<Column> = {}): Column {

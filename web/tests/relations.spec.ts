@@ -296,8 +296,21 @@ test("the picker queries with the builder: locked criteria say why, no fields th
   await page.mouse.up();
   expect(await width()).toBeCloseTo(before + 60, -1);
   const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("corestone.picker.table") ?? "{}"));
-  expect(kept.sort[0]).toEqual({ col: "$title", dir: "asc" });
-  expect(kept.widths.$type).toBeGreaterThan(before + 40);
+  expect(kept.layout.sort[0]).toEqual({ col: "$title", dir: "asc" });
+  expect(kept.layout.widths.$type).toBeGreaterThan(before + 40);
+  // a right click on a header: the columns dialog above the picker, with the fields of its types; Escape closes only the dialog
+  await th("$hid").click({ button: "right" });
+  await page.locator(".header-menu [data-test=col-dialog]").click();
+  const cd = page.locator("[data-test=columns-dialog]");
+  await cd.locator('.cd-cols li[data-col="priority"] input').check();
+  await cd.locator("[data-test=cd-ok]").click();
+  await expect(th("priority")).toHaveCount(1);
+  await expect(rows.first()).toContainText("high");
+  await th("$hid").click({ button: "right" });
+  await page.locator(".header-menu [data-test=col-dialog]").click();
+  await page.keyboard.press("Escape");
+  await expect(cd).toHaveCount(0);
+  await expect(picker).toBeVisible();
   // the list takes the keyboard once it has the focus: Enter picks
   await picker.locator(".picker-results").focus();
   await page.keyboard.press("Enter");
