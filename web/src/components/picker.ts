@@ -1,9 +1,13 @@
 import { html, nothing } from "lit";
-import { LightElement, prefs } from "@corestone/ui";
+import { LightElement } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import type { Kind, PickOptions, Schema, SortLevel, Summary, TableFilter } from "./types";
+import type { Kind, PickOptions, Schema, Summary, TableFilter } from "./types";
 import type { Table, TableColumn } from "./table/table";
+import { folderColumn, hidColumn, titleColumn, typeColumn } from "./table/columns";
+import { TableViews } from "./table/views";
+import { fieldValue } from "./table/sorting";
+import "./table/columns-dialog";
 import { queryFields, type LockedCriterion } from "./query-field";
 import type { QueryField } from "./query-model";
 import { kindPlural } from "./artifact";
@@ -27,7 +31,8 @@ export interface PickerOptions extends PickOptions {
   actions?: PickerAction[];
 }
 
-const PICKER_SORT_KEY = "corestone.pickerSort";
+/** Where the picker keeps its view (columns, sorting, saved views), apart from the overview's. */
+const VIEWS_KEY = "corestone.picker.table";
 const DEFAULT_KINDS: Kind[] = ["entry", "document"];
 
 /** Whether a type is one the picker offers: of its kinds and, when it names types, one of them ("<kind>/*": all of a kind). */
@@ -53,13 +58,6 @@ function lockedCriteria(o: PickerOptions, schemas: Schema[]): LockedCriterion[] 
   return out;
 }
 
-function pickerSort(): SortLevel[] {
-  try {
-    const v = prefs.json<unknown>(PICKER_SORT_KEY, []);
-    return Array.isArray(v) ? v.filter((l) => typeof l?.col === "string" && (l.dir === "asc" || l.dir === "desc")).slice(0, 3) : [];
-  } catch { return []; }
-}
-
 /** Picker columns; the last one names why a row cannot be picked. */
 function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: () => Set<string>): TableColumn[] {
   return [
@@ -69,13 +67,11 @@ function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: ()
       // box always shows the chosen state, whatever the browser did to it)
       render: (r: Summary) => html`<input type="checkbox" tabindex="-1" aria-label="Choose ${r.hid || r.title}" .checked=${live(chosen().has(r.guid))}
         ?disabled=${!!taken?.guids.has(r.guid)} />` } satisfies TableColumn] : []),
-    { id: "$hid", name: "ID", width: 110,
-      render: (r) => r.hid ? html`<span class="hid">${r.hid}</span>` : html`<span class="muted mono">${r.guid.slice(0, 8)}</span>` },
-    { id: "$title", name: "Title", title: (r) => r.title ?? "",
-      render: (r) => html`<corestone-type-icon .kind=${r.kind} .type=${r.type} .folder=${r.folder}></corestone-type-icon>${r.title || html`<span class="muted">${r.kind}</span>`}` },
-    { id: "$type", name: "Type", width: 110, cls: "muted small", render: (r, ctx) => ctx.typeName(r) },
-    { id: "$folder", name: "Folder", width: 150, cls: "muted small", title: (r) => r.folder || "/",
-      render: (r) => taken?.guids.has(r.guid) ? taken.note : r.folder || "/" },
+    hidColumn({ width: 110 }),
+    titleColumn(),
+    typeColumn({ width: 110, cls: "muted small" }),
+    // a row that cannot be picked says why in place of its folder
+    folderColumn({ width: 150, cls: "muted small", render: (r) => taken?.guids.has(r.guid) ? taken.note : r.folder || "/" }),
   ];
 }
 
@@ -98,7 +94,7 @@ export class Picker extends LightElement {
   @state() private total = -1;
   /** Choosing several: the chosen rows, in the order chosen. */
   @state() private chosen = new Set<string>();
-  private sort = pickerSort();
+  private readonly views = new TableViews(this, () => VIEWS_KEY);
   private columns: TableColumn[] = [];
   private services: Partial<Services> = {};
   override connectedCallback() {
@@ -108,6 +104,16 @@ export class Picker extends LightElement {
     this.applyFilter();
     void this.loadFields();
     this.updateComplete.then(() => this.querySelector<HTMLInputElement>("corestone-query-field input[type=search]")?.focus());
+  }
+
+  /** The columns to choose from: the picker's own (not its checkboxes), and the fields of the types it offers, hidden until chosen. */
+  private allColumns(): TableColumn[] {
+    const fields = new Map<string, string>();
+    for (const s of this.schemas) for (const f of s.fields ?? []) if (!fields.has(f.id)) fields.set(f.id, f.name || f.id);
+    return [
+      ...this.columns.filter((c) => c.id !== "$check"),
+      ...[...fields].map(([id, name]): TableColumn => ({ id, name, hidden: true, cls: "small", render: (r) => String(fieldValue(r, id) ?? "") })),
+    ];
   }
 
   /** The types of the folder the picker is opened for: their fields can be asked for. */
@@ -188,20 +194,21 @@ export class Picker extends LightElement {
         .value=${this.q} .folder=${this.options.folder ?? ""} .fields=${this.fields} .source=${this.services.query}
         .locked=${lockedCriteria(this.options, this.schemas)} @keydown=${this.onFieldKey}
         @query-change=${(e: CustomEvent<{ text: string }>) => { this.q = e.detail.text; this.applyFilter(); }}></corestone-query-field>
-      <corestone-table class="picker-results" tabindex="0" aria-label="Matching artifacts" @keydown=${this.onKey} navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
+      <corestone-table class="picker-results" tabindex="0" aria-label="Matching artifacts" @keydown=${this.onKey} navigable allFields .columns=${[...this.columns.filter((c) => c.id === "$check"), ...this.views.arrange(this.allColumns())]} .filter=${this.filter} .sort=${this.views.layout.sort} .widths=${this.views.layout.widths} resizable .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
         .selected=${this.multi ? (r: Summary) => this.chosen.has(r.guid) : undefined}
-        @sort-change=${(e: CustomEvent<SortLevel[]>) => { this.sort = e.detail; prefs.setJson(PICKER_SORT_KEY, e.detail); }}
+        @sort-change=${this.views.setSort} @widths-change=${this.views.setWidths}
+        @header-menu=${(e: CustomEvent<{ col: string; x: number; y: number }>) => this.views.headerMenu(e, this.allColumns())}
         @table-load=${(e: CustomEvent<{ total: number }>) => (this.total = e.detail.total)}
         @row-click=${(e: CustomEvent<Summary>) => {
           if (this.multi) { this.toggle(e.detail); return; }
           this.pick(e.detail); }}></corestone-table>
       <div class="picker-count muted small" data-test="picker-count">${this.total < 0 ? "" : `${this.total} ${this.total === 1 ? "match" : "matches"}`}</div>
-      <div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
+      ${actions.length || this.multi ? html`<div class="foot">${actions.map((a) => html`<button class="btn picker-action ${a.tone}" data-test=${a.test}
           @click=${() => { this.cancel(); a.run(); }}><span class="act-icon" aria-hidden="true">${a.tone === "add" ? "＋" : "✕"}</span>${a.label}</button>`)}
         <span class="grow"></span>
-        ${this.multi ? this.multiButtons(this.multi.verb) : nothing}
-        <button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
+        ${this.multi ? this.multiButtons(this.multi.verb) : nothing}</div>` : nothing}
+      ${this.views.editing ? html`<corestone-columns-dialog .views=${this.views} .columns=${this.views.editing}></corestone-columns-dialog>` : nothing}`;
   }
 
   private multiButtons(verb: string) {

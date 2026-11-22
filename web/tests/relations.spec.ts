@@ -23,15 +23,15 @@ test("two workflow fields on one artifact, with diagram and rework", async ({ pa
   await expect(dev.locator(".pill.state")).toHaveText("open"); // untouched
   await dev.locator("select").selectOption("submit");
   await expect(dev.locator("[data-test=pending-state-status]")).toHaveText("review");
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 transitions");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /2 transitions/);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(pub.locator(".pill.state")).toHaveText("released");
   await expect(dev.locator(".pill.state")).toHaveText("review");
   await expect(dev.locator("select option")).toHaveCount(3); // placeholder + approve + rework
   await dev.locator("select").selectOption("rework");
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(dev.locator(".pill.state")).toHaveText("open");
   await dev.locator("button", { hasText: "diagram" }).click();
   await expect(dev.locator(".wf-state")).toHaveCount(3);
@@ -71,9 +71,9 @@ test("relationships: typed links both ways, removal, and endpoint rules", async 
   await page.locator("corestone-picker input[type=search]").fill(`Req B ${id}`);
   await page.locator(".picker-results .row", { hasText: `Req B ${id}` }).click();
   await expect(rel.locator(".link-row.pending-add")).toHaveCount(2);
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("2 links added");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /2 links added/);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   await expect(rel.locator(".link-row")).toHaveCount(2);
   await expect(rel.locator(".link-row.pending-add")).toHaveCount(0);
   await expect(rel.locator(".link-row", { hasText: "relates to" }).locator(".arrow")).toHaveText("→");
@@ -155,14 +155,14 @@ test("overlays: three levels, per-field origin, override and revert", async ({ p
   await page.locator("[data-field=effort] [data-test=override]").click();
   await page.locator("[data-field=effort] input").fill("");
   await expect(page.locator("[data-field=effort] .inherited")).toContainText("inherited from base");
-  await expect(page.locator("[data-test=save]")).toHaveCount(0); // nothing changed
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved"); // nothing changed
   // an unlocked but unsaved override can be reverted before saving
   await page.locator("[data-field=priority] [data-test=override]").click();
   await page.locator("[data-field=priority] .enum-trigger").click();
   await page.locator('[data-field=priority] .enum-option[data-value="low"]').click();
   await page.locator("[data-field=priority] [data-test=revert]").click();
   await expect(page.locator("[data-field=priority] corestone-enum")).toContainText("high");
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   // the base lists its variants; navigating the chain works
   await ov.locator(".chain .node a").first().click();
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Mid ${id}`);
@@ -283,6 +283,34 @@ test("the picker queries with the builder: locked criteria say why, no fields th
   await picker.locator("[data-test=query-apply]").click();
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText(`Pick high ${id}`);
+  // the overview's table: columns sort and resize, and the picker keeps its own layout
+  const th = (col: string) => picker.locator(`th[data-col="${col}"]`);
+  await th("$title").locator(".th-sort").click();
+  await expect(th("$title")).toHaveAttribute("aria-sort", "ascending");
+  const width = async () => (await th("$type").boundingBox())!.width;
+  const before = await width();
+  const edge = (await th("$type").locator(".col-resize").boundingBox())!;
+  await page.mouse.move(edge.x + 3, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 63, edge.y + edge.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await width()).toBeCloseTo(before + 60, -1);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("corestone.picker.table") ?? "{}"));
+  expect(kept.layout.sort[0]).toEqual({ col: "$title", dir: "asc" });
+  expect(kept.layout.widths.$type).toBeGreaterThan(before + 40);
+  // a right click on a header: the columns dialog above the picker, with the fields of its types; Escape closes only the dialog
+  await th("$hid").click({ button: "right" });
+  await page.locator(".header-menu [data-test=col-dialog]").click();
+  const cd = page.locator("[data-test=columns-dialog]");
+  await cd.locator('.cd-cols li[data-col="priority"] input').check();
+  await cd.locator("[data-test=cd-ok]").click();
+  await expect(th("priority")).toHaveCount(1);
+  await expect(rows.first()).toContainText("high");
+  await th("$hid").click({ button: "right" });
+  await page.locator(".header-menu [data-test=col-dialog]").click();
+  await page.keyboard.press("Escape");
+  await expect(cd).toHaveCount(0);
+  await expect(picker).toBeVisible();
   // the list takes the keyboard once it has the focus: Enter picks
   await picker.locator(".picker-results").focus();
   await page.keyboard.press("Enter");
@@ -391,7 +419,7 @@ test("delete asks for confirmation and can be cancelled", async ({ page }) => {
   await page.locator("[data-test=actions]").click();
   await page.locator("[data-test=delete]").click();
   await expect(page.locator(".dialog")).toContainText("Delete");
-  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  await page.locator(".dialog [data-test=dialog-close]").click();
   await expect(page.locator(".dialog")).toHaveCount(0);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Keep me ${id}`);
   await page.locator("[data-test=actions]").click();

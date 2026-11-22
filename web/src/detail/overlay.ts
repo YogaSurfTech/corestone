@@ -47,6 +47,7 @@ export function underlayForm(dt: DetailState) {
   const name = (id: string) => dt.schema?.fields?.find((f) => f.id === id)?.name || id;
   const show = (v: unknown) => html`<span class="pre-line">${showValue(v)}</span>`;
   return html`<div class="base-change" data-test="underlay">
+    <button class="dialog-close" data-test="cancel-underlay" title="Close" aria-label="Close" @click=${() => { dt.base.underlay = null; }}>✕</button>
     <div class="title">Create a new base for this entry</div>
     <label class="underlay-title small">Title of the new base
       <input type="text" data-test="underlay-title" .value=${u.title} @input=${(e: Event) => { dt.base.underlay = { ...u, title: (e.target as HTMLInputElement).value }; }}></label>
@@ -60,7 +61,6 @@ export function underlayForm(dt: DetailState) {
       <span><b>new base</b></span><span class="arrow">→ overlaid by</span><span>this entry</span></div>
     <div class="muted small">The moved values are inherited from the new base, so this entry's effective values stay the same.${base ? ` The new base inherits from ${dt.base.levelLabel(base)}.` : ""}</div>
     <div class="buttons">
-      <button class="btn sm" data-test="cancel-underlay" @click=${() => { dt.base.underlay = null; }}>Cancel</button>
       <button class="btn sm primary" data-test="apply-underlay" ?disabled=${dt.edit.busy} @click=${() => applyUnderlay(dt)}>Create base</button>
     </div></div>`;
 }
@@ -76,6 +76,7 @@ export function baseChangePreview(dt: DetailState) {
   const overlays = dt.base.overlay.overlays.length;
   const show = (v: unknown) => v === undefined || v === "" ? html`<span class="muted">—</span>` : html`<span class="pre-line">${showValue(v)}</span>`;
   return html`<div class="base-change" data-test="base-change">
+    <button class="dialog-close" data-test="cancel-base" title="Close" aria-label="Close" @click=${() => { dt.base.change = null; }}>✕</button>
     <div class="title">${c.to ? html`Change the base to <b>${label(c.to)}</b>` : html`Remove the base <b>${dt.base.levelLabel(dt.view.meta.base ?? "")}</b>`}</div>
     ${cycle ? html`<div class="notice error">${label(c.to)} inherits from this entry, so it cannot become its base (cycle).</div>`
       : same ? html`<div class="muted small">This already is the base; nothing changes.</div>` : html`
@@ -90,7 +91,6 @@ export function baseChangePreview(dt: DetailState) {
       <div class="muted small">${ownCount === 1 ? "1 value set in this entry stays" : `${ownCount} values set in this entry stay`} as ${ownCount === 1 ? "it is" : "they are"}.${
         overlays ? ` ${overlays === 1 ? "Its overlay inherits" : `Its ${overlays} overlays inherit`} the new values too.` : ""}</div>`}
     <div class="buttons">
-      <button class="btn sm" data-test="cancel-base" @click=${() => { dt.base.change = null; }}>Cancel</button>
       <button class="btn sm primary" data-test="apply-base" ?disabled=${cycle || same || dt.edit.busy} @click=${() => applyBase(dt)}>${c.to ? "Change base" : "Remove base"}</button>
     </div></div>`;
 }

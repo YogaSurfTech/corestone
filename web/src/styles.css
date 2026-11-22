@@ -66,6 +66,9 @@ corestone-sidebar, .nav-scrim { grid-column: 1; grid-row: 2; }
 .main.expanded { grid-template-rows: 1fr; }
 .main.expanded corestone-overview { display: none; }
 .main.expanded .splitter { display: none; }
+.main.table-max { grid-template-rows: minmax(0, 1fr); }
+.main.table-max > :not(corestone-overview) { display: none; }
+.btn.save.dirty { background: var(--accent); border-color: var(--accent); color: #fff; }
 .splitter { cursor: row-resize; touch-action: none; background: var(--panel-2); border-bottom: 1px solid var(--border); position: relative; }
 .splitter::after { content: ""; position: absolute; left: 50%; top: 2px; width: 36px; height: 2px; margin-left: -18px; border-radius: 2px; background: var(--border); }
 .splitter:hover, .splitter.dragging, .splitter:focus-visible { background: var(--accent-soft); outline: none; }
@@ -206,7 +209,7 @@ corestone-type-icon { display: inline-flex; align-items: center; vertical-align:
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--danger); }
 .btn.sm { padding: 3px 9px; font-size: 12.5px; }
-.btn.icon { padding: 5px 8px; }
+.btn.icon { padding: 5px 8px; display: inline-flex; align-items: center; justify-content: center; }
 input[type=text], input[type=search], input[type=email], input[type=password], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=url], select, textarea {
   border: 1px solid var(--border); background: var(--input-bg); border-radius: 8px; padding: 6px 9px; min-width: 0; width: 100%;
 }
@@ -308,8 +311,6 @@ corestone-detail.historic .section.changed > h3 { color: var(--changed); }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-all; }
 .presence { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--warn); background: var(--warn-soft); padding: 2px 8px; border-radius: 999px; }
-.savebar { position: sticky; bottom: 0; display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding: 10px 14px; background: var(--panel); border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(0,0,0,0.06); }
-.savebar .dirty { color: var(--warn); font-size: 12.5px; margin-right: auto; }
 .workflow { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); flex-wrap: wrap; }
 .workflow:last-child { border-bottom: none; }
 .workflow .name { font-weight: 600; min-width: 120px; }
@@ -339,7 +340,9 @@ div.history-row { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10p
 .chain .node small { display: block; color: var(--muted); }
 .chain .arrow { color: var(--muted); }
 .chain .col { display: flex; flex-direction: column; gap: 6px; }
-.base-change { border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 8px; }
+.base-change { position: relative; border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 8px; }
+.base-change .title { padding-right: 28px; }
+.base-change .dialog-close { top: 4px; right: 4px; }
 .base-change .keep { display: flex; align-items: center; gap: 6px; }
 .base-change .underlay-title { display: flex; flex-direction: column; gap: 4px; }
 .base-change .underlay-fields { display: flex; flex-direction: column; gap: 4px; }
@@ -461,7 +464,30 @@ corestone-document { display: grid; grid-template-columns: minmax(0, 1fr) auto; 
 .backdrop { position: fixed; inset: 0; background: rgba(10, 14, 30, 0.45); display: grid; place-items: center; z-index: 50; }
 .backdrop.picker-layer { z-index: 55; background: rgba(10, 14, 30, 0.25); place-items: start center; padding-top: 6vh; }
 .dialog { width: min(720px, 94vw); max-height: 88vh; overflow: auto; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 20px 24px; }
-.dialog h2 { font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.dialog h2 { font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; padding-right: 28px; }
+.dialog { position: relative; }
+/* every dialog closes with the ✕ at its top right (and Escape, and a click beside it); no Cancel buttons */
+.dialog-close { position: absolute; top: 10px; right: 10px; z-index: 2; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+.dialog-close:hover, .dialog-close:focus-visible { background: var(--panel-2); color: var(--text); outline: none; }
+/* a table's columns and sorting: above the picker, whose table it may be */
+.header-menu { position: fixed; z-index: 70; }
+.backdrop.columns-layer { z-index: 65; }
+.dialog.columns-dialog { width: min(620px, 94vw); }
+.columns-dialog .cd-view { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.columns-dialog .cd-start { display: inline-flex; align-items: center; gap: 4px; }
+.columns-dialog .cd-view select { width: auto; flex: 0 1 260px; min-width: 160px; }
+.columns-dialog .cd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 560px) { .columns-dialog .cd-grid { grid-template-columns: 1fr; } }
+.columns-dialog h3 { margin: 0 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.columns-dialog .cd-cols { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.columns-dialog .cd-cols li { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.columns-dialog .cd-cols li:last-child { border-bottom: 0; }
+.columns-dialog .cd-cols label { display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+.columns-dialog .cd-grip { color: var(--muted); cursor: grab; display: inline-flex; }
+.columns-dialog .cd-level { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; margin-bottom: 6px; }
+.columns-dialog .foot { align-items: center; }
+.columns-dialog .cd-name { width: 180px; }
 .dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dialog .hint { color: var(--muted); margin: -6px 0 12px; }
 .dialog.prompt { width: min(460px, 94vw); }
@@ -616,6 +642,7 @@ table.accounts td:last-child { text-align: right; }
 .inline-form { display: inline-flex; gap: 6px; align-items: center; }
 .inline-form input { width: 150px; }
 .btn.delete-x { color: var(--danger); font-weight: 800; }
+.btn.inline-close { color: var(--muted); }
 
 /* Rich-text fields: the editor (@corestone/editor, editor.css) in the app's colours */
 .field cs-richtext { display: block; }

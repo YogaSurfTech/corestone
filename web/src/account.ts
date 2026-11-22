@@ -152,12 +152,12 @@ export class AccountDialog extends LightElement {
     if (this.resetting === a.guid) {
       return html`<form class="inline-form" @submit=${(e: Event) => this.resetPassword(e, a)}>
         <input type="password" name="password" required placeholder="New password" aria-label=${`New password for ${a.name}`} autocomplete="new-password">
-        <button type="submit" class="btn sm primary">Set</button><button type="button" class="btn sm" @click=${() => (this.resetting = null)}>Cancel</button></form>`;
+        <button type="submit" class="btn sm primary">Set</button><button type="button" class="btn sm icon inline-close" title="Close" aria-label="Close" @click=${() => (this.resetting = null)}>✕</button></form>`;
     }
     if (this.deleting === a.guid) {
       return html`<span class="inline-form"><span class="small">Delete ${a.name}?</span>
         <button class="btn sm danger" data-test="confirm-delete" @click=${() => this.deleteAccount(a)}>Delete</button>
-        <button class="btn sm" @click=${() => (this.deleting = null)}>Cancel</button></span>`;
+        <button class="btn sm icon inline-close" title="Close" aria-label="Close" @click=${() => (this.deleting = null)}>✕</button></span>`;
     }
     return html`<span class="inline-form">
       <button class="btn sm" data-test="reset-password" @click=${() => { this.error = ""; this.deleting = null; this.resetting = a.guid; }}>Reset password</button>

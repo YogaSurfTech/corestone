@@ -1,10 +1,12 @@
 import { html, nothing } from "lit";
 import { DropMenu, fmtTime } from "@corestone/ui";
 import type { Summary } from "./types";
+import { appIcon } from "./icons";
 
 // The top line of the entry view and of the document view, the same in both:
-// the folder, the dates, the actions menu, expanding and closing. What the
-// controls do is the view's.
+// the folder, the dates, the actions menu, expanding and reloading. Save is
+// the first control of the line below, before the ID and title, in both views.
+// What the controls do is the view's.
 
 export interface ViewTopOptions {
   /** The actions menu; none: no menu (a historic version). */
@@ -14,7 +16,8 @@ export interface ViewTopOptions {
   folder(path: string): void;
   /** Expanding or restoring was clicked. */
   expand(): void;
-  close(): void;
+  /** Load the stored version again. */
+  reload(): void;
   cls?: string;
 }
 
@@ -43,6 +46,15 @@ export function viewTop(meta: Summary, o: ViewTopOptions) {
       <button class="btn sm icon" data-test="actions" title="Actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"
         @click=${(e: Event) => o.actions!.toggle(e.currentTarget as HTMLElement)}>⋯</button></span>` : nothing}
     <button class="btn sm" data-test="expand" title=${o.expanded ? "Restore layout" : "Expand detail"} @click=${o.expand}>${o.expanded ? "⤡" : "⤢"}</button>
-    <button class="btn sm icon" title="Close" aria-label="Close detail view" @click=${o.close}>✕</button>
+    <button class="btn sm icon" data-test="reload" title="Reload the stored version" aria-label="Reload" @click=${o.reload}>${appIcon("reload", 15)}</button>
   </div>`;
+}
+
+export interface SaveState { dirty: boolean; busy: boolean; what?: string; run(): void }
+
+/** Save, at the start of the title line: nothing to save, unsaved changes (and which), saving. */
+export function saveButton(s: SaveState) {
+  const tip = s.busy ? "Saving…" : s.dirty ? `Save (Ctrl+S)${s.what ? `: ${s.what}` : ""}` : "Saved: no changes";
+  return html`<button class="btn sm icon save ${s.dirty ? "dirty" : ""}" data-test="save" title=${tip}
+    ?disabled=${!s.dirty || s.busy} @click=${s.run}>${appIcon("save", 15)}<span class="vh">${s.busy ? "Saving…" : s.dirty ? "Save" : "Saved"}</span></button>`;
 }

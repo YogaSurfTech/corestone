@@ -33,13 +33,13 @@ for (const choice of ["cancel", "alt", "confirm"] as const) {
     await expect(dialog).toBeVisible();
     await expect(title).toHaveValue(edited);
     await expect(page).toHaveURL(currentURL);
-    await dialog.locator(`[data-test=dialog-${choice}]`).click();
+    await dialog.locator(`[data-test=dialog-${choice === "cancel" ? "close" : choice}]`).click();
 
     if (choice === "cancel") {
       await expect(dialog).toHaveCount(0);
       await expect(page).toHaveURL(currentURL);
       await expect(title).toHaveValue(edited);
-      await expect(page.locator(".savebar")).toBeVisible();
+      await expect(page.locator("corestone-detail [data-test=save]")).toHaveClass(/dirty/);
       expect(await stored(guid)).toBe(original);
     } else {
       await expect(page.locator("[data-test=historic-banner]")).toBeVisible();
@@ -68,7 +68,7 @@ test("browser back and forward to history protect edits of the same artifact", a
   await page.goBack();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await expect(dialog).toBeVisible();
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(currentURL);
   await expect(title).toHaveValue(edited);
 
@@ -97,7 +97,7 @@ test("an entry with unsaved changes asks before another artifact opens", async (
   await title.fill(`First edited ${id}`);
   await other.click();
   await expect(dialog).toContainText(`First ${id}`);
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(new RegExp(guids.a));
   await expect(title).toHaveValue(`First edited ${id}`);
 
@@ -127,7 +127,7 @@ test("the browser's back button asks too", async ({ page }) => {
   await page.locator("corestone-detail [data-test=title]").fill(`Back edit ${id}`);
   await page.goBack();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
-  await dialog.locator("[data-test=dialog-cancel]").click();
+  await dialog.locator("[data-test=dialog-close]").click();
   await expect(page).toHaveURL(new RegExp(guids.a));
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Back edit ${id}`);
 });
@@ -138,10 +138,12 @@ test("a document with unsaved changes asks before closing", async ({ page }) => 
   await docTitle.click();
   await page.keyboard.press("End");
   await page.keyboard.type(" v2");
-  await page.locator("corestone-document button[aria-label='Close detail view']").click();
+  // reloading asks first, like leaving
+  await page.locator("corestone-document [data-test=reload]").click();
   const dialog = page.locator(".dialog", { hasText: "Unsaved changes" });
   await dialog.locator("[data-test=dialog-confirm]").click();
-  await expect(page.locator("corestone-document")).toHaveCount(0);
+  await expect(page.locator("corestone-document [data-test=save]")).toHaveText("Saved");
+  await expect(docTitle).toHaveValue(`Doc ${id} v2`);
   const doc = await get<{ meta: { title: string } }>(`/documents/${guids.d}`);
   expect(doc.meta.title).toBe(`Doc ${id} v2`);
 });

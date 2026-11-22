@@ -18,6 +18,10 @@ const MIN_SIZE = { w: 360, h: 260 };
 // flow of new-dialog.ts, a confirmation, a prompt, the account) and above it
 // the artifact picker of picker.ts.
 
+/** The ✕ at the top right of every dialog: closes it without a choice, as Escape and a click beside it do. */
+const closeButton = (close: () => void) =>
+  html`<button class="dialog-close" data-test="dialog-close" title="Close (Esc)" aria-label="Close" @click=${close}>✕</button>`;
+
 /** Closes the artifact picker and tells it that nothing was chosen. */
 function closePicker() {
   const p = store.state.picker;
@@ -68,10 +72,10 @@ export class Dialogs extends LightElement {
     }
     return html`${d ? html`<div class="backdrop" @click=${(e: Event) => { if (e.target === e.currentTarget) this.dismiss(); }}>
         <div class="dialog ${d.kind === "prompt" || d.kind === "account" ? d.kind : ""} ${resizable ? "resizable" : ""}" role="dialog" aria-modal="true"
-          style=${resizable ? boxSizeStyle(sizeKey(resizable)) : ""}>${body}
+          style=${resizable ? boxSizeStyle(sizeKey(resizable)) : ""}>${closeButton(() => this.dismiss())}${body}
           ${resizable ? boxGrip(sizeKey(resizable), "resize-grip", "dialog-resize", MIN_SIZE) : nothing}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) closePicker(); }}>
-        <div class="dialog picker" role="dialog" aria-modal="true" style=${boxSizeStyle(sizeKey("picker"))}>
+        <div class="dialog picker" role="dialog" aria-modal="true" style=${boxSizeStyle(sizeKey("picker"))}>${closeButton(closePicker)}
           <corestone-picker .options=${p} .multi=${p.multi}
             @pick=${(e: CustomEvent<Summary>) => { store.set({ picker: null }); if (!p.multi) p.done(e.detail); }}
             @pick-many=${(e: CustomEvent<string[]>) => { store.set({ picker: null }); if (p.multi) p.done(e.detail); }}
@@ -93,8 +97,7 @@ export class Dialogs extends LightElement {
           ? html`<corestone-folder-field test="prompt" .value=${d.value ?? ""} .ignore=${d.ignore ?? ""}></corestone-folder-field>`
           : html`<input type="text" data-test="prompt" .value=${d.value ?? ""} placeholder=${d.placeholder ?? ""} aria-label=${d.title}>`}
         ${d.theme ? themeChoice(this.s.theme, (t) => store.setTheme(t)) : nothing}
-        <div class="foot"><button type="button" class="btn" @click=${() => this.dismiss()}>Cancel</button>
-        <button type="submit" class="btn primary">${d.confirmLabel ?? "OK"}</button></div>
+        <div class="foot"><button type="submit" class="btn primary">${d.confirmLabel ?? "OK"}</button></div>
       </form>`;
   }
 
@@ -103,8 +106,7 @@ export class Dialogs extends LightElement {
     return html`<h2>${d.title}</h2>
       <p>${d.text}</p>
       ${d.body ? html`<div class="dialog-body">${d.body}</div>` : nothing}
-      <div class="foot"><button class="btn" data-test="dialog-cancel" @click=${() => this.dismiss()}>Cancel</button>
-      ${d.altLabel ? html`<button class="btn" data-test="dialog-alt" @click=${() => choose("alt")}>${d.altLabel}</button>` : nothing}
-      ${d.noConfirm ? nothing : html`<button class="btn ${d.danger ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => choose("confirm")}>${d.confirmLabel ?? "OK"}</button>`}</div>`;
+      ${d.altLabel || !d.noConfirm ? html`<div class="foot">${d.altLabel ? html`<button class="btn" data-test="dialog-alt" @click=${() => choose("alt")}>${d.altLabel}</button>` : nothing}
+      ${d.noConfirm ? nothing : html`<button class="btn ${d.danger ? "danger" : "primary"}" data-test="dialog-confirm" @click=${() => choose("confirm")}>${d.confirmLabel ?? "OK"}</button>`}</div>` : nothing}`;
   }
 }

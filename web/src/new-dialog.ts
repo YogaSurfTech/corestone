@@ -105,10 +105,6 @@ export class NewDialog extends LightElement {
 
   private kindOf(): Kind { return this.schema?.kind ?? "entry"; }
 
-  private cancel() {
-    store.set({ dialog: null });
-  }
-
   private async create() {
     if (!this.schema || this.busy || this.scopeError) return; // a second click before re-render must be a no-op
     this.busy = true;
@@ -191,7 +187,6 @@ export class NewDialog extends LightElement {
           @field-change=${(e: CustomEvent) => { this.values = { ...this.values, [e.detail.id]: e.detail.value }; }}></corestone-field>`)}
         ${(s.fields ?? []).some((f) => f.type === "workflow") ? html`<div class="help" style="margin-top:8px">${(s.fields ?? []).filter((f) => f.type === "workflow").map((f) => f.name || f.id).join(", ")}: starts in the initial state.</div>` : nothing}
         <div class="foot">
-          <button type="button" class="btn" @click=${() => this.cancel()}>Cancel</button>
           <button type="submit" class="btn primary" ?disabled=${this.busy || !!this.scopeError} data-test="create">${this.busy ? "Creating…" : "Create"}</button>
         </div>
       </form>`;
@@ -222,6 +217,6 @@ export class NewDialog extends LightElement {
         <select id="custom-kind"><option value="entry">entry</option><option value="document">document</option></select>
         <button class="btn" ?disabled=${!this.customType.trim()} @click=${() => this.choose({ type: this.customType.trim(), kind: (this.querySelector("#custom-kind") as HTMLSelectElement).value as Kind })}>Use</button>
       </div>
-      <div class="foot"><button class="btn" @click=${() => this.cancel()}>Cancel</button></div>`;
+`;
   }
 }

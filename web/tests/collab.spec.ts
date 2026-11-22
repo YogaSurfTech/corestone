@@ -107,7 +107,7 @@ test("conflicting edits: the second writer is told what overlaps, keeps the draf
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("a's version");
   await expect(row).toContainText("b's version");
-  await b.locator(".dialog [data-test=dialog-cancel]").click();
+  await b.locator(".dialog [data-test=dialog-close]").click();
   await expect(b.locator("[data-field=rationale] textarea")).toHaveValue("b's version");
   await b.locator("[data-test=save]").click();
   await b.locator(".dialog [data-test=dialog-confirm]").click();

@@ -54,18 +54,19 @@ test("keyboard shortcuts, breadcrumbs and browser history", async ({ page }) => 
 });
 
 test("deep links: section tab, expanded layout, folder context", async ({ page }) => {
-  await page.goto(`/artifact/${guids.a}?tab=history&x=1`);
+  await page.goto(`/artifact/${guids.a}?tab=history&max=artifact`);
   await expect(page.locator(".quicklinks a.active")).toHaveText(/History/);
   await expect(page.locator("corestone-overview")).toBeHidden();
   await expect(page.locator(".tree .row.selected")).toContainText("alpha"); // folder inferred from the artifact
   await page.locator(".detail-head button[title='Restore layout']").click();
   await expect(page.locator("corestone-overview")).toBeVisible();
-  await expect(page).not.toHaveURL(/x=1/);
+  await expect(page).not.toHaveURL(/max=/);
   await page.locator(".quicklinks a", { hasText: "Comments" }).click();
   await expect(page).toHaveURL(/tab=comments/);
   await expect(page.locator("#sec-comments .comment")).toHaveCount(1);
-  // the ✕ closes and drops the tab from the URL
-  await page.locator(".detail-head button[title=Close]").click();
+  // Escape closes it and drops the tab from the URL
+  await page.locator(".quicklinks a", { hasText: "Comments" }).blur();
+  await page.keyboard.press("Escape");
   await expect(page).not.toHaveURL(/tab=/);
 });
 
@@ -220,7 +221,7 @@ test("theme choice in the name dialog: preview, cancel, persist", async ({ page 
   await page.locator(".dialog [data-theme-choice=dark]").click();
   expect(await theme()).toBe("dark");
   expect(await bgSum()).toBeLessThan(200);
-  await page.locator(".dialog button", { hasText: "Cancel" }).click();
+  await page.locator(".dialog [data-test=dialog-close]").click();
   expect(await theme()).toBe("auto");
   expect(await bgSum()).toBeGreaterThan(600);
   // Save keeps it, across reloads
@@ -309,7 +310,7 @@ test("the divider between overview and detail can be dragged, keyed, reset, and 
   await bar.dblclick();
   await expect.poll(height).toBeCloseTo(initial, -1);
   // hidden when the detail view is expanded
-  await page.goto(`/artifact/${guids.a}?x=1`);
+  await page.goto(`/artifact/${guids.a}?max=artifact`);
   await expect(page.locator("corestone-detail [data-test=title]")).toHaveValue(`Alpha one ${id}`);
   await expect(bar).toBeHidden();
   expect((await page.locator("corestone-detail").boundingBox())!.height).toBeGreaterThan(300);
@@ -338,6 +339,77 @@ test("the folder navigation edge can be dragged, keyed, reset, and is remembered
   // hidden with the navigation
   await page.getByRole("button", { name: "Toggle navigation" }).click();
   await expect(bar).toBeHidden();
+});
+
+test("columns and sorting: a right click on a header, the dialog, saved views and the one a table starts with", async ({ page }) => {
+  const sub = `${folder}/views`;
+  await post("/entries", { path: sub, type: "req", title: `Low ${id}`, fields: { priority: "low", rationale: "why low" } });
+  await post("/entries", { path: sub, type: "req", title: `High ${id}`, fields: { priority: "high", rationale: "why high" } });
+  await page.goto(`/folder/${sub}`);
+  const table = page.locator("corestone-overview table.grid");
+  const heads = () => table.locator("thead th[data-col]").evaluateAll((ths) => ths.map((th) => (th as HTMLElement).dataset.col));
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  const menu = page.locator(".header-menu");
+  // the menu of a header: sort by it, hide it, the dialog
+  await table.locator('th[data-col="$title"]').click({ button: "right" });
+  await expect(menu.locator("[data-test=col-sort-asc]")).toHaveText("Sort ascending by Title");
+  await menu.locator("[data-test=col-hide]").click();
+  await expect(menu).toHaveCount(0);
+  await expect(table.locator('th[data-col="$title"]')).toHaveCount(0);
+  // the dialog: every column, the fields not shown yet among them; shown, moved, sorted
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await menu.locator("[data-test=col-dialog]").click();
+  const dialog = page.locator("[data-test=columns-dialog]");
+  const item = (col: string) => dialog.locator(`.cd-cols li[data-col="${col}"]`);
+  await expect(item("$title").locator("input")).not.toBeChecked();
+  await expect(item("rationale").locator("input")).not.toBeChecked();
+  await item("$title").locator("input").check();
+  await item("rationale").locator("input").check();
+  await item("rationale").locator(".cd-grip").dragTo(item("$hid"));
+  await expect(dialog.locator(".cd-cols li").first()).toHaveAttribute("data-col", "rationale");
+  await item("$type").locator("input").focus();
+  await page.keyboard.press("Alt+ArrowUp"); // the keyboard moves it too
+  await dialog.getByLabel("Sort level 1").selectOption("priority");
+  await dialog.getByLabel("Direction 1").selectOption("desc");
+  // saved as a view, which the table then shows
+  await dialog.locator("[data-test=cd-name]").fill("Reasons");
+  await dialog.locator("[data-test=cd-save-as]").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(table.locator('th[data-col="priority"]')).toHaveAttribute("aria-sort", "descending");
+  expect((await heads()).slice(0, 4)).toEqual(["rationale", "$hid", "$type", "$title"]);
+  // the views are in the menu, the shown one checked
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await expect(menu.locator("[data-test=col-view]")).toHaveText(["Reasons"]);
+  await expect(menu.locator("[data-test=col-view]")).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  // the table starts with it: what is changed afterwards is gone after a reload
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await menu.locator("[data-test=col-dialog]").click();
+  await expect(dialog.locator("[data-test=cd-view]")).toHaveValue("Reasons");
+  await dialog.locator("[data-test=cd-start]").check();
+  await dialog.locator("[data-test=cd-ok]").click();
+  await table.locator('th[data-col="rationale"]').click({ button: "right" });
+  await menu.locator("[data-test=col-hide]").click();
+  await expect(table.locator('th[data-col="rationale"]')).toHaveCount(0);
+  await page.reload();
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  expect((await heads())[0]).toBe("rationale");
+  // the ✕ (and Escape) close without a change; a view is deleted in the dialog
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await menu.locator("[data-test=col-dialog]").click();
+  await item("rationale").locator("input").uncheck();
+  await dialog.locator("[data-test=dialog-close]").click();
+  await expect(dialog).toHaveCount(0);
+  expect((await heads())[0]).toBe("rationale");
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await menu.locator("[data-test=col-dialog]").click();
+  await dialog.locator("[data-test=cd-delete]").click();
+  await expect(dialog.locator("[data-test=cd-view]")).toHaveValue("");
+  await page.keyboard.press("Escape");
+  await table.locator('th[data-col="$hid"]').click({ button: "right" });
+  await expect(menu.locator("[data-test=col-view]")).toHaveCount(0);
+  await page.keyboard.press("Escape");
 });
 
 test("table headers sort ascending and descending, columns resize, and both are remembered", async ({ page }) => {

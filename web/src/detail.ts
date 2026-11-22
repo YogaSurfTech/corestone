@@ -1,14 +1,14 @@
 import { html, nothing } from "lit";
 import { fmtTime, LightElement } from "@corestone/ui";
 import { customElement, property } from "lit/decorators.js";
-import { navigate } from "./router";
+import { mayLeave, navigate } from "./router";
 import { store, type State } from "./store";
 import "./components/type-icon";
 import "./components/table/table";
 import "./components/ref";
 import "./components/fields";
 import { StoreController } from "./store-controller";
-import { actionsMenu, viewTop } from "./components/view-top";
+import { actionsMenu, saveButton, viewTop } from "./components/view-top";
 import { DetailState, SECTIONS, type Section } from "./detail/state";
 import { attachmentSection } from "./detail/attachments";
 import { commentSection, ownCommentSection } from "./detail/comments";
@@ -92,10 +92,22 @@ export class Detail extends LightElement {
           ${order.map((s) => body[s]())}
         </div>
       </div>
-      ${this.d.edit.dirty ? html`<div class="savebar"><span class="dirty" data-test="unsaved-summary">Unsaved changes: ${this.d.edit.pendingSummary()}</span>
-        <button class="btn" @click=${() => this.d.resetDraft()}>Discard</button>
-        <button class="btn primary" data-test="save" ?disabled=${this.d.edit.busy} @click=${() => this.d.edit.save()}>${this.d.edit.busy ? "Saving…" : "Save"}</button></div>` : nothing}`;
+`;
   }
+
+  /** The stored version again; unsaved changes are saved or discarded first. */
+  private reload = async () => {
+    if (!(await mayLeave())) return;
+    this.d.edit.draft = null;
+    void this.d.reload(false);
+  };
+
+  /** Ctrl+S saves. */
+  private readonly saveKey = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (this.d.edit.dirty) void this.d.edit.save(); }
+  };
+
+  override connectedCallback() { super.connectedCallback(); this.addEventListener("keydown", this.saveKey); }
 
   /** Two lines: the folder, dates and actions; the editable identity. */
   private header() {
@@ -111,11 +123,12 @@ export class Detail extends LightElement {
     const base = ov && ov.chain.length > 1 ? ov.chain[ov.chain.length - 2] : null;
     const overlays = ov?.overlays.length ?? 0;
     return html`<div class="detail-head">
-      ${viewTop(v.meta, { actions: this.d.historic ? null : this.actions, expanded: r.expanded,
-        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ expanded: !r.expanded }),
-        close: () => navigate({ guid: null, tab: "", expanded: false }) })}
+      ${viewTop(v.meta, { actions: this.d.historic ? null : this.actions, expanded: r.maximized === "artifact",
+        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ maximized: r.maximized === "artifact" ? "" : "artifact" }),
+        reload: this.reload })}
       <div class="dh-title">
         <div class="dh-identity">
+        ${this.d.historic ? nothing : saveButton({ dirty: this.d.edit.dirty, busy: this.d.edit.busy, what: this.d.edit.pendingSummary(), run: () => void this.d.edit.save() })}
         <corestone-type-icon .kind=${v.meta.kind} .type=${v.meta.type} .folder=${v.meta.folder} .schema=${this.d.schema} title=${typeName}></corestone-type-icon>
         ${v.meta.kind === "comment" ? html`<h2 class="dh-static" data-test="comment-heading">${typeName} by ${v.meta.author || "anonymous"}</h2>` : html`
         <input class="hid-input ${d.hid ? "" : "empty"} ${this.d.changedClass("hid")}" type="text" data-test="hid" aria-label="HID" .value=${d.hid} placeholder=${hidHint} ?readonly=${!!this.d.historic}

@@ -5,14 +5,14 @@ import { live } from "lit/directives/live.js";
 import "@corestone/editor";
 import { type DocNode, type OutlineItem } from "@corestone/editor";
 import { server } from "./api";
-import { navigate } from "./router";
+import { mayLeave, navigate } from "./router";
 import { type State } from "./store";
 import "./components/type-icon";
 import { appIcon, type AppIcon } from "./components/icons";
 import "./components/fields";
 import "./components/ref";
 import { StoreController } from "./store-controller";
-import { actionsMenu, viewTop } from "./components/view-top";
+import { actionsMenu, saveButton, viewTop } from "./components/view-top";
 import { deleteArtifact, moveArtifact } from "./artifact-state";
 
 import { DocumentState } from "./document/state";
@@ -129,11 +129,12 @@ export class DocumentView extends LightElement {
     const others = (this.s.presence[this.guid]?.editors ?? []).filter((n) => n !== this.s.user);
     this.host.guid = this.guid;
     return html`
-      ${viewTop(v.meta, { actions: this.actions, expanded: r.expanded, cls: "doc-top",
-        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ expanded: !r.expanded }),
-        close: () => navigate({ guid: null, sidebars: [], expanded: false }) })}
+      ${viewTop(v.meta, { actions: this.actions, expanded: r.maximized === "artifact", cls: "doc-top",
+        folder: (folder) => navigate({ folder, guid: null }), expand: () => navigate({ maximized: r.maximized === "artifact" ? "" : "artifact" }),
+        reload: async () => { if (await mayLeave()) void this.d.load(); } })}
       <div class="doc-head doc-toolbar" @keydown=${this.saveKey}>
           <div class="doc-left">
+          ${saveButton({ dirty: this.d.dirty, busy: this.d.busy, run: () => void this.d.save() })}
           <span class="doc-kind" title=${`${this.d.schema?.displayName ?? v.meta.type} in ${v.meta.folder || "/"}`}>${v.meta.hid ? html`<span class="hid">${v.meta.hid}</span>` : html`<span class="muted small">${this.d.schema?.displayName ?? v.meta.type}</span>`}</span>
           <input class="doc-title-input" aria-label="Title" placeholder="Title" .value=${live(this.d.docTitle)} size=${Math.max(8, Math.min(48, this.d.docTitle.length + 1))}
             @input=${(e: Event) => { this.d.docTitle = (e.target as HTMLInputElement).value; this.d.touch(); }}
@@ -143,10 +144,7 @@ export class DocumentView extends LightElement {
           <div class="doc-tools"></div>
           <span class="doc-switches">${SIDEBARS.map(([id, name]) => html`<button class="icon-btn" data-test=${"sb-" + id} aria-pressed=${r.sidebars.includes(id)}
               aria-label=${name} data-tip=${(r.sidebars.includes(id) ? "Hide " : "Show ") + name.toLowerCase()}
-              @click=${() => navigate({ sidebars: r.sidebars.includes(id) ? r.sidebars.filter((x) => x !== id) : [...r.sidebars, id] }, true)}>${appIcon(id)}</button>`)}
-          <span class="sep"></span>
-          <button class="icon-btn save ${this.d.dirty ? "dirty" : ""}" data-test="save" ?disabled=${!this.d.dirty || this.d.busy} @click=${() => this.d.save()}
-            data-tip=${this.d.busy ? "Saving…" : this.d.dirty ? "Save (Ctrl+S)" : "Saved: no changes"}>${appIcon("save")}<span class="vh">${this.d.busy ? "Saving…" : this.d.dirty ? "Save" : "Saved"}</span></button></span>
+              @click=${() => navigate({ sidebars: r.sidebars.includes(id) ? r.sidebars.filter((x) => x !== id) : [...r.sidebars, id] }, true)}>${appIcon(id)}</button>`)}</span>
       </div>
       <div class="doc-main" @keydown=${this.saveKey}>
         ${this.d.error ? html`<div class="notice error">${this.d.error} <button class="icon-btn" data-tip="Reload the stored version" @click=${() => this.d.load()}>${appIcon("reload")}<span class="vh">Reload</span></button></div>` : nothing}

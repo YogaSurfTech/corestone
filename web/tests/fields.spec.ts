@@ -78,15 +78,15 @@ test("custom multiselect values save, reload, and remove", async ({ page }) => {
   await field.getByRole("button", { name: "Add value", exact: true }).click();
   await input.fill("blurred");
   await page.locator("[data-test=title]").click();
-  await expect(page.locator("[data-test=save]")).toBeVisible();
+  await expect(page.locator("[data-test=save]")).toBeEnabled();
   await page.locator("[data-test=save]").click();
-  await expect(page.locator(".savebar")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
   expect(stored.data.fields.freeMany).toEqual(["known", "entered", "clicked", "blurred"]);
   await page.reload();
   await field.getByRole("button", { name: "Remove clicked", exact: true }).click();
   await page.locator("[data-test=save]").click();
-  await expect(page.locator(".savebar")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const after = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
   expect(after.data.fields.freeMany).toEqual(["known", "entered", "blurred"]);
 });
@@ -184,9 +184,9 @@ test("attachments: upload, list, use in an attachment field, open, delete", asyn
   await page.locator("#sec-attachments input[type=file]").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello attachment") });
   // the upload waits for Save
   await expect(page.locator("#sec-attachments .attach-row.pending-add")).toContainText("notes.txt");
-  await expect(page.locator("[data-test=unsaved-summary]")).toContainText("1 attachment added");
+  await expect(page.locator("[data-test=save]")).toHaveAttribute("title", /1 attachment added/);
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const row = page.locator("#sec-attachments .attach-row");
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("notes.txt");
@@ -198,7 +198,7 @@ test("attachments: upload, list, use in an attachment field, open, delete", asyn
   // the attachment field offers the file
   await page.locator("[data-field=file] select").selectOption("notes.txt");
   await page.locator("[data-test=save]").click();
-  await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${e.meta.guid}`);
   expect(stored.data.fields.file).toBe("notes.txt");
   // history recorded the attachment commit (the section loads when opened)
@@ -241,7 +241,7 @@ test("rich text: formatted in the entry, stored as paragraphs, shown and searcha
   await page.keyboard.press("Control+b");
   await rich.locator(".cs-tb .sp:has([data-cmd=ul]) .c").click();
   await rich.locator(".cs-tb .pop.open [data-cmd=ul]").click();
-  await expect(page.locator("[data-test=save]")).toBeVisible();
+  await expect(page.locator("[data-test=save]")).toBeEnabled();
   await page.locator("[data-test=save]").click();
   await expect(page.locator(".toast.success", { hasText: "Saved" })).toBeVisible();
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${entry.meta.guid}`);
@@ -442,7 +442,7 @@ test("a dynamic enumeration offers entries as options and stores the chosen entr
   await expect(field.locator(".enum-option")).toHaveText([/none/, new RegExp(`PRD-2 – Alpha ${id}`), new RegExp(`PRD-1 – Beta ${id}`)]);
   await field.locator(`.enum-option[data-value="${beta.meta.guid}"]`).click();
   await page.locator("[data-test=save]").click();
-  await expect(page.locator("[data-test=save]")).toHaveCount(0);
+  await expect(page.locator("[data-test=save]")).toHaveText("Saved");
   const stored = await get<{ data: { fields: Record<string, unknown> } }>(`/entries/${feature.meta.guid}`);
   expect(stored.data.fields.product).toBe(beta.meta.guid);
   await expect(field).toContainText(`Beta ${id}`);

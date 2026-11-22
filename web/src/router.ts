@@ -8,7 +8,7 @@ import { defaultRoute, store, type Route } from "./store";
 //   /                       repository root
 //   /folder/<path>          a folder
 //   /artifact/<guid>        an artifact (detail or document view)
-//   ?q=&subtree=1&kind=&type=&tab=&sb=props,comments&x=1
+//   ?q=&subtree=1&kind=&type=&tab=&sb=props,comments&max=artifact|table
 //   ?version=<blob>&at=<commit>   a historic version of the artifact
 
 export function parseRoute(loc: Location = window.location): Route {
@@ -22,7 +22,8 @@ export function parseRoute(loc: Location = window.location): Route {
   r.kind = sp.get("kind") ?? "";
   r.type = sp.get("type") ?? "";
   r.tab = sp.get("tab") ?? "";
-  r.expanded = sp.get("x") === "1";
+  const max = sp.get("max");
+  r.maximized = max === "artifact" || max === "table" ? max : "";
   r.sidebars = (sp.get("sb") ?? "").split(",").filter(Boolean);
   if (r.guid) { r.version = sp.get("version") ?? ""; r.at = r.version ? sp.get("at") ?? "" : ""; }
   if (sp.get("folder")) r.folder = sp.get("folder")!;
@@ -40,7 +41,7 @@ export function routeToURL(r: Route): string {
   if (r.kind) sp.set("kind", r.kind);
   if (r.type) sp.set("type", r.type);
   if (r.tab) sp.set("tab", r.tab);
-  if (r.expanded) sp.set("x", "1");
+  if (r.maximized) sp.set("max", r.maximized);
   if (r.sidebars.length) sp.set("sb", r.sidebars.join(","));
   if (r.guid && r.version) { sp.set("version", r.version); if (r.at) sp.set("at", r.at); }
   const s = sp.toString().replace(/%2C/g, ",");
@@ -66,8 +67,8 @@ export function clearLeaveGuard(g: LeaveGuard) {
   if (guard === g) guard = null;
 }
 
-/** Asks what to do with unsaved changes; resolves true when the route may change. */
-async function mayLeave(): Promise<boolean> {
+/** Asks what to do with unsaved changes (save, discard, or stay); resolves true when they are out of the way. */
+export async function mayLeave(): Promise<boolean> {
   const g = guard;
   if (!g || !g.dirty()) return true;
   const choice = await store.confirm("Unsaved changes", {
@@ -119,6 +120,9 @@ export function showKind(kind: string, patch: Partial<Route> = {}) {
 
 export function navigate(patch: Partial<Route>, replace = false) {
   const next = { ...store.state.route, ...patch };
+  // Only an open artifact fills the workspace; opening one shows it beside the table again.
+  if (!next.guid && next.maximized === "artifact") next.maximized = "";
+  if (next.guid && "guid" in patch && next.maximized === "table" && !("maximized" in patch)) next.maximized = "";
   // A version belongs to its artifact: opening another one shows it as it is now.
   if (next.guid !== store.state.route.guid && !("version" in patch)) { next.version = ""; next.at = ""; }
   if (sameArtifactView(next, store.state.route)) return apply(next, replace);
