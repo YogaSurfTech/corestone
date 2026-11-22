@@ -2,4 +2,4 @@
 # and kind. This list only shrinks: fix the code, then remove the line.
 
 # Only api.ts talks to the server.
-packages/editor/src/files.ts: uses fetch
+packages/editor/src/features/images.ts: uses fetch

@@ -23,8 +23,6 @@ export interface ToolbarHost {
   link(): void;
   /** Whether the entry's files are available (images, file links). */
   files(): boolean;
-  /** Opens the image picker, at the mouse pointer when the toolbar was clicked. */
-  image(at?: { x: number; y: number }): void;
   /** Opens the table size grid, at the mouse pointer when the toolbar was clicked. */
   table(at?: { x: number; y: number }): void;
   /** Opens the formula dialog (for the selected formula, or a new one). */
@@ -155,12 +153,12 @@ export class Toolbar {
     this.split("align", "Alignment", aligns.map((x) => ({ i: x.i, tip: { text: x.t, shortcut: x.k }, run: () => this.run(setAlign(x.a)),
       pressed: (s: EditorState) => alignAt(s) === x.a })));
     this.sep();
-    this.split("ins", "Insert", [
+    // (the features' buttons take their place in today's order, until every button is a feature's)
+    const INS = ["link", "table", "image", "diagram", "formula", "xref", "toc"];
+    this.split("ins", "Insert", [...this.added("ins"),
       { i: "link", tip: { text: "Link…", shortcut: "Ctrl+K" }, run: () => this.host.link(), pressed: (s: EditorState) => !!linkAt(s) },
       { i: "table", tip: { text: "Table…", disabled: () => (isInTable(S()) ? "No tables in tables. Right-click the table for rows, columns and its properties." : null) },
         run: () => this.host.table(this.pointer) },
-      { i: "image", tip: { text: "Image…", disabled: () => (this.host.files() ? null : "Images are kept with a saved item; not available here.") },
-        run: () => this.host.image(this.pointer) },
       { i: "diagram", tip: { text: "Diagram…", disabled: () => (this.host.diagrams() ? null
         : this.host.files() ? "Diagrams are not available: draw.io is not installed on this server." : "Diagrams are kept with a saved item; not available here.") },
         run: () => this.host.diagram() },
@@ -168,7 +166,7 @@ export class Toolbar {
         run: () => this.host.formula(this.pointer) },
       ...(st ? [{ i: "xref", tip: { text: "Cross-reference…" }, run: () => st.xref(this.pointer) },
         { i: "toc", tip: { text: "Table of contents", disabled: () => (this.can(canPlace) ? null : "Place the cursor in the text first.") }, run: () => st.toc() }] : []),
-    ]);
+    ].sort((a, b) => INS.indexOf(a.i) - INS.indexOf(b.i)));
   }
 
   // --- building blocks ---

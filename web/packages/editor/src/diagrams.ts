@@ -1,7 +1,8 @@
 import { NodeSelection, type EditorState } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import type { Node } from "prosemirror-model";
-import { isPicture, type EntryFiles } from "./files";
+import type { EntryFiles } from "./files";
+import { isPicture } from "./features/images";
 import { icon } from "./icons";
 import { schema } from "./schema";
 import { button, dataUrlToBlob, dialogHead, el } from "@corestone/ui";
