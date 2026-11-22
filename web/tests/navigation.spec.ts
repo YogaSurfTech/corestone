@@ -669,6 +669,25 @@ test("query builder: links by their ends and role, comments by what they are on,
   await expect(page).toHaveURL(/subject%3A%28kind%3Alink%29/);
   await expect(rows.filter({ hasText: "on the link" })).toHaveCount(1);
   await expect(rows.filter({ hasText: "on the low one" })).toHaveCount(0);
+  // asked for links there, the end offers the fields of links: their ends and role, one level deeper
+  await clauses.first().click();
+  await end.locator("[data-test=query-add]").click();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="source"]')).toBeVisible();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="coverage"]')).toBeVisible();
+  await expect(end.locator('[data-test=query-fields] .mi[data-field="priority"], [data-test=query-fields] .mi[data-field="title"]')).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  // each kind keeps its own query: the links' comes back, the comments' too
+  const kind = page.locator("[data-test=kind]");
+  const show = async (k: string) => { await kind.click(); await page.locator(`[data-test=kind-menu] [data-test=kind-${k}]`).click(); await expect(kind).toHaveAttribute("data-kind", k); };
+  await show("link");
+  await expect(page).toHaveURL(/target%3A%28priority%3Ahigh%29/);
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: high"]);
+  await show("all");
+  await expect(clauses).toHaveCount(0);
+  await expect(page.locator("corestone-overview .query-field input[data-test=search]")).toHaveValue("");
+  await show("comment");
+  await expect(clauses).toHaveText(["On: Kind: Link"]);
 });
 
 test("menus of the toolbar and the entry: a second click and Escape close them, the arrow keys move", async ({ page }) => {

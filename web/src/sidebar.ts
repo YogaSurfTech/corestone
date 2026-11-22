@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { LightElement } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
-import { navigate } from "./router";
+import { navigate, showKind } from "./router";
 import { store, type State } from "./store";
 import type { Schema } from "./components/types";
 import { folderNode, folderTree, loadFolders, type FolderNode } from "./components/folder-tree";
@@ -137,7 +137,7 @@ export class Sidebar extends LightElement {
           <ul class="tree">${(["entry", "document"] as const).filter((k) => groups[k]?.length).map((k) => html`<li>
             <div class="row"><span class="caret">▾</span><span class="name muted">${kindPlural[k]}</span></div>
             <ul>${groups[k].map((t) => html`<li><div class="row ${r.type === t.type ? "selected" : ""}" data-type=${t.type}
-              @click=${() => { navigate({ type: t.type, kind: k, guid: null }); store.closeNavIfOverlay(); }}>
+              @click=${() => { showKind(k, { type: t.type, guid: null }); store.closeNavIfOverlay(); }}>
               <span class="caret empty">·</span><span class="name">${displayName(t, t.type)}</span>
               ${this.counts[t.type] ? html`<span class="count">${this.counts[t.type]}</span>` : nothing}</div></li>`)}</ul></li>`)}</ul></div>
       </div>`;

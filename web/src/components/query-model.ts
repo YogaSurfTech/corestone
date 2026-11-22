@@ -1,7 +1,7 @@
 // The query builder's model: a query as a row of criteria, and the query
 // text it stands for. The text is what runs and what the server reads; the
 // builder only writes it (a text is never turned back into criteria).
-import type { EnumOption, PickOptions, QueryWarning, Summary } from "./types";
+import type { EnumOption, Kind, PickOptions, QueryWarning, Summary } from "./types";
 
 /** How two criteria are joined. NOT binds strongest, then AND, then XOR, then OR. */
 export type Join = "AND" | "OR" | "XOR";
@@ -25,8 +25,9 @@ export interface QueryField {
   load?: () => Promise<EnumOption[]>;
   /** artifact: what the picker offers. */
   picker?: PickOptions;
-  /** query: the fields of the artifact at the other end, for the query it must match. */
-  fields?: () => QueryField[];
+  /** query: the fields of the artifact at the other end, for the query it must match; those of
+   *  the kind it is asked for ("": entries and documents). */
+  fields?: (kind: Kind | "") => QueryField[];
 }
 
 /** What the query field needs from outside: it is handed in, the field asks no server and no store itself. */
@@ -96,6 +97,17 @@ function clauseText(c: Clause): string {
 /** The query text of a row of criteria. */
 export function toText(clauses: Clause[]): string {
   return clauses.map((c, i) => (i ? ` ${c.join} ` : "") + clauseText(c)).join("");
+}
+
+/**
+ * The one kind a row of criteria asks for: a Kind criterion with one value, not
+ * negated, joined to the others by AND. "" when it asks for none or several.
+ */
+export function kindOf(clauses: Clause[] | null): Kind | "" {
+  if (!clauses || clauses.slice(1).some((c) => c.join !== "AND")) return "";
+  const kinds = clauses.filter((c) => c.field.id === "kind");
+  const v = kinds.length === 1 && !kinds[0].not ? kinds[0].value : null;
+  return v?.kind === "enum" && v.values.length === 1 ? v.values[0].value as Kind : "";
 }
 
 /** A row of criteria as it reads, with the operators between them. */

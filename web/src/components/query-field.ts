@@ -9,7 +9,7 @@ import type { EnumOption, Kind, QueryWarning, Schema } from "./types";
 import { markIcon } from "./icons";
 import { hidLabel, kindLabel } from "./artifact";
 import "./enum-control";
-import { COMPARES, JOINS, clauseLabel, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
+import { COMPARES, JOINS, clauseLabel, kindOf, toText, type Clause, type Compare, type Input, type Join, type QueryField, type QuerySource, type Value } from "./query-model";
 
 const INPUT: Record<string, Input> = {
   enum: "enum", workflow: "enum", boolean: "bool", integer: "number", float: "number", currency: "number",
@@ -31,9 +31,10 @@ export function queryFields(schemas: Schema[], folder: string, type: string, sou
   const dates = [general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text")];
   // the artifact at an end: of any kind (a comment may be on a link, a reply on a comment), asked
   // for with the fields of entries and documents, without a picker
-  const end = (id: string, name: string) => general(id, name, "query", { fields: () => [
+  // fields follow the kind asked for there; an end of a link there opens one level deeper
+  const end = (id: string, name: string) => general(id, name, "query", { fields: (k) => [
     general("kind", "Kind", "enum", { options: (["entry", "document", "link", "comment"] as Kind[]).map((k) => ({ value: k, label: kindLabel[k] })) }),
-    ...queryFields(schemas, folder, "", source).filter((f) => f.input !== "artifact"),
+    ...queryFields(schemas, folder, "", source, k).filter((f) => f.input !== "artifact"),
   ] });
   let out: QueryField[];
   if (kind === "link") {
@@ -127,6 +128,10 @@ export class QueryFieldElement extends LightElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    this.loadHistory();
+  }
+
+  private loadHistory() {
     const kept = prefs.json<Remembered[]>(this.historyKey, []);
     this.history = Array.isArray(kept) ? kept.filter((h) => h?.clause?.field && h.clause.value) : [];
   }
@@ -203,6 +208,8 @@ export class QueryFieldElement extends LightElement {
   }
 
   override willUpdate(changed: PropertyValues) {
+    // another kind shown: its own criteria used last
+    if (changed.has("historyKey") && changed.get("historyKey") !== undefined) this.loadHistory();
     if (!changed.has("value")) return;
     if (this.clauses.length && toText(this.clauses) === this.value) return; // our own query came back
     // the criteria of a built query survive a reload; any other text is text
@@ -276,7 +283,7 @@ export class QueryFieldElement extends LightElement {
     else if (v?.kind === "range") { d.compare = v.compare; d.a = v.a; d.b = v.b; }
     else if (v?.kind === "query") d.query = { text: v.text, clauses: v.clauses };
     this.draft = d;
-    this.endFields = field.input === "query" ? field.fields?.() ?? [] : [];
+    this.endFields = field.input === "query" ? field.fields?.(kindOf(d.query.clauses)) ?? [] : [];
     this.options = field.options ?? null;
     this.show({ kind: "editor", field, index }, anchor);
     if (field.input === "enum" && !field.options && field.load) {
@@ -384,7 +391,13 @@ export class QueryFieldElement extends LightElement {
         body = html`<div class="muted small">The artifact there matches:</div>
           <corestone-query-field class="qb-nested" data-test="query-end" keepKey="" historyKey="corestone.query.ends.history" placeholder="Search or query: type:req"
             .value=${d.query.text} .builtFrom=${d.query.clauses} .folder=${this.folder} .fields=${this.endFields} .source=${this.source}
-            @query-change=${(e: CustomEvent<{ text: string; clauses: Clause[] | null }>) => { e.stopPropagation(); set({ query: { text: e.detail.text, clauses: e.detail.clauses } }); }}></corestone-query-field>`;
+            @query-change=${(e: CustomEvent<{ text: string; clauses: Clause[] | null }>) => {
+              e.stopPropagation();
+              // the fields follow the kind asked for
+              const kind = kindOf(e.detail.clauses);
+              if (kind !== kindOf(d.query.clauses)) this.endFields = field.fields?.(kind) ?? [];
+              set({ query: { text: e.detail.text, clauses: e.detail.clauses } });
+            }}></corestone-query-field>`;
         break;
       default:
         body = nothing;

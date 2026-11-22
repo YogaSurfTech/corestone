@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { DropMenu, errorText, fmtTime, LightElement, type MenuEntry, prefs, relTime } from "@corestone/ui";
 import { customElement, state } from "lit/decorators.js";
 import { api } from "./api";
-import { navigate } from "./router";
+import { navigate, showKind } from "./router";
 import { store, type NewOptions, type State, toastError } from "./store";
 import type { Kind, Schema, SortLevel, Summary, TableFilter } from "./components/types";
 import { queryFields } from "./components/query-field";
@@ -287,11 +287,13 @@ export class Overview extends LightElement {
           <button class="btn primary" data-test="new" aria-haspopup="menu" aria-expanded="false"
             @click=${(e: Event) => this.newMenu.toggle(e.currentTarget as HTMLElement)}>＋ New</button>
         </div>
-        <corestone-query-field class="query-field" placeholder="Search or query: priority:high  /" .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()} .source=${services.query}
+        <corestone-query-field class="query-field" placeholder="Search or query: priority:high  /"
+          keepKey=${r.kind ? `corestone.query.${r.kind}` : "corestone.query"}
+          historyKey=${r.kind === "link" || r.kind === "comment" ? `corestone.query.history.${r.kind}` : "corestone.query.history"} .value=${r.q} .folder=${r.folder} .fields=${this.queryFields()} .source=${services.query}
           @query-change=${(e: CustomEvent<{ text: string; replace: boolean }>) => navigate({ q: e.detail.text, guid: null }, e.detail.replace)}></corestone-query-field>
         <span class="hint" data-test="count">${total === FAILED ? "not searched" : total < 0 ? "loading…" : html`${total} ${this.counted(total)}${r.subtree ? " incl. subfolders"
           : this.below > total ? html` here, <a href="#" data-test="show-subtree" @click=${(e: Event) => { e.preventDefault(); navigate({ subtree: true }); }}>${this.below} incl. subfolders</a>` : ""}`}</span>
-        <corestone-kind-menu .kind=${r.kind} @kind-change=${(e: CustomEvent<string>) => navigate({ kind: e.detail, type: r.type })}></corestone-kind-menu>
+        <corestone-kind-menu .kind=${r.kind} @kind-change=${(e: CustomEvent<string>) => showKind(e.detail, { type: r.type })}></corestone-kind-menu>
         ${r.folder && !r.q && !r.type ? html`<button class="btn sm" data-test="move-folder" title="Move or rename this folder" @click=${this.moveFolder}>Move folder…</button>` : nothing}
         <button class="btn sm" title="Reload" aria-label="Reload overview" @click=${() => store.refresh()}>↻</button>
       </div>

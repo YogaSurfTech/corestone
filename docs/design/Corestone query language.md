@@ -374,10 +374,14 @@ two views, explicit brackets).
 | text | a text field; several words in a field are a phrase |
 | reference | the artifact picker |
 | based on (`base`) | the artifact picker, offering only entries something is based on |
-| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with its kind (entry, document, link, comment: a comment may be on a link, a reply on a comment) and the fields of entries and documents, but none that needs the picker |
+| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with its kind (entry, document, link, comment: a comment may be on a link, a reply on a comment) first; the other fields follow the kind asked for there (one kind, not negated, joined by AND), else those of entries and documents; none that needs the picker |
 | base of (`~base`) | the artifact picker, offering only entries that have a base |
 | attachment, JSON | only "is empty" |
 
+- **Each kind keeps its own query** (decided 2026-11-22): entries and documents, entries,
+  documents, links and comments each remember the query last shown for them, with its criteria,
+  in the browser. Switching the kind brings that query back. The history below is kept per family
+  of fields: one for entries and documents, one for links, one for comments.
 - Beside the list of fields stands the **history**: the fifteen criteria used last, the newest
   first. A click adds one again. A criterion can be pinned; pinned ones stand first, are never
   forgotten and do not count among the fifteen. The history is kept in the browser.

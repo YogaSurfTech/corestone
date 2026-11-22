@@ -137,3 +137,17 @@ test("an end (from, to, on) is a query on the artifact there, written in bracket
   assert.equal(toText([typed]), "NOT target:(hid:REQ-1)");
   assert.equal(clauseLabel(typed), "To: hid:REQ-1");
 });
+
+test("the kind a row of criteria asks for: one value, not negated, joined by AND", async () => {
+  const { kindOf } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const kind = (values, more = {}) => clause(field("kind", "Kind", "enum"), { kind: "enum", values: values.map((v) => ({ value: v, label: v })) }, more);
+  const other = (more = {}) => clause(field("title"), text("x"), more);
+  assert.equal(kindOf(null), "");
+  assert.equal(kindOf([]), "");
+  assert.equal(kindOf([kind(["link"])]), "link");
+  assert.equal(kindOf([other(), kind(["comment"])]), "comment");
+  assert.equal(kindOf([kind(["link", "comment"])]), "");
+  assert.equal(kindOf([kind(["link"], { not: true })]), "");
+  assert.equal(kindOf([kind(["link"]), other({ join: "OR" })]), "");
+  assert.equal(kindOf([kind(["link"]), kind(["entry"])]), "");
+});
