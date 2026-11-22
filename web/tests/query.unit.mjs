@@ -124,3 +124,16 @@ test("a field's value as the table sorts and shows it", () => {
   assert.equal(fieldValue(row({ r: [{ text: "Hello" }, { text: "world" }] }), "r"), "Hello\nworld");
   assert.equal(fieldValue(row({ o: { state: "done", other: 1 } }), "o"), "{…}");
 });
+
+test("an end (from, to, on) is a query on the artifact there, written in brackets", () => {
+  const from = field("source", "From", "query");
+  const inner = [clause(field("type", "Type", "enum"), { kind: "enum", values: [{ value: "tc", label: "Test case" }] }),
+    clause(field("priority", "Priority", "enum"), { kind: "enum", values: [{ value: "high", label: "high" }] }, { join: "OR", not: true })];
+  const built = clause(from, { kind: "query", text: toText(inner), clauses: inner });
+  assert.equal(toText([built]), "source:(type:tc OR NOT priority:high)");
+  assert.equal(clauseLabel(built), "From: Type: Test case OR NOT Priority: high");
+  // typed: the text is shown as it is
+  const typed = clause(field("target", "To", "query"), { kind: "query", text: "hid:REQ-1", clauses: null }, { not: true });
+  assert.equal(toText([typed]), "NOT target:(hid:REQ-1)");
+  assert.equal(clauseLabel(typed), "To: hid:REQ-1");
+});

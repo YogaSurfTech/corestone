@@ -8,7 +8,7 @@ export type Join = "AND" | "OR" | "XOR";
 export const JOINS: Join[] = ["AND", "OR", "XOR"];
 
 /** How a field's value is entered. */
-export type Input = "text" | "enum" | "bool" | "number" | "date" | "artifact" | "empty";
+export type Input = "text" | "enum" | "bool" | "number" | "date" | "artifact" | "query" | "empty";
 
 export type Compare = "=" | "<" | "<=" | ">" | ">=" | "between";
 export const COMPARES: [Compare, string][] = [["=", "is"], ["<", "before / less than"], ["<=", "up to"], [">", "after / more than"], [">=", "from"], ["between", "between"]];
@@ -25,6 +25,8 @@ export interface QueryField {
   load?: () => Promise<EnumOption[]>;
   /** artifact: what the picker offers. */
   picker?: PickOptions;
+  /** query: the fields of the artifact at the other end, for the query it must match. */
+  fields?: () => QueryField[];
 }
 
 /** What the query field needs from outside: it is handed in, the field asks no server and no store itself. */
@@ -47,7 +49,9 @@ export type Value =
   | { kind: "enum"; values: { value: string; label: string }[] }
   | { kind: "bool"; value: boolean }
   | { kind: "range"; compare: Compare; a: string; b: string }
-  | { kind: "artifact"; id: string; label: string };
+  | { kind: "artifact"; id: string; label: string }
+  /** The artifact at the other end (a link's source or target, a comment's subject) matches a query: built, or typed. */
+  | { kind: "query"; text: string; clauses: Clause[] | null };
 
 export interface Clause {
   field: { id: string; name: string; input: Input };
@@ -74,6 +78,7 @@ function clauseText(c: Clause): string {
     case "empty": text = `${f}:NULL`; break;
     case "bool": text = at + String(v.value); break;
     case "artifact": text = at + quote(v.id); break;
+    case "query": text = `${f}:(${v.text})`; break;
     case "enum": text = v.values.length === 1 ? at + quote(v.values[0].value) : `${f}:(${v.values.map((o) => quote(o.value)).join(" ")})`; break;
     case "range":
       text = v.compare === "between" ? `(${f}:>=${quote(v.a)} AND ${f}:<=${quote(v.b)})` : at + (v.compare === "=" ? "" : v.compare) + quote(v.a);
@@ -93,6 +98,11 @@ export function toText(clauses: Clause[]): string {
   return clauses.map((c, i) => (i ? ` ${c.join} ` : "") + clauseText(c)).join("");
 }
 
+/** A row of criteria as it reads, with the operators between them. */
+export function rowLabel(clauses: Clause[]): string {
+  return clauses.map((c, i) => (i ? ` ${c.join} ` : "") + (c.not ? "NOT " : "") + clauseLabel(c)).join("");
+}
+
 /** A criterion as its button reads. */
 export function clauseLabel(c: Clause): string {
   const v = c.value;
@@ -101,6 +111,7 @@ export function clauseLabel(c: Clause): string {
     case "empty": return `${n} is empty`;
     case "bool": return `${n}: ${v.value ? "yes" : "no"}`;
     case "artifact": return `${n}: ${v.label}`;
+    case "query": return `${n}: ${v.clauses ? rowLabel(v.clauses) : v.text}`;
     case "enum": return `${n}: ${v.values.map((o) => o.label).join(", ")}`;
     case "text": return `${n}: ${v.text}`;
     case "range": {

@@ -588,6 +588,74 @@ test("query builder: based on and base of are chosen in the artifact picker", as
   await expect(rows.first()).toContainText(`Base ${id}`);
 });
 
+test("query builder: links by their ends and role, comments by what they are on, each end a query of its own", async ({ page }) => {
+  const own = `${folder}/trace`;
+  const high = await post("/entries", { path: own, type: "req", title: `Trace high ${id}`, fields: { priority: "high" } });
+  const low = await post("/entries", { path: own, type: "req", title: `Trace low ${id}`, fields: { priority: "low" } });
+  const a = await post("/entries", { path: own, type: "tc", title: `Trace A ${id}` });
+  const b = await post("/entries", { path: own, type: "tc", title: `Trace B ${id}` });
+  await post("/links", { type: "verifies", source: a.meta.guid, target: high.meta.guid });
+  await post("/links", { type: "verifies", source: b.meta.guid, target: low.meta.guid });
+  await post("/comments", { subject: high.meta.guid, text: "on the high one" });
+  await post("/comments", { subject: low.meta.guid, text: "on the low one" });
+  const rows = page.locator("corestone-overview table.grid tbody tr");
+  const clauses = page.locator("corestone-overview .query-field > .qf-box [data-test=query-clause]");
+  const fields = page.locator("corestone-overview [data-test=query-fields]").first();
+  const end = page.locator("[data-test=query-end]");
+  // links: from, role and to; nothing that only entries have
+  // (links and comments are found in the folder where their types are defined)
+  await page.goto(`/folder/${folder}?kind=link&subtree=1`);
+  await page.locator("[data-test=query-add]").first().click();
+  await expect(fields.locator(".mi").nth(0)).toHaveText("From");
+  await expect(fields.locator(".mi").nth(1)).toHaveText("Role");
+  await expect(fields.locator(".mi").nth(2)).toHaveText("To");
+  await expect(fields.locator('.mi[data-field="title"], .mi[data-field="base"], .mi[data-field="finished"]')).toHaveCount(0);
+  // from: a query typed in the end's own field
+  await fields.locator('.mi[data-field="source"]').click();
+  await end.locator("input[data-test=search]").fill(`A ${id}`);
+  await end.locator("input[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(clauses).toHaveText([`From: A ${id}`]);
+  await expect(rows).toHaveCount(1);
+  // to: a query built in the end's own field, with the fields of entries but no picker
+  await page.locator("[data-test=query-add]").first().click();
+  await fields.locator('.mi[data-field="target"]').click();
+  await end.locator("[data-test=query-add]").click();
+  const endFields = end.locator("[data-test=query-fields]");
+  await expect(endFields.locator('.mi[data-field="priority"]')).toBeVisible();
+  await expect(endFields.locator('.mi[data-field="base"], .mi[data-field="source"]')).toHaveCount(0);
+  await endFields.locator('.mi[data-field="priority"]').click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await expect(end.locator("[data-test=query-clause]")).toHaveText(["Priority: low"]);
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: low"]);
+  await expect(rows).toHaveCount(0); // A verifies the high one
+  await expect(page).toHaveURL(/target%3A%28priority%3Alow%29/);
+  // the end's criteria come back when it is changed: high
+  await clauses.nth(1).click();
+  await end.locator("[data-test=query-clause]").click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=low]").click();
+  await end.locator("[data-test=query-editor] .enum-option[data-value=high]").click();
+  await end.locator("[data-test=query-apply]").click();
+  await page.locator("[data-test=query-apply]").last().click();
+  await expect(clauses).toHaveText([`From: A ${id}`, "To: Priority: high"]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(a.meta.hid!);
+  await expect(rows.first()).toContainText(high.meta.hid!);
+  // comments: what they are on
+  await page.goto(`/folder/${folder}?kind=comment&subtree=1`);
+  await page.locator("[data-test=query-add]").first().click();
+  await expect(fields.locator(".mi").first()).toHaveText("On");
+  await expect(fields.locator('.mi[data-field="title"], .mi[data-field="base"]')).toHaveCount(0);
+  await fields.locator('.mi[data-field="subject"]').click();
+  await end.locator("input[data-test=search]").fill(`(Trace ${id}) AND priority:low`);
+  await end.locator("input[data-test=search]").press("Enter");
+  await page.locator("[data-test=query-apply]").click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("on the low one");
+});
+
 test("menus of the toolbar and the entry: a second click and Escape close them, the arrow keys move", async ({ page }) => {
   await page.goto(`/folder/${folder}?subtree=1`);
   const add = page.locator("[data-test=new]");

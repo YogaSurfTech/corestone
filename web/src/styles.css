@@ -112,6 +112,9 @@ corestone-sidebar { display: flex; flex-direction: column; min-height: 0; min-wi
 .qb-pop .item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
 .qb-pop .item:is(:hover, :focus-visible) { background: var(--panel-2); outline: none; }
 .menu-like { display: flex; flex-direction: column; }
+/* the editor of an end holds a query field of its own, whose menus hang out of it */
+.qb-pop.qb-has-end { overflow: visible; max-height: none; width: min(520px, 90vw); max-width: none; }
+.qb-nested { display: block; position: relative; margin: 4px 0 6px; }
 .qb-pop.qb-two:not([hidden]) { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px; max-width: min(640px, 92vw); }
 .qb-col { display: flex; flex-direction: column; min-width: 200px; }
 .qb-history { border-left: 1px solid var(--border); padding-left: 8px; min-width: 220px; max-width: 320px; }

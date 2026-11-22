@@ -114,6 +114,11 @@ func TestQueryLanguage(t *testing.T) {
 		{"has_link:(depends_on, has_link:(depends_on, title:tables))", "t1"}, {"has_link:(depends_on, has_link:(~depends_on, type:note))", "n1"},
 		{"has_link:(verifies)", ""}, {"type:task AND has_link:(depends_on) AND has_link:(~depends_on)", "t1 t2"},
 		{"kind:link", "l1 l2 l3"}, {"kind:link AND type:depends_on", "l1 l2 l3"},
+		// a link's ends: by HID or GUID, or a whole query on the artifact there
+		{"kind:link AND source:TSK-9", "l1"}, {"kind:link AND target:" + guids["t1"], "l3"}, {"kind:link AND source:(type:note)", "l3"},
+		{"kind:link AND target:(priority:high)", "l3"}, {"kind:link AND source:(type:task) AND target:(status:open)", "l2"},
+		{"kind:link AND target:(has_link:(depends_on, title:tables))", "l1"}, {"kind:link AND NOT source:(hid:TSK-9 OR hid:TSK-10)", "l3"},
+		{"kind:link AND source:NULL", ""}, {"kind:entry AND source:TSK-9", ""},
 		// operators
 		{"priority:high XOR tags:docs", "t2"}, {"NOT (type:task OR type:note)", "d1"}, {"type:task AND NOT (priority:high OR priority:low)", "t3 t4"},
 	} {
@@ -141,6 +146,7 @@ func TestQueryLanguage(t *testing.T) {
 		{"title~1:x", "", "~1 is for folder only", 0},
 		{"done:>true", "", "done is true or false", 0},
 		{"type:note OR has_link:(nope)", "n1", `unknown link type "nope"`, 13},
+		{"type:note OR source:>TSK-9", "n1", "source cannot be compared", 13},
 	} {
 		got, warnings := run(c.q)
 		if got != c.want || len(warnings) != 1 || !strings.Contains(warnings[0].Message, c.warning) || warnings[0].Pos != c.pos {

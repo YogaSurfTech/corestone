@@ -8,7 +8,8 @@
 //	and       = not { "AND" not } ;
 //	not       = [ "NOT" ] primary ;
 //	primary   = "(" query ")" | link | criterion | value ;
-//	criterion = field ":" ( compare value | value | "(" values ")" ) ;
+//	criterion = field ":" ( compare value | value | "(" values ")" ) | end ;
+//	end       = ( "source" | "target" | "subject" ) ":" "(" query ")" ;
 //	values    = the rules of query, over values only ;
 //	field     = id [ "." id ] [ "~" number ] ;
 //	compare   = "<" | "<=" | ">" | ">=" ;
@@ -35,8 +36,14 @@ const (
 	MaxLength    = 4000 // characters of the query text
 	MaxCriteria  = 100  // criteria and values
 	MaxDepth     = 20   // nested brackets
-	MaxLinkDepth = 3    // has_link inside has_link
+	MaxLinkDepth = 3    // has_link and other ends (source:(...)) inside each other
 )
+
+// Ends are the fields that name another artifact: a link's ends and what a
+// comment is on. In brackets they take a whole query, which the artifact at
+// that end must match (source:(type:tc)); a single value names the artifact
+// by HID or GUID (source:TC-1).
+var Ends = map[string]bool{"source": true, "target": true, "subject": true}
 
 // The kinds of a node.
 const (
@@ -72,6 +79,8 @@ type Node struct {
 
 	// Link: the link type's id, whether the direction is reversed ("~"),
 	// and the query the artifact at the other end must match (nil: any).
+	// A term of an end (Ends) has the query its artifact must match in Query
+	// instead of a value.
 	// Reverse on a term is "~" in front of its field: the field read the
 	// other way round (~base:REQ-1 is the base of REQ-1).
 	LinkType string `json:"linkType,omitempty"`
@@ -396,9 +405,36 @@ func (p *parser) criterion(f *Node) (*Node, error) {
 		}
 		return n, nil
 	case tLParen:
+		if Ends[f.Field] && f.Sub == "" && f.Up == 0 && !f.Reverse {
+			return p.end(f)
+		}
 		return p.primary(true, f)
 	}
 	return p.value(f)
+}
+
+// end reads the query in brackets after an end's field: source:(type:tc).
+func (p *parser) end(f *Node) (*Node, error) {
+	open := p.next()
+	if p.links++; p.links > MaxLinkDepth {
+		return nil, &Error{f.Pos, fmt.Sprintf("has_link and %s:(...) nested deeper than %d", f.Field, MaxLinkDepth)}
+	}
+	if p.criteria++; p.criteria > MaxCriteria {
+		return nil, &Error{f.Pos, fmt.Sprintf("more than %d criteria", MaxCriteria)}
+	}
+	q, err := p.query(false)
+	if err != nil {
+		return nil, err
+	}
+	if c := p.next(); c.kind != tRParen {
+		if c.kind == tEOF {
+			return nil, &Error{open.pos, "the bracket is not closed"}
+		}
+		return nil, p.unexpected(c)
+	}
+	p.links--
+	f.Query = q
+	return f, nil
 }
 
 // value reads one value into the term n.

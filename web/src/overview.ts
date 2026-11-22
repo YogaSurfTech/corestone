@@ -80,8 +80,10 @@ export class Overview extends LightElement {
   private offered: { key: unknown[]; fields: QueryField[] } | null = null;
   private queryFields(): QueryField[] {
     const r = this.s.route;
-    const key = [this.schemas, r.folder, r.type];
-    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type, services.query) };
+    // the fields of the kind shown: links by their ends and role, comments by what they are on
+    const kind = r.kind === "link" || r.kind === "comment" || r.kind === "entry" || r.kind === "document" ? r.kind : "";
+    const key = [this.schemas, r.folder, r.type, kind];
+    if (!this.offered || this.offered.key.some((k, i) => k !== key[i])) this.offered = { key, fields: queryFields(Object.values(this.schemas), r.folder, r.type, services.query, kind) };
     return this.offered.fields;
   }
 

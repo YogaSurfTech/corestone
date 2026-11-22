@@ -5,7 +5,7 @@
 import { html, nothing, render, type PropertyValues } from "lit";
 import { LightElement, Overlay, buildMenu, errorText, prefs } from "@corestone/ui";
 import { customElement, property, state } from "lit/decorators.js";
-import type { EnumOption, QueryWarning, Schema } from "./types";
+import type { EnumOption, Kind, QueryWarning, Schema } from "./types";
 import { markIcon } from "./icons";
 import { hidLabel } from "./artifact";
 import "./enum-control";
@@ -16,20 +16,38 @@ const INPUT: Record<string, Input> = {
   date: "date", datetime: "date", reference: "artifact", references: "artifact", attachment: "empty", json: "empty",
 };
 
-/** The fields a query can name here: the general ones and those of the types given. */
-export function queryFields(schemas: Schema[], folder: string, type: string, source: QuerySource): QueryField[] {
+/**
+ * The fields a query can name here: the general ones of the kind shown and the
+ * fields of its types (of the one type given). Entries and documents share
+ * theirs; a link is asked for by its ends and its role, a comment by what it is
+ * on. An end opens a query on the artifact there, with the fields of entries
+ * and documents but none that would need a picker.
+ */
+export function queryFields(schemas: Schema[], folder: string, type: string, source: QuerySource, kind: Kind | "" = ""): QueryField[] {
   const general = (id: string, name: string, input: Input, more: Partial<QueryField> = {}): QueryField => ({ id, name, input, group: "General", ...more });
-  const out: QueryField[] = [
-    general("", "Text", "text"),
-    ...(type ? [] : [general("type", "Type", "enum", { options: schemas.filter((s) => s.kind === "entry" || s.kind === "document").map((s) => ({ value: s.type, label: s.displayName ?? s.type })) })]),
-    general("title", "Title", "text"), general("hid", "ID", "text"), general("folder", "Folder", "text"),
-    general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text"),
-    general("finished", "Finished", "bool"),
-    general("base", "Based on", "artifact", { picker: { title: "Based on: choose the base", kinds: ["entry"], query: "NOT ~base:NULL", why: "Only entries that another entry is based on" } }),
-    general("~base", "Base of", "artifact", { picker: { title: "Base of: choose an entry that has a base", kinds: ["entry"], query: "NOT base:NULL", why: "Only entries that have a base" } }),
-  ];
-  const taken = new Set(out.map((f) => f.id).concat("type", "kind", "guid", "valid"));
-  for (const s of schemas) {
+  const kinds: Kind[] = kind === "link" || kind === "comment" ? [kind] : ["entry", "document"];
+  const own = schemas.filter((s) => kinds.includes(s.kind));
+  const typeField = (name: string) => type ? [] : [general("type", name, "enum", { options: own.map((s) => ({ value: s.type, label: s.displayName ?? s.type })) })];
+  const dates = [general("created", "Created", "date"), general("modified", "Modified", "date"), general("author", "Author", "text")];
+  // the artifact at an end: an entry or a document, asked for without a picker
+  const end = (id: string, name: string) => general(id, name, "query",
+    { fields: () => queryFields(schemas, folder, "", source).filter((f) => f.input !== "artifact") });
+  let out: QueryField[];
+  if (kind === "link") {
+    out = [end("source", "From"), ...typeField("Role"), end("target", "To"), ...dates];
+  } else if (kind === "comment") {
+    out = [end("subject", "On"), general("", "Text", "text"), ...(own.length > 1 ? typeField("Type") : []), ...dates];
+  } else {
+    out = [
+      general("", "Text", "text"), ...typeField("Type"),
+      general("title", "Title", "text"), general("hid", "ID", "text"), general("folder", "Folder", "text"),
+      ...dates, general("finished", "Finished", "bool"),
+      general("base", "Based on", "artifact", { picker: { title: "Based on: choose the base", kinds: ["entry"], query: "NOT ~base:NULL", why: "Only entries that another entry is based on" } }),
+      general("~base", "Base of", "artifact", { picker: { title: "Base of: choose an entry that has a base", kinds: ["entry"], query: "NOT base:NULL", why: "Only entries that have a base" } }),
+    ];
+  }
+  const taken = new Set(out.map((f) => f.id).concat("type", "kind", "guid", "valid", "source", "target", "subject"));
+  for (const s of own) {
     if (type && s.type !== type) continue;
     for (const f of s.fields ?? []) {
       if (taken.has(f.id)) continue;
@@ -81,6 +99,8 @@ export class QueryFieldElement extends LightElement {
   @property() placeholder = "Search or query: priority:high";
   /** Criteria shown before the query, which always apply and cannot be changed or removed. */
   @property({ attribute: false }) locked: LockedCriterion[] = [];
+  /** The criteria the value was built from, when they are known (the query of an end being edited again). */
+  @property({ attribute: false }) builtFrom: Clause[] | null = null;
 
   @state() private text = "";
   @state() private clauses: Clause[] = [];
@@ -92,12 +112,15 @@ export class QueryFieldElement extends LightElement {
   @state() private history: Remembered[] = [];
   // the editor's draft
   @state() private options: EnumOption[] | null = null;
-  @state() private draft: { not: boolean; empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string } = this.blank();
+  @state() private draft: { not: boolean; empty: boolean; text: string; values: Set<string>; compare: Compare; a: string; b: string;
+    query: { text: string; clauses: Clause[] | null } } = this.blank();
+  /** The fields of the artifact at an end, while its query is edited. */
+  private endFields: QueryField[] = [];
   private timer = 0;
   private checks = 0;
   private checked: string | null = null;
 
-  private blank() { return { not: false, empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "" }; }
+  private blank() { return { not: false, empty: false, text: "", values: new Set<string>(), compare: "=" as Compare, a: "", b: "", query: { text: "", clauses: null as Clause[] | null } }; }
 
   override connectedCallback() {
     super.connectedCallback();
@@ -164,6 +187,8 @@ export class QueryFieldElement extends LightElement {
       this.menu.replaceChildren(...items);
     } else {
       this.panel.classList.toggle("qb-two", o.kind === "fields");
+      // the query of an end has menus of its own, which hang out of the panel
+      this.panel.classList.toggle("qb-has-end", o.kind === "editor" && o.field.input === "query");
       render(o.kind === "editor" ? this.editor(o.field) : this.fieldList(), this.panel);
     }
     if (target.hidden) {
@@ -178,7 +203,8 @@ export class QueryFieldElement extends LightElement {
     if (!changed.has("value")) return;
     if (this.clauses.length && toText(this.clauses) === this.value) return; // our own query came back
     // the criteria of a built query survive a reload; any other text is text
-    const kept = this.keepKey ? prefs.json<{ text: string; clauses: Clause[] } | null>(this.keepKey, null) : null;
+    const kept = this.builtFrom ? { text: toText(this.builtFrom), clauses: this.builtFrom }
+      : this.keepKey ? prefs.json<{ text: string; clauses: Clause[] } | null>(this.keepKey, null) : null;
     this.clauses = this.value && kept?.text === this.value && Array.isArray(kept.clauses) ? kept.clauses : [];
     if (this.text !== this.value || this.clauses.length) this.text = this.value; // never wipe text being typed
     if (this.value !== this.checked) void this.check(this.value);
@@ -210,7 +236,8 @@ export class QueryFieldElement extends LightElement {
     if (!(await this.check(text))) return;
     // the criteria are kept with the text that runs, so a reload finds them for the query it shows
     if (this.clauses.length && toText(this.clauses) === text) this.keepCriteria({ text, clauses: this.clauses });
-    this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace } }));
+    const clauses = this.clauses.length && toText(this.clauses) === text ? this.clauses : null;
+    this.dispatchEvent(new CustomEvent("query-change", { detail: { text, replace, clauses } }));
   }
 
   /** Keep the criteria of the query that runs, where they are kept. */
@@ -244,7 +271,9 @@ export class QueryFieldElement extends LightElement {
     else if (v?.kind === "enum") d.values = new Set(v.values.map((o) => o.value));
     else if (v?.kind === "bool") d.values = new Set([String(v.value)]);
     else if (v?.kind === "range") { d.compare = v.compare; d.a = v.a; d.b = v.b; }
+    else if (v?.kind === "query") d.query = { text: v.text, clauses: v.clauses };
     this.draft = d;
+    this.endFields = field.input === "query" ? field.fields?.() ?? [] : [];
     this.options = field.options ?? null;
     this.show({ kind: "editor", field, index }, anchor);
     if (field.input === "enum" && !field.options && field.load) {
@@ -273,6 +302,7 @@ export class QueryFieldElement extends LightElement {
       case "number": case "date":
         if (!d.a.trim() || (d.compare === "between" && !d.b.trim())) return null;
         return { kind: "range", compare: d.compare, a: d.a.trim(), b: d.compare === "between" ? d.b.trim() : "" };
+      case "query": return d.query.text.trim() ? { kind: "query", text: d.query.text.trim(), clauses: d.query.clauses } : null;
     }
     return null;
   }
@@ -312,7 +342,8 @@ export class QueryFieldElement extends LightElement {
     const d = this.draft;
     const set = (patch: Partial<typeof d>) => { this.draft = { ...d, ...patch }; };
     const value = this.draftValue(field);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target as Element).closest("corestone-enum")) { e.preventDefault(); this.apply(this.draftValue(field)); } };
+    // (Enter in the query of an end runs that query; Add takes it)
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target as Element).closest("corestone-enum, .qb-nested")) { e.preventDefault(); this.apply(this.draftValue(field)); } };
     const input = (key: "a" | "b", label: string) => field.input === "number"
       ? html`<input type="number" step="any" aria-label=${label} data-test="query-value" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />`
       : html`<span class="qb-date"><input type="text" aria-label=${label} data-test="query-value" placeholder="2026-11-17, 2026-11 or 2026" .value=${d[key]} @input=${(e: Event) => set({ [key]: (e.target as HTMLInputElement).value })} />
@@ -345,10 +376,17 @@ export class QueryFieldElement extends LightElement {
       case "artifact":
         body = html`<div class="qb-row"><button class="btn sm" data-test="query-pick" @click=${() => this.pick(field)}>Choose…</button></div>`;
         break;
+      case "query":
+        // the artifact at the end matches a query of its own, built the same way
+        body = html`<div class="muted small">The artifact there matches:</div>
+          <corestone-query-field class="qb-nested" data-test="query-end" keepKey="" historyKey="corestone.query.ends.history" placeholder="Search or query: type:req"
+            .value=${d.query.text} .builtFrom=${d.query.clauses} .folder=${this.folder} .fields=${this.endFields} .source=${this.source}
+            @query-change=${(e: CustomEvent<{ text: string; clauses: Clause[] | null }>) => { e.stopPropagation(); set({ query: { text: e.detail.text, clauses: e.detail.clauses } }); }}></corestone-query-field>`;
+        break;
       default:
         body = nothing;
     }
-    const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty";
+    const canBeEmpty = !!field.id && field.input !== "bool" && field.input !== "empty" && field.input !== "query";
     return html`<div class="qb-editor" data-test="query-editor" @keydown=${onKey}>
       <div class="qb-row qb-head"><span class="qb-title">${field.name}</span>
         <button class="qb-not standalone ${d.not ? "on" : ""}" data-test="query-editor-not" aria-pressed=${d.not ? "true" : "false"}

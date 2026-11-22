@@ -85,7 +85,8 @@ xor       = and { "XOR" and } ;
 and       = not { "AND" not } ;
 not       = [ "NOT" ] primary ;
 primary   = "(" query ")" | link | criterion | value ;
-criterion = field ":" ( compare value | value | "(" values ")" ) ;
+criterion = field ":" ( compare value | value | "(" values ")" ) | end ;
+end       = ( "source" | "target" | "subject" ) ":" "(" query ")" ;      (* section 4.5 *)
 values    = the same rules as query, with value in place of primary's criterion and link ;
 field     = [ "~" ] id [ "." id ] [ "~" number ] ;   (* "~" in front only for base, section 4.4; ".id" for
                                                     workflow fields, section 6; "~n" only for folder, section 4.2 *)
@@ -120,6 +121,8 @@ values that have ids: enumeration options, workflow states, types, link types.
 | `valid` | `true` or `false` |
 | `finished` | `true` or `false`: whether the artifact's workflows have reached a final state (section 6) |
 | `base` | the entry this entry is based on, by HID or GUID; `~base` reads it the other way round (section 4.4) |
+| `source`, `target` | a link's ends, by HID or GUID, or a query in brackets (section 4.5) |
+| `subject` | what a comment is on, the same way (section 4.5) |
 | `has_link` | section 9 |
 
 These names are **reserved**: no configured field may use one as its id. The configuration check
@@ -262,6 +265,27 @@ every artifact where the field is set.
   with nothing after it) is an error in both modes, reported with its position. There is no
   sensible result to give.
 
+### 4.5 The ends of links and comments
+
+A link points at two artifacts, a comment at one. Three fields ask for them (decided 2026-11-22,
+TSK-53):
+
+| Criterion | Finds |
+|---|---|
+| `source:TC-1` | links whose source is TC-1 (by HID or GUID, case ignored) |
+| `target:(priority:high)` | links whose target matches the query in brackets |
+| `source:(type:tc) AND type:verifies AND target:(NOT status:done)` | a trace table: test cases verifying open requirements |
+| `subject:(type:req)` | comments on requirements |
+
+- In brackets the field takes a **whole query**, which the artifact at that end must match. This
+  differs from the value group of other fields: `source:(REQ-1 REQ-2)` is the words REQ-1 and
+  REQ-2 searched at the source, not two artifacts. Name several with `source:(hid:REQ-1 OR
+  hid:REQ-2)`.
+- The query may contain ends and `has_link` again; together they nest at most 3 deep.
+- `source:NULL` matches artifacts without a source: everything but links.
+- The ends cannot be compared (`<`, `>`), and take no `~`.
+- On an entry or a document the criterion matches nothing: it has no ends.
+
 ## 9. Links
 
 `has_link:(role, query)` matches artifacts that have a link of the given link type to an
@@ -288,7 +312,10 @@ two views, explicit brackets).
   a typed text or built criteria.
 - "+" at the left inside the field lists the fields that can be asked here: the general ones
   (text, type, title, ID, folder, created, modified, author, finished, based on, base of) and the
-  fields of the types of the folder, or of the one type the view is filtered by. A small text
+  fields of the types of the folder, or of the one type the view is filtered by. The links view
+  offers instead from, role (the link type), to, created, modified, author and the fields of the
+  link types; the comments view offers on, text, created, modified, author and the fields of the
+  comment types (TSK-53). A small text
   field at the top of the list narrows it: a field stays if its name contains the text typed, at
   any place and in any case.
 - A field opens the editor that fits its type:
@@ -303,6 +330,7 @@ two views, explicit brackets).
 | text | a text field; several words in a field are a phrase |
 | reference | the artifact picker |
 | based on (`base`) | the artifact picker, offering only entries something is based on |
+| from, to, on (`source`, `target`, `subject`) | a query field of its own, for the artifact there: built the same way, with the fields of entries and documents but none that needs the picker |
 | base of (`~base`) | the artifact picker, offering only entries that have a base |
 | attachment, JSON | only "is empty" |
 
