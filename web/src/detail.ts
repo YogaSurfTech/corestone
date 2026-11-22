@@ -17,6 +17,7 @@ import { historySection } from "./detail/history";
 import { metadataSection } from "./detail/metadata";
 import { overlaySection } from "./detail/overlay";
 import { relSection } from "./detail/relationships";
+import { sectionOrder, setOpen, sectionName, sectionCount } from "./detail/sections";
 
 // Entry detail view (design guide §7.5): one scrollable page with every
 // section the effective schema implies, quick links to sections, and an
@@ -62,7 +63,7 @@ export class Detail extends LightElement {
     if ((changed.has("guid") || changed.has("version") || changed.has("at")) && this.guid) {
       // A deep link to a section (?tab=history) opens it.
       const tab = store.state.route.tab;
-      if ((SECTIONS as readonly string[]).includes(tab)) this.d.setOpen(tab as Section, true, false);
+      if ((SECTIONS as readonly string[]).includes(tab)) setOpen(this.d, tab as Section, true, false);
       this.d.draft = null; this.d.reload(false);
     }
   }
@@ -74,7 +75,7 @@ export class Detail extends LightElement {
     if (!this.d.view) return html`<div class="empty-state"><div class="big">Artifact not available</div>${this.d.error}<br><button class="btn" @click=${() => navigate({ guid: null })}>Back</button></div>`;
     if (!this.d.draft) return html`<div class="empty-state">Loading…</div>`;
     const r = this.s.route;
-    const order = this.d.sectionOrder();
+    const order = sectionOrder(this.d);
     const active = r.tab || order[0];
     const body: Record<Section, () => unknown> = {
       comment: () => ownCommentSection(this.d),
@@ -90,7 +91,7 @@ export class Detail extends LightElement {
     return html`
       ${this.header()}
       <div class="detail-body">
-        <nav class="quicklinks">${order.map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.d.reveal(s); }}>${this.d.sectionName(s)}<span class="n">${this.d.sectionCount(s)}</span></a>`)}</nav>
+        <nav class="quicklinks">${order.map((s) => html`<a href="#" class=${active === s ? "active" : ""} @click=${(e: Event) => { e.preventDefault(); navigate({ tab: s }, true); this.d.reveal(s); }}>${sectionName(this.d, s)}<span class="n">${sectionCount(this.d, s)}</span></a>`)}</nav>
         <div class="sections">
           ${this.d.error ? html`<div class="notice error" role="alert">${this.d.error} ${this.d.error.includes("Reload") ? html`<button class="btn sm" @click=${() => { this.d.draft = null; this.d.reload(false); }}>Reload</button>` : nothing}</div>` : nothing}
           ${order.map((s) => body[s]())}

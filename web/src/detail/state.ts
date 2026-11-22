@@ -11,6 +11,7 @@ import type { Schema, Summary } from "../components/types";
 import { commentTypeOf, hidLabel, label } from "../components/artifact";
 import { type OverlayState } from "../components/fields";
 import { conflictDialog } from "./conflict";
+import { sectionOrder, isOpen, setOpen } from "./sections";
 
 // The entry view's state, without any rendering: what was loaded, the draft
 // and the changes that wait for Save, saving, and which sections are open.
@@ -216,7 +217,7 @@ export class DetailState {
         // Replies share the root subject, so a comment shows the thread it belongs to.
         api.comments(isComment ? view.meta.subject ?? guid : guid).catch(() => ({ comments: [] })),
         // History is only fetched while its section is open.
-        this.isOpen("history") ? api.history(guid).catch(() => ({ history: [], more: false })) : Promise.resolve(null),
+        isOpen(this, "history") ? api.history(guid).catch(() => ({ history: [], more: false })) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.overlay(guid).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" && view.meta.base ? api.overlay(view.meta.base).catch(() => null) : Promise.resolve(null),
         view.meta.kind === "entry" ? api.documents(guid).catch(() => ({ documents: [] })) : Promise.resolve({ documents: [] }),
@@ -249,7 +250,7 @@ export class DetailState {
       if (!this.draft || !wasDirty) this.resetDraft(); // an untouched draft follows the new version
       // A deep link to a section (?tab=comments) also scrolls to it once the view is there.
       const tab = store.state.route.tab;
-      if (!soft && this.sectionOrder().includes(tab as Section)) void this.reveal(tab as Section);
+      if (!soft && sectionOrder(this).includes(tab as Section)) void this.reveal(tab as Section);
     } catch (e) {
       if (stale()) return;
       this.error = errorText(e);
@@ -263,7 +264,7 @@ export class DetailState {
   async loadVersion(guid: string, stale: () => boolean) {
     const v = await api.version(guid, this.version, this.at);
     if (stale()) return;
-    const history = this.isOpen("history") ? await api.history(guid).catch(() => ({ history: [], more: false })) : null;
+    const history = isOpen(this, "history") ? await api.history(guid).catch(() => ({ history: [], more: false })) : null;
     if (stale()) return;
     this.historic = v;
     this.versionOpen = {};
@@ -293,42 +294,6 @@ export class DetailState {
   /** Whether the historic version shown added this link or comment. */
   added(guid: string) { return !!this.historic?.change?.added.includes(guid); }
 
-  /** What the historic version shown changed in a section, as short badges for its heading. */
-  sectionChange(s: Section): string[] {
-    const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
-    if (!this.historic) return this.pendingChange(s, plural);
-    const c = this.historic.change;
-    if (!c) return [];
-    const added = (guids: string[]) => guids.filter((g) => c.added.includes(g)).length;
-    switch (s) {
-      case "fields": return c.changed.some((k) => k.startsWith("fields.")) ? ["changed"] : [];
-      case "comment": return this.changed("text") ? ["changed"] : [];
-      case "relationships": {
-        if (this.view?.meta.kind === "link") return this.changed("source") || this.changed("target") ? ["changed"] : [];
-        const n = added([...(this.rel?.incoming ?? []), ...(this.rel?.outgoing ?? [])].map((r) => r.link.guid));
-        return [...(n ? [`${plural(n, "link")} added`] : []), ...(c.removedLinks ? [`${plural(c.removedLinks, "link")} removed`] : [])];
-      }
-      case "comments": {
-        const n = added(this.comments.map((x) => x.meta.guid));
-        return [...(n ? [`${plural(n, "comment")} added`] : []), ...(c.removedComments ? [`${plural(c.removedComments, "comment")} removed`] : [])];
-      }
-      default: return [];
-    }
-  }
-
-  /** The same badges for what waits for Save. */
-  pendingChange(s: Section, plural: (n: number, what: string) => string): string[] {
-    const p = this.pending;
-    const badges = (n: number, what: string, verb: string) => (n ? [`${plural(n, what)} ${verb}`] : []);
-    switch (s) {
-      case "fields": return (this.draft && this.view && this.edited.includes("fields")) || Object.keys(p.transitions).length ? ["changed"] : [];
-      case "relationships": return [...badges(p.links.length, "link", "added"), ...badges(p.removedLinks.length, "link", "removed")];
-      case "comments": return badges(p.comments.length, "comment", "added");
-      case "attachments": return [...badges(p.files.length, "attachment", "added"), ...badges(p.removedFiles.length, "attachment", "removed")];
-      default: return [];
-    }
-  }
-
   resetDraft() {
     const d = this.view!.data as Record<string, unknown>;
     this.draft = { title: String(d.title ?? ""), hid: String(d.hid ?? ""), fields: structuredClone((d.fields as Record<string, unknown>) ?? {}) };
@@ -348,7 +313,7 @@ export class DetailState {
       return h ? api.versionFileUrl(this.guid, h.etag, h.commit.sha, name) : api.fileUrl(this.guid, name);
     },
     touched: () => this.touched(),
-    added: () => this.setOpen("attachments", true, false), // as an upload there does: what Save will store shows
+    added: () => setOpen(this, "attachments", true, false), // as an upload there does: what Save will store shows
     inPlace: true,
   });
 
@@ -483,7 +448,7 @@ export class DetailState {
           return;
         }
         this.pending = { ...this.pending, links: [...this.pending.links, { ...link, other, role, dir: asSource ? "out" : "in" }] };
-        this.setOpen("relationships", true, false);
+        setOpen(this, "relationships", true, false);
         this.touched();
       });
   }
@@ -505,7 +470,7 @@ export class DetailState {
     this.pending = { ...this.pending,
       files: [...this.pending.files.filter((f) => !names.has(f.name)), ...files],
       removedFiles: this.pending.removedFiles.filter((n) => !names.has(n)) };
-    this.setOpen("attachments", true, false);
+    setOpen(this, "attachments", true, false);
     this.touched();
   }
 
@@ -528,52 +493,6 @@ export class DetailState {
     store.set({ dialog: { kind: "new", kinds: ["entry"], type: v.meta.type, folder: v.meta.folder, base: { guid: this.guid, label: label(v.meta) } } });
   }
 
-  /** A link is about the relation it expresses, so its endpoints come before its fields. Comments cannot be linked. */
-  sectionOrder(): Section[] {
-    const order: readonly Section[] = this.view?.meta.kind === "link"
-      ? ["relationships", "fields", ...SECTIONS.filter((s) => s !== "relationships" && s !== "fields")]
-      : SECTIONS;
-    return order.filter((s) => this.hasSection(s));
-  }
-
-  hasSection(s: string): boolean {
-    const k = this.view?.meta.kind;
-    switch (s) {
-      case "comment": return k === "comment";
-      case "relationships": return k !== "comment";
-      case "attachments": return k === "entry" || k === "document";
-      case "documents": return k === "entry" && !this.historic;
-      case "overlay": return !!this.overlay;
-      default: return true;
-    }
-  }
-
-  isEmpty(s: Section): boolean {
-    switch (s) {
-      case "fields": return !(this.schema?.fields ?? []).length && !Object.keys(this.draft?.fields ?? {}).length;
-      case "relationships": return this.view?.meta.kind !== "link" && (!this.rel || !(this.rel.incoming.length + this.rel.outgoing.length));
-      case "comments": return !this.comments.length;
-      case "attachments": return !this.view?.attachments?.length;
-      case "documents": return !this.documents.length;
-      case "overlay": return !this.overlay || (this.overlay.chain.length <= 1 && !this.overlay.overlays.length);
-      case "history": case "metadata": return true; // closed unless asked for
-      default: return false;
-    }
-  }
-
-  isOpen(s: Section): boolean {
-    // A historic version opens what its commit changed, whatever the saved preference.
-    if (this.historic && this.sectionChange(s).length) return this.versionOpen[s] ?? true;
-    return this.openPrefs[s] ?? !this.isEmpty(s);
-  }
-
-  setOpen(s: Section, open: boolean, persist = true) {
-    if (this.historic && this.sectionChange(s).length) { this.versionOpen = { ...this.versionOpen, [s]: open }; return; }
-    this.openPrefs = { ...this.openPrefs, [s]: open };
-    if (persist) prefs.setJson(OPEN_KEY, this.openPrefs, { session: true });
-    if (s === "history" && open && !this.historyLoaded) void this.loadHistory();
-  }
-
   /** Loads the history in batches: the first one, or (more) the next older one. */
   async loadHistory(more = false) {
     const guid = this.guid;
@@ -587,24 +506,9 @@ export class DetailState {
 
   /** Opens a section and scrolls to it. */
   async reveal(s: Section) {
-    if (!this.isOpen(s)) this.setOpen(s, true);
+    if (!isOpen(this, s)) setOpen(this, s, true);
     await this.host.updateComplete;
     this.host.querySelector(`#sec-${s}`)?.scrollIntoView({ block: "start" });
-  }
-
-  sectionName(s: string) { return { comment: "Comment", fields: "Fields", relationships: "Relationships", comments: "Comments", attachments: "Attachments", documents: "Documents", overlay: "Overlay", history: "History", metadata: "Metadata" }[s] ?? s; }
-
-  sectionCount(s: string): string {
-    switch (s) {
-      case "fields": return String((this.schema?.fields ?? []).length || Object.keys(this.draft?.fields ?? {}).length || "");
-      case "relationships": return this.view?.meta.kind === "link" ? "" : String((this.rel?.incoming.length ?? 0) + (this.rel?.outgoing.length ?? 0) || "");
-      case "comments": return String(this.comments.length || "");
-      case "attachments": return String(this.view?.attachments?.length || "");
-      case "documents": return String(this.documents.length || "");
-      case "history": return this.historyLoaded ? (this.history.length ? this.history.length + (this.historyMore ? "+" : "") : "") : "";
-      case "overlay": return String(((this.overlay?.chain.length ?? 1) > 1 ? 1 : 0) + (this.overlay?.overlays.length ?? 0) || "");
-      default: return "";
-    }
   }
 
   /** Overlay state of a field the base chain provides a value for; null when the base sets nothing. */

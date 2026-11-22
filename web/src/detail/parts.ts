@@ -5,15 +5,16 @@ import { type Route } from "../store";
 import type { Summary } from "../components/types";
 import { label } from "../components/artifact";
 import { type DetailState, type Section } from "./state";
+import { isOpen, setOpen, sectionName, sectionCount, sectionChange } from "./sections";
 
 // What the sections of the entry view share: the frame of a section and the references to other artifacts.
 
 /** A collapsible section; actions stay in the heading so they work while closed. */
 export function sectionOf(dt: DetailState, s: Section, body: () => unknown, actions: unknown = nothing) {
-  const open = dt.isOpen(s);
-  return section({ id: s, title: dt.sectionName(s), count: dt.sectionCount(s), open, actions, body,
-    badges: dt.sectionChange(s).map((t) => ({ text: t, cls: t.endsWith("removed") ? "is-removed" : t.endsWith("added") ? "is-added" : "" })),
-    onToggle: (to) => dt.setOpen(s, to) });
+  const open = isOpen(dt, s);
+  return section({ id: s, title: sectionName(dt, s), count: sectionCount(dt, s), open, actions, body,
+    badges: sectionChange(dt, s).map((t) => ({ text: t, cls: t.endsWith("removed") ? "is-removed" : t.endsWith("added") ? "is-added" : "" })),
+    onToggle: (to) => setOpen(dt, s, to) });
 }
 
 /**

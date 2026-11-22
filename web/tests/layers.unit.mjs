@@ -90,3 +90,12 @@ test("the allowlist covers a file and kind; lines nothing matches are reported",
   assert.deepEqual(fresh.map(entry), ["src/detail.ts: uses localStorage"]);
   assert.deepEqual(stale, ["src/gone.ts: uses fetch"]);
 });
+
+test("the parts of a view are imported by that view and by each other only", () => {
+  assert.deepEqual(what("src/detail.ts", `import { DetailState } from "./detail/state";`), []);
+  assert.deepEqual(what("src/detail/fields.ts", `import { sectionOf } from "./parts"; import type { DetailState } from "./state";`), []);
+  assert.deepEqual(what("src/document/sidebars/entry.ts", `import type { DocumentState } from "../state";`), []);
+  assert.deepEqual(what("src/document.ts", `import { DetailState } from "./detail/state";`), ["imports src/detail/state, a part of the view src/detail"]);
+  assert.deepEqual(what("src/app.ts", `import "./detail/state";`), ["imports src/detail/state, a part of the view src/detail"]);
+  assert.deepEqual(what("src/detail/fields.ts", `import "../document";`), ["imports the view src/document"]);
+});

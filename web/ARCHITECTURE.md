@@ -48,7 +48,8 @@ at the top of `scripts/check-layers.mjs`.
 - A view that grows gets a folder beside its file (`detail/`, `document/`): the
   file stays the shell, the folder holds its state (`state.ts`, a class that
   renders nothing) and one file per section or sidebar, each a function of
-  that state.
+  that state. Only the view and its own parts import a part; the layer check
+  enforces it.
 
 ## The allowlist
 
