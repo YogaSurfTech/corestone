@@ -104,5 +104,3 @@ export interface RepoStatus {
 
 export interface Issue { severity: "error" | "warning"; code: string; guid?: string; path?: string; message: string }
 
-/** A picker footer action besides picking a row; "add" shows a green ＋, "remove" a red ✕. */
-export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }

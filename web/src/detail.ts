@@ -6,7 +6,8 @@ import { api, ApiError, type SaveChanges, type SaveConflict, type SaveConflictIt
 import { clearLeaveGuard, navigate, setLeaveGuard, type LeaveGuard } from "./router";
 import { createFiles } from "./files";
 import { pickArtifact, store, type Route, type State, toastError } from "./store";
-import type { CommentView, HistoryEntry, OverlayView, PickerAction, Relationships, VersionView, View, WorkflowEval } from "./types";
+import type { CommentView, HistoryEntry, OverlayView, Relationships, VersionView, View, WorkflowEval } from "./types";
+import type { PickerAction } from "./components/picker";
 import type { Attachment, Field, Schema, Summary, WorkflowValue } from "./components/types";
 import { announceEdit } from "./ws";
 import { commentTypeOf, hidLabel, isWorkflowValue, label, showValue, undeclaredField } from "./components/artifact";

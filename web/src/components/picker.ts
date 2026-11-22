@@ -1,14 +1,25 @@
 import { html, nothing } from "lit";
 import { LightElement, prefs } from "@corestone/ui";
-import { customElement, state } from "lit/decorators.js";
-import { store, type PickerDialog } from "./store";
-import type { SortLevel, Summary, TableFilter } from "./components/types";
-import type { Table, TableColumn } from "./components/table/table";
-import "./components/table/table";
+import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import "./components/type-icon";
+import type { PickOptions, SortLevel, Summary, TableFilter } from "./types";
+import type { Table, TableColumn } from "./table/table";
+import "./table/table";
+import "./type-icon";
 
-// The artifact picker: a search over the artifacts, from which one or several are chosen.
+// The artifact picker: a search over the artifacts, from which one or several
+// are chosen. It reads the artifacts through the table's provider and says
+// what happened with events; the dialog around it is the page's.
+
+/** A button besides picking a row; "add" shows a green ＋, "remove" a red ✕. The picker is cancelled, then it runs. */
+export interface PickerAction { label: string; test: string; tone: "add" | "remove"; run: () => void }
+
+/** What the picker offers. */
+export interface PickerOptions extends PickOptions {
+  /** Shown but not to be chosen, with the reason. */
+  taken?: { guids: Set<string>; note: string };
+  actions?: PickerAction[];
+}
 
 const PICKER_SORT_KEY = "corestone.pickerSort";
 
@@ -38,20 +49,27 @@ function pickerColumns(taken?: { guids: Set<string>; note: string }, chosen?: ()
   ];
 }
 
+/**
+ * Fires `pick` (the artifact's summary) when one is chosen, `pick-many` (the
+ * GUIDs) when several are, and `cancel` when it is closed without a choice.
+ */
 @customElement("corestone-picker")
 export class Picker extends LightElement {
-  dialog!: PickerDialog;
+  @property({ attribute: false }) options!: PickerOptions;
+  /** Choose several: rows get checkboxes (a click on a row ticks it), and "<verb> n" or
+   *  "<verb> all" (every match of the search) ends the choice. */
+  @property({ attribute: false }) multi?: { verb: string };
   @state() private q = "";
   @state() private filter: TableFilter = {};
   @state() private total = -1;
-  /** Choosing several (dialog.multi): the chosen rows, in the order chosen. */
+  /** Choosing several: the chosen rows, in the order chosen. */
   @state() private chosen = new Set<string>();
   private sort = pickerSort();
   private columns: TableColumn[] = [];
   private timer = 0;
   override connectedCallback() {
     super.connectedCallback();
-    this.columns = pickerColumns(this.dialog.taken, this.multi ? () => this.chosen : undefined);
+    this.columns = pickerColumns(this.options.taken, this.multi ? () => this.chosen : undefined);
     this.applyFilter();
     this.updateComplete.then(() => this.querySelector<HTMLInputElement>("input")?.focus());
   }
@@ -59,10 +77,10 @@ export class Picker extends LightElement {
 
   /** "<kind>/*" in types allows every type of a kind; other entries are type ids. */
   private applyFilter() {
-    const kinds = this.dialog.kinds ?? ["entry", "document"];
-    const types = this.dialog.types;
-    // dialog.query narrows what is offered, in the query language
-    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}), query: this.dialog.query || undefined };
+    const kinds = this.options.kinds ?? ["entry", "document"];
+    const types = this.options.types;
+    // options.query narrows what is offered, in the query language
+    this.filter = { q: this.q.trim(), kind: kinds, ...(types?.length ? { types } : {}), query: this.options.query || undefined };
   }
 
   private onInput(e: Event) {
@@ -84,19 +102,12 @@ export class Picker extends LightElement {
     }
   }
 
-  /** dialog.multi: { verb } — rows are chosen with checkboxes (a click on a row ticks it), then
-   *  "<verb> n" or "<verb> all" (every match of the search); the caller gets their GUIDs. */
-  private get multi(): { verb: string } | undefined { return this.dialog.multi; }
-
   private done(guids: string[]) {
-    if (!guids.length) return;
-    store.set({ picker: null });
-    if (this.dialog.multi) this.dialog.done(guids);
+    if (guids.length) this.dispatchEvent(new CustomEvent("pick-many", { detail: guids }));
   }
 
   private pick(s: Summary) {
-    store.set({ picker: null });
-    if (!this.dialog.multi) this.dialog.done(s);
+    this.dispatchEvent(new CustomEvent("pick", { detail: s }));
   }
 
   private toggle(s: Summary) {
@@ -107,23 +118,21 @@ export class Picker extends LightElement {
 
   /** All matching rows that can be chosen, in the table's order. */
   private allMatches(): string[] {
-    const taken = this.dialog.taken;
+    const taken = this.options.taken;
     return (this.querySelector<Table>("corestone-table")?.matchingKeys ?? []).filter((g) => !taken?.guids.has(g));
   }
 
-  /** Closes the picker without a choice. */
   private cancel() {
-    store.set({ picker: null });
-    if (this.dialog.multi) this.dialog.done([]); else this.dialog.done(null);
+    this.dispatchEvent(new CustomEvent("cancel"));
   }
 
   override render() {
-    const exclude = this.dialog.exclude;
+    const exclude = this.options.exclude;
     // Shown but not selectable, with a reason (e.g. an entry already in the document).
-    const taken = this.dialog.taken;
+    const taken = this.options.taken;
     // Optional actions besides picking, e.g. creating or removing a base.
-    const actions = this.dialog.actions ?? [];
-    return html`<h2>${this.dialog.title}</h2>
+    const actions = this.options.actions ?? [];
+    return html`<h2>${this.options.title}</h2>
       <input type="search" placeholder="Search by title, HID or text…" aria-label="Search" .value=${this.q} @input=${this.onInput} @keydown=${this.onKey} />
       <corestone-table class="picker-results" navigable allFields .columns=${this.columns} .filter=${this.filter} .sort=${this.sort} .exclude=${exclude ? [exclude] : []}
         .disabled=${taken ? (r: Summary) => taken.guids.has(r.guid) ? taken.note : undefined : undefined} empty="No matching artifacts"
@@ -142,7 +151,7 @@ export class Picker extends LightElement {
   }
 
   private multiButtons(verb: string) {
-    const taken = this.dialog.taken?.guids;
+    const taken = this.options.taken?.guids;
     // (the count of all matches less those that cannot be chosen; the table knows which)
     const all = this.total < 0 ? 0 : this.total;
     const n = this.chosen.size;

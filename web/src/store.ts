@@ -1,5 +1,6 @@
-import type { PickerAction, RepoStatus, View } from "./types";
-import type { Kind, PickOptions, Summary, Theme } from "./components/types";
+import type { RepoStatus, View } from "./types";
+import type { PickerOptions } from "./components/picker";
+import type { Kind, Summary, Theme } from "./components/types";
 import { errorText, prefs } from "@corestone/ui";
 import type { Account } from "./api";
 
@@ -61,14 +62,6 @@ export type Dialog =
   | ({ kind: "confirm"; title: string; done: (choice: Choice) => void } & ConfirmOptions)
   | ({ kind: "prompt"; title: string; done: (value: string | null) => void } & PromptOptions)
   | { kind: "account" };
-
-/** What the artifact picker offers, beyond what a component may ask for (PickOptions). */
-export interface PickerOptions extends PickOptions {
-  /** Shown but not to be chosen, with the reason. */
-  taken?: { guids: Set<string>; note: string };
-  /** Buttons besides picking a row; one closes the picker without a choice and runs. */
-  actions?: PickerAction[];
-}
 
 /** The open artifact picker: one artifact is chosen, or several with checkboxes and a "<verb> n" button. */
 export type PickerDialog = PickerOptions & (

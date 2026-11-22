@@ -4,6 +4,8 @@ import { customElement } from "lit/decorators.js";
 import { store, type Choice, type Dialog, type State } from "./store";
 import { themeChoice } from "./components/theme-choice";
 import "./components/folder-field";
+import "./components/picker";
+import type { Summary } from "./components/types";
 import { StoreController } from "./store-controller";
 
 
@@ -70,7 +72,10 @@ export class Dialogs extends LightElement {
           ${resizable ? boxGrip(sizeKey(resizable), "resize-grip", "dialog-resize", MIN_SIZE) : nothing}</div></div>` : nothing}
       ${p ? html`<div class="backdrop picker-layer" @click=${(e: Event) => { if (e.target === e.currentTarget) closePicker(); }}>
         <div class="dialog picker" role="dialog" aria-modal="true" style=${boxSizeStyle(sizeKey("picker"))}>
-          <corestone-picker .dialog=${p}></corestone-picker>
+          <corestone-picker .options=${p} .multi=${p.multi}
+            @pick=${(e: CustomEvent<Summary>) => { store.set({ picker: null }); if (!p.multi) p.done(e.detail); }}
+            @pick-many=${(e: CustomEvent<string[]>) => { store.set({ picker: null }); if (p.multi) p.done(e.detail); }}
+            @cancel=${closePicker}></corestone-picker>
           ${boxGrip(sizeKey("picker"), "resize-grip", "picker-resize", MIN_SIZE)}</div></div>` : nothing}`;
   }
 
