@@ -57,25 +57,73 @@ published as two commits (decision 11).
    compare-and-swap of the branch: all or nothing. Only approvals use this; every other
    operation, including save hooks and transition actions, stays one commit with Corestone
    as committer.
-12. **Who approves is a `user` field** (accounts and groups, single or multiple), a generic
+12. **Every deviation is a recorded, reasoned amendment.** Proxies and unforeseen cases (an
+   approver left, the wrong person was asked, a round is stuck) are handled by delegations and
+   round amendments, never by editing records or forcing a decision. A round that cannot finish
+   is cancelled and a new one started.
+13. **The round is an append-only log** of write-once files; its current state is computed.
+14. **The user field is not approval-aware.** While a round is open, the view renders the round
+   component in the field's place; the field itself stays a plain picker.
+15. **Who approves is a `user` field** (accounts and groups, single or multiple), a generic
    field type also used for assignee, owner and similar. No approval-specific field type.
 
 ## Data model
 
 - **`user` field type.** Holds account GUIDs and group ids; `"multiple": true` for lists.
   Queries such as `reviewers:me`. Needs groups, which Corestone does not have yet.
-- **Approval round:** `<scope>/.corestone/approvals/<guid>.json`. The artifact, the version
-  approved (commit and the artifact file's Git blob id), the approvers copied from the
-  field when the round opened, the rule, the meaning text, the status (open, approved,
-  disapproved, voided) and, when voided, who, when and why. The only approval file that changes.
+- **Approval round:** a folder per round, `<scope>/.corestone/approvals/<round guid>/`, holding
+  only write-once files:
+  - `round.json`, written when the round opens: the artifact, the version approved (commit and
+    the artifact file's Git blob id), the field the approvers came from (`"field": "reviewers"`),
+    the approvers copied from it, the rule and the meaning text;
+  - one event file per change, `<event guid>.json`, of these kinds: `amend` (add, remove or
+    replace an approver; reason required), `cancel` (reason required), `void` (by rework; reason
+    required) and `decided` (approved or disapproved, written by the evaluating script).
+  The round's state (open, approved, disapproved, cancelled, voided) and its current approvers
+  are computed from `round.json`, its events and its votes, in order of commit.
 - **Vote (signature in phase 2):** `<scope>/.corestone/signatures/<guid>.json`, written once,
   never changed. Round, signer, decision, meaning, time, for a disapproval the id of its comment,
+  for a vote by proxy `onBehalfOf` (the represented approver) and `delegation` (its id),
   and `authentication` (phase 2: method such as password or password+TOTP; empty in phase 1).
   The server refuses edits and deletions; validation reports any made by a push.
 - **Signatures are voided, not deleted.** A rework voids the round with a reason; the
   signatures stay in the repository and in the audit trail.
 - Not stored in the artifact itself: signing would change what is signed, and concurrent
   votes would write the same file.
+
+## From scenario to files
+
+| What happens | Files written (one commit unless noted) | What Corestone does |
+| --- | --- | --- |
+| Author submits | `round.json`; entry status to in_approval | Copies the `reviewers` field into the round, records the version, protects fields by view |
+| Approver votes | a vote file in `signatures/` | Checks the voter is a current approver or their proxy; requires a comment on disapprove |
+| A vote meets the rule | second commit: `decided` event, entry status to approved or disapproved; committer = the script | Runs the script at its approved blob; publishes both commits with one compare-and-swap |
+| Approver replaced | `amend` event | Permission check; reason required |
+| Overrule | `overrule` event; entry status | Permission check; reason required; the rule's own result stays visible |
+| Rework | `void` event; entry status to draft | The round's votes stop counting and stay in the repository |
+
+**How the state is read.** A round's current approvers are `round.json` plus its `amend` events, in
+commit order. Its votes are the files in `signatures/` that name it. Its status is its last
+`decided`, `void`, `cancel` or `overrule` event, otherwise open. A reindex reads exactly these files
+and commits into PostgreSQL tables, so the approval panel and queries such as "waiting for my
+approval" are fast, and the tables can always be rebuilt from Git.
+
+## Proxies and exceptions
+
+- **Delegation:** a record in the repository, `.corestone/config/delegations/<guid>.json`:
+  represented account, proxy account, from and to dates, optionally limited to folders, types or
+  meanings, and who created it. The proxy votes as themselves on behalf of the represented
+  approver; in phase 2 with their own credentials, never the represented person's.
+- **Amendments:** add, remove or replace an approver, or cancel the round, each with a required
+  reason, by an approval manager (a role) or an administrator. Shown in the round's timeline.
+- **Who may start, restart, amend or overrule a round is a permission** of the roles and
+  permissions model, not part of the approval feature. An overrule is an event like an amendment
+  (`kind: "overrule"`, outcome, required reason, by whom), so the round log shows it and the
+  rule's own result stays visible beside it.
+- **New extension point "round event"**, run after every vote and amendment, so customers can
+  add their own handling (reminders, escalation after a deadline, automatic replacement of an
+  inactive approver) without product changes. Amendments made by a script name the script as
+  committer, like the evaluation (decision 11).
 
 ## Views and roles
 
@@ -106,6 +154,7 @@ the client as read-only fields with a lock. Builds on the folder roles of the ro
   | Save hook | before a save is published | change fields, refuse the save |
   | Transition condition | before a transition | refuse it, with a message |
   | Transition action | after a transition, same commit | change fields, call product functions |
+  | Round event | after a vote or an amendment | amend the round (with reason), notify; never vote |
 
 - **Product functions scripts can call** (validated with the product): open, evaluate and void an
   approval round; read signatures; set a status by transition; require a comment.
@@ -126,9 +175,13 @@ the client as read-only fields with a lock. Builds on the folder roles of the ro
 
 ## UI
 
-- **Approval section** on the entry and an Approval sidebar in the document view: round,
-  version approved (opens the version view), approvers with decision, time and comment,
-  earlier rounds collapsed with their void reason.
+- **Approval round component** (`corestone-approval-round`): while a round is open, the entry
+  view renders it in place of the field the approvers came from, and the document view in an
+  Approval sidebar. Version approved (opens the version view); approvers with decision, time and
+  comment; votes by proxy as "Carol for Bob"; a timeline of amendments with reason and author;
+  earlier rounds collapsed with how they ended.
+- **Amend** (approval managers): add, remove or replace an approver, or cancel, each asking for
+  a reason.
 - **Voting dialog:** what is approved (HID, title, version, meaning) and for a disapproval a
   required comment. Phase 2 adds the password (and MFA) field; nothing is recorded until it is checked.
 - **Rework:** a transition whose dialog asks for a reason and says how many signatures it voids.
@@ -144,17 +197,23 @@ the client as read-only fields with a lock. Builds on the folder roles of the ro
 3. **History view:** shows the signature and the evaluation as one operation ("Anna approved;
    round 2 approved by rule"), or as two lines?
 4. **Script approval revoked:** does revoking an approval stop running rounds that use it?
-5. **Two languages.** Starlark is deterministic by design; JavaScript (e.g. goja) needs limits
+5. **Delegations:** may a proxy who is also an approver vote twice? Does a delegation apply
+   automatically, or must it be activated per round? May the represented person still vote, and
+   whose vote counts?
+6. **Permissions:** which roles may start, restart, amend and overrule rounds; may the author of
+   the artifact amend its rounds, and may an approver amend their own round? Does replacing an approver
+   keep a vote they already cast?
+7. **Two languages.** Starlark is deterministic by design; JavaScript (e.g. goja) needs limits
    on time, memory and non-deterministic calls (`Date.now`, `Math.random`). Same API for both?
-6. **Recursion.** A save hook that saves, or an action that transitions: do they trigger hooks
+8. **Recursion.** A save hook that saves, or an action that transitions: do they trigger hooks
    again, and how deep?
-7. **Failure.** A failing action after a transition: is the whole operation refused (proposal)
+9. **Failure.** A failing action after a transition: is the whole operation refused (proposal)
    or the transition kept and the failure reported?
-8. **Direct Git pushes** bypass views and scripts. What validation reports after such a push
+10. **Direct Git pushes** bypass views and scripts. What validation reports after such a push
    (e.g. a signature file written outside the server) and how the client shows it.
-9. **Rule options:** all, any, N of M, required members; decide at the first disapproval or
+11. **Rule options:** all, any, N of M, required members; decide at the first disapproval or
    when everyone has voted; may a vote be changed while the round is open?
-10. **Documents:** does approving a document also approve, and pin, the entries placed in it?
+12. **Documents:** does approving a document also approve, and pin, the entries placed in it?
 
 ## Prerequisites
 
